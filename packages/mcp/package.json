@@ -1,0 +1,44 @@
+{
+  "name": "@political-comms/mcp",
+  "version": "0.1.0",
+  "description": "MCP server for the Political Comms REST API. Compliant political SMS, MMS, and RCS from Claude and other MCP clients.",
+  "license": "MIT",
+  "homepage": "https://politicalcomms.com/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Political-Comms/political-comms-sdk.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "email": "support@politicalcomms.com"
+  },
+  "keywords": [
+    "political texting",
+    "sms",
+    "api",
+    "mcp",
+    "political comms"
+  ],
+  "type": "module",
+  "bin": {
+    "political-comms-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "npm run build && vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@political-comms/sdk": "^0.1.0"
+  }
+}

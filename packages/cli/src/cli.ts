@@ -1,0 +1,473 @@
+import { parseArgs } from 'node:util';
+import { PoliticalCommsClient, PoliticalCommsError } from '@political-comms/sdk';
+
+/** The subset of the SDK the CLI uses. Injectable for tests. */
+export type CliClient = Pick<
+  PoliticalCommsClient,
+  | 'listOrganizations'
+  | 'getHierarchy'
+  | 'listProjects'
+  | 'getProject'
+  | 'createProject'
+  | 'testProject'
+  | 'scheduleProject'
+  | 'unscheduleProject'
+  | 'listContactLists'
+  | 'getContactList'
+  | 'getMessageStats'
+  | 'getLedgerUsage'
+>;
+
+export interface CliIO {
+  out: (text: string) => void;
+  err: (text: string) => void;
+}
+
+export interface CliDeps {
+  createClient?: (apiKey?: string) => CliClient;
+  io?: CliIO;
+  env?: NodeJS.ProcessEnv;
+}
+
+export const HELP = `Political Comms CLI
+
+Usage:
+  political-comms <command> [options]
+
+Commands:
+  auth check                       Verify the API key by listing organizations
+  orgs list                        List organizations visible to the key
+  hierarchy                        Show the organization hierarchy
+  projects list                    List projects
+  projects get <id>                Show one project
+  projects create                  Create a project (see create flags)
+  projects test <id>               Send a test message (--phone, repeatable)
+  projects schedule <id>           Schedule a send (--send-at, --timezone)
+  projects unschedule <id>         Remove a schedule
+  contact-lists list               List contact lists
+  contact-lists get <id>           Show one contact list
+  stats messages                   Message stats (--from, --to; default last 30 days)
+  usage                            Billing usage (--from, --to; default last 30 days)
+
+Create flags (projects create):
+  --name <name>                    Project name (required)
+  --organization-id <id>           Owning organization (required)
+  --protocol <sms|mms>             Message protocol (required)
+  --phone-number-id <id>           Sending number, repeatable (required)
+  --contact-list-id <id>           Contact list, repeatable (required)
+  --body <text>                    Message text (required)
+  --campaign-id <id>               10DLC campaign
+  --brand-id <id>                  10DLC brand
+  --channel <10dlc|toll-free>      Messaging channel (default 10dlc)
+  --toll-free-verification-id <id> Toll-free verification (channel=toll-free)
+  --suppression-list-id <id>       Suppression list, repeatable
+  --media-id <id>                  Media file for MMS, repeatable
+
+Global options:
+  --api-key <key>                  API key (default: POLITICAL_COMMS_API_KEY)
+  --json                           Print the raw JSON response
+  -h, --help                       Show this help
+
+Exit codes: 0 success, 1 API error, 2 usage error`;
+
+const ERROR_HINT = 'Hint: error codes are documented at https://politicalcomms.com/errors.md';
+
+const PARSE_OPTIONS = {
+  json: { type: 'boolean', default: false },
+  'api-key': { type: 'string' },
+  help: { type: 'boolean', short: 'h', default: false },
+  name: { type: 'string' },
+  'organization-id': { type: 'string' },
+  'brand-id': { type: 'string' },
+  'campaign-id': { type: 'string' },
+  'toll-free-verification-id': { type: 'string' },
+  channel: { type: 'string' },
+  protocol: { type: 'string' },
+  'phone-number-id': { type: 'string', multiple: true },
+  'contact-list-id': { type: 'string', multiple: true },
+  'suppression-list-id': { type: 'string', multiple: true },
+  'media-id': { type: 'string', multiple: true },
+  body: { type: 'string' },
+  phone: { type: 'string', multiple: true },
+  'send-at': { type: 'string' },
+  timezone: { type: 'string' },
+  from: { type: 'string' },
+  to: { type: 'string' },
+} as const;
+
+class UsageError extends Error {}
+
+type Flags = {
+  [K in keyof typeof PARSE_OPTIONS]?: (typeof PARSE_OPTIONS)[K] extends { multiple: true }
+    ? string[]
+    : (typeof PARSE_OPTIONS)[K] extends { type: 'boolean' }
+      ? boolean
+      : string;
+};
+
+export async function main(argv: string[], deps: CliDeps = {}): Promise<number> {
+  const io: CliIO = deps.io ?? {
+    out: (text) => process.stdout.write(text + '\n'),
+    err: (text) => process.stderr.write(text + '\n'),
+  };
+  const env = deps.env ?? process.env;
+
+  let flags: Flags;
+  let positionals: string[];
+  try {
+    const parsed = parseArgs({ args: argv, options: PARSE_OPTIONS, allowPositionals: true, strict: true });
+    flags = parsed.values as Flags;
+    positionals = parsed.positionals;
+  } catch (cause) {
+    io.err(cause instanceof Error ? cause.message : String(cause));
+    io.err('');
+    io.err(HELP);
+    return 2;
+  }
+
+  if (flags.help || positionals.length === 0) {
+    io.out(HELP);
+    return flags.help ? 0 : 2;
+  }
+
+  let client: CliClient;
+  try {
+    client = deps.createClient
+      ? deps.createClient(flags['api-key'])
+      : new PoliticalCommsClient({ apiKey: flags['api-key'] ?? env.POLITICAL_COMMS_API_KEY });
+  } catch (cause) {
+    io.err(cause instanceof Error ? cause.message : String(cause));
+    return 1;
+  }
+
+  try {
+    return await dispatch(client, positionals, flags, io);
+  } catch (cause) {
+    if (cause instanceof UsageError) {
+      io.err(cause.message);
+      io.err('');
+      io.err(HELP);
+      return 2;
+    }
+    if (cause instanceof PoliticalCommsError) {
+      io.err(`Error ${cause.code} (HTTP ${cause.statusCode}): ${cause.message}`);
+      io.err(ERROR_HINT);
+      return 1;
+    }
+    io.err(cause instanceof Error ? cause.message : String(cause));
+    return 1;
+  }
+}
+
+async function dispatch(client: CliClient, positionals: string[], flags: Flags, io: CliIO): Promise<number> {
+  const [command, sub, arg] = positionals;
+
+  switch (command) {
+    case 'auth': {
+      requireSub(sub, ['check'], 'auth');
+      const result = await client.listOrganizations();
+      if (flags.json) return printJson(io, result);
+      const orgs = result.data ?? [];
+      io.out(`Credential OK. ${orgs.length} organization(s) visible.`);
+      for (const org of orgs) io.out(`  ${str(org.display_name) || str(org.id)}`);
+      return 0;
+    }
+
+    case 'orgs': {
+      requireSub(sub, ['list'], 'orgs');
+      const result = await client.listOrganizations();
+      if (flags.json) return printJson(io, result);
+      io.out(
+        table(result.data ?? [], [
+          { key: 'id', header: 'ID' },
+          { key: 'display_name', header: 'NAME' },
+          { key: 'status', header: 'STATUS' },
+          { key: 'parent_org_name', header: 'PARENT' },
+        ]),
+      );
+      return 0;
+    }
+
+    case 'hierarchy': {
+      const result = await client.getHierarchy({ organizationId: flags['organization-id'] });
+      if (flags.json) return printJson(io, result);
+      printHierarchy(result.data, io);
+      return 0;
+    }
+
+    case 'projects':
+      return projectsCommand(client, sub, arg, flags, io);
+
+    case 'contact-lists': {
+      requireSub(sub, ['list', 'get'], 'contact-lists');
+      if (sub === 'list') {
+        const result = await client.listContactLists({
+          organization_id: flags['organization-id'],
+          brand_id: flags['brand-id'],
+        });
+        if (flags.json) return printJson(io, result);
+        io.out(
+          table(result.data ?? [], [
+            { key: 'id', header: 'ID' },
+            { key: 'list_name', header: 'NAME' },
+            { key: 'contact_count', header: 'CONTACTS' },
+            { key: 'status', header: 'STATUS' },
+          ]),
+        );
+        return 0;
+      }
+      const id = requireArg(arg, 'contact-lists get <id>');
+      const result = await client.getContactList(id);
+      if (flags.json) return printJson(io, result);
+      io.out(kv(result.data));
+      return 0;
+    }
+
+    case 'stats': {
+      requireSub(sub, ['messages'], 'stats');
+      const range = dateRange(flags);
+      const result = await client.getMessageStats({
+        startDate: range.start,
+        endDate: range.end,
+        organizationId: flags['organization-id'],
+        brandId: flags['brand-id'],
+        campaignId: flags['campaign-id'],
+      });
+      if (flags.json) return printJson(io, result);
+      io.out(`Message stats ${range.start} to ${range.end}`);
+      io.out('');
+      io.out('Totals:');
+      io.out(indent(kv(result.data?.totals ?? {}), 2));
+      const daily = Array.isArray(result.data?.daily) ? result.data.daily : [];
+      io.out('');
+      io.out(`Daily rows: ${daily.length}`);
+      return 0;
+    }
+
+    case 'usage': {
+      const range = dateRange(flags);
+      const result = await client.getLedgerUsage({
+        startDate: range.start,
+        endDate: range.end,
+        organizationId: flags['organization-id'],
+      });
+      if (flags.json) return printJson(io, result);
+      io.out(`Usage ${range.start} to ${range.end}`);
+      if (result.data?.organization_name) io.out(`Organization: ${str(result.data.organization_name)}`);
+      io.out('');
+      io.out('Totals:');
+      io.out(indent(kv(result.data?.totals ?? {}), 2));
+      const categories = Array.isArray(result.data?.by_category) ? result.data.by_category : [];
+      if (categories.length > 0) {
+        io.out('');
+        io.out('By category:');
+        io.out(indent(table(categories, autoColumns(categories)), 2));
+      }
+      return 0;
+    }
+
+    default:
+      throw new UsageError(`Unknown command: ${command}`);
+  }
+}
+
+async function projectsCommand(
+  client: CliClient,
+  sub: string | undefined,
+  arg: string | undefined,
+  flags: Flags,
+  io: CliIO,
+): Promise<number> {
+  requireSub(sub, ['list', 'get', 'create', 'test', 'schedule', 'unschedule'], 'projects');
+
+  switch (sub) {
+    case 'list': {
+      const result = await client.listProjects({
+        organization_id: flags['organization-id'],
+        brand_id: flags['brand-id'],
+        campaign_id: flags['campaign-id'],
+      });
+      if (flags.json) return printJson(io, result);
+      io.out(
+        table(result.data ?? [], [
+          { key: 'id', header: 'ID' },
+          { key: 'name', header: 'NAME' },
+          { key: 'campaign_name', header: 'CAMPAIGN' },
+          { key: 'org_name', header: 'ORG' },
+        ]),
+      );
+      return 0;
+    }
+
+    case 'get': {
+      const id = requireArg(arg, 'projects get <id>');
+      const result = await client.getProject(id);
+      if (flags.json) return printJson(io, result);
+      io.out(kv(result.data));
+      return 0;
+    }
+
+    case 'create': {
+      const missing = [
+        ['--name', flags.name],
+        ['--organization-id', flags['organization-id']],
+        ['--protocol', flags.protocol],
+        ['--phone-number-id', flags['phone-number-id']?.[0]],
+        ['--contact-list-id', flags['contact-list-id']?.[0]],
+        ['--body', flags.body],
+      ]
+        .filter(([, value]) => value === undefined)
+        .map(([flag]) => flag);
+      if (missing.length > 0) throw new UsageError(`projects create is missing required flags: ${missing.join(', ')}`);
+      if (flags.protocol !== 'sms' && flags.protocol !== 'mms') {
+        throw new UsageError('--protocol must be sms or mms');
+      }
+      if (flags.channel !== undefined && flags.channel !== '10dlc' && flags.channel !== 'toll-free') {
+        throw new UsageError('--channel must be 10dlc or toll-free');
+      }
+      const result = await client.createProject({
+        organization_id: flags['organization-id']!,
+        channel: flags.channel,
+        brand_id: flags['brand-id'],
+        campaign_id: flags['campaign-id'],
+        toll_free_verification_id: flags['toll-free-verification-id'],
+        phone_number_ids: flags['phone-number-id']!,
+        name: flags.name!,
+        protocol: flags.protocol,
+        contact_list_ids: flags['contact-list-id']!,
+        suppression_list_ids: flags['suppression-list-id'],
+        media_ids: flags['media-id'],
+        message_text: flags.body!,
+      });
+      if (flags.json) return printJson(io, result);
+      io.out(`Created project ${str(result.data?.id)} (status: ${str(result.data?.status)})`);
+      return 0;
+    }
+
+    case 'test': {
+      const id = requireArg(arg, 'projects test <id>');
+      const phones = flags.phone ?? [];
+      if (phones.length === 0) throw new UsageError('projects test requires at least one --phone');
+      const result = await client.testProject(id, { test_contacts: phones.map((phone) => ({ phone })) });
+      if (flags.json) return printJson(io, result);
+      io.out(`Queued ${str(result.data?.tests_sent) || phones.length} test message(s) for project ${id}.`);
+      return 0;
+    }
+
+    case 'schedule': {
+      const id = requireArg(arg, 'projects schedule <id>');
+      if (!flags['send-at']) throw new UsageError('projects schedule requires --send-at <iso date-time>');
+      if (!flags.timezone) throw new UsageError('projects schedule requires --timezone <iana tz>');
+      const result = await client.scheduleProject(id, {
+        scheduled_at: flags['send-at'],
+        scheduled_timezone: flags.timezone,
+      });
+      if (flags.json) return printJson(io, result);
+      io.out(
+        `Scheduled project ${id} for ${str(result.data?.scheduled_at) || flags['send-at']} ` +
+          `(${str(result.data?.scheduled_timezone) || flags.timezone}).`,
+      );
+      return 0;
+    }
+
+    case 'unschedule': {
+      const id = requireArg(arg, 'projects unschedule <id>');
+      const result = await client.unscheduleProject(id);
+      if (flags.json) return printJson(io, result);
+      io.out(`Unscheduled project ${id} (status: ${str(result.data?.status)}).`);
+      return 0;
+    }
+
+    default:
+      throw new UsageError(`Unknown projects subcommand: ${sub}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function requireSub(sub: string | undefined, allowed: string[], command: string): void {
+  if (!sub || !allowed.includes(sub)) {
+    throw new UsageError(`Usage: political-comms ${command} <${allowed.join('|')}>`);
+  }
+}
+
+function requireArg(arg: string | undefined, usage: string): string {
+  if (!arg) throw new UsageError(`Usage: political-comms ${usage}`);
+  return arg;
+}
+
+function printJson(io: CliIO, value: unknown): number {
+  io.out(JSON.stringify(value, null, 2));
+  return 0;
+}
+
+function str(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function indent(text: string, spaces: number): string {
+  const pad = ' '.repeat(spaces);
+  return text
+    .split('\n')
+    .map((line) => (line.length > 0 ? pad + line : line))
+    .join('\n');
+}
+
+export function kv(obj: unknown): string {
+  const entries = Object.entries((obj ?? {}) as Record<string, unknown>);
+  if (entries.length === 0) return '(empty)';
+  const width = Math.max(...entries.map(([key]) => key.length));
+  return entries.map(([key, value]) => `${key.padEnd(width)}  ${str(value)}`).join('\n');
+}
+
+export function table(
+  rows: Array<Record<string, unknown>>,
+  columns: Array<{ key: string; header: string }>,
+): string {
+  if (rows.length === 0) return '(no results)';
+  const widths = columns.map((col) =>
+    Math.max(col.header.length, ...rows.map((row) => str(row[col.key]).length)),
+  );
+  const line = (cells: string[]) =>
+    cells.map((cell, i) => cell.padEnd(widths[i] ?? 0)).join('  ').trimEnd();
+  const out = [line(columns.map((c) => c.header))];
+  for (const row of rows) out.push(line(columns.map((c) => str(row[c.key]))));
+  return out.join('\n');
+}
+
+function autoColumns(rows: Array<Record<string, unknown>>): Array<{ key: string; header: string }> {
+  const keys = new Set<string>();
+  for (const row of rows) for (const key of Object.keys(row)) keys.add(key);
+  return [...keys].map((key) => ({ key, header: key.toUpperCase() }));
+}
+
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function dateRange(flags: Flags): { start: string; end: string } {
+  return {
+    start: flags.from ?? isoDate(new Date(Date.now() - 30 * 86_400_000)),
+    end: flags.to ?? isoDate(new Date()),
+  };
+}
+
+function printHierarchy(node: unknown, io: CliIO, depth = 0): void {
+  const record = (node ?? {}) as Record<string, unknown>;
+  const label = str(record.display_name) || str(record.id) || '(unnamed)';
+  const suffix = record.display_name && record.id ? ` (${str(record.id)})` : '';
+  io.out(`${'  '.repeat(depth)}- ${label}${suffix}`);
+  if (Array.isArray(record.brands)) {
+    for (const brand of record.brands) {
+      const b = (brand ?? {}) as Record<string, unknown>;
+      io.out(`${'  '.repeat(depth + 1)}* brand: ${str(b.brand_name) || str(b.id) || '(unnamed)'}`);
+    }
+  }
+  if (Array.isArray(record.children)) {
+    for (const child of record.children) printHierarchy(child, io, depth + 1);
+  }
+}

@@ -1,0 +1,87 @@
+# @political-comms/cli
+
+Command line interface for the [Political Comms](https://politicalcomms.com/) REST API.
+
+## Usage
+
+No install required:
+
+```bash
+export POLITICAL_COMMS_API_KEY=pc_live_...
+npx @political-comms/cli auth check
+```
+
+Or install globally:
+
+```bash
+npm install -g @political-comms/cli
+political-comms auth check
+```
+
+## Commands
+
+```
+auth check                       Verify the API key by listing organizations
+orgs list                        List organizations visible to the key
+hierarchy                        Show the organization hierarchy
+projects list                    List projects
+projects get <id>                Show one project
+projects create                  Create a project
+projects test <id>               Send a test message (--phone, repeatable)
+projects schedule <id>           Schedule a send (--send-at, --timezone)
+projects unschedule <id>         Remove a schedule
+contact-lists list               List contact lists
+contact-lists get <id>           Show one contact list
+stats messages                   Message stats (--from, --to; default last 30 days)
+usage                            Billing usage (--from, --to; default last 30 days)
+```
+
+### Examples
+
+```bash
+# Verify credentials
+npx @political-comms/cli auth check
+
+# Create a project
+npx @political-comms/cli projects create \
+  --name "GOTV reminder" \
+  --organization-id org_123 \
+  --brand-id brand_123 \
+  --campaign-id camp_123 \
+  --protocol sms \
+  --phone-number-id pn_123 \
+  --contact-list-id cl_123 \
+  --body "Polls are open until 8pm."
+
+# Send a test to yourself
+npx @political-comms/cli projects test proj_123 --phone +15555550100
+
+# Schedule the send
+npx @political-comms/cli projects schedule proj_123 \
+  --send-at 2026-11-03T09:00:00 --timezone America/New_York
+
+# Message stats for June
+npx @political-comms/cli stats messages --from 2026-06-01 --to 2026-06-30 --json
+```
+
+## Global options
+
+| Flag | Description |
+|------|-------------|
+| `--api-key <key>` | API key. Defaults to the `POLITICAL_COMMS_API_KEY` environment variable. |
+| `--json` | Print the raw JSON response instead of formatted text. |
+| `-h, --help` | Show help. |
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | API error (the code and message are printed, with a link to the error reference) |
+| 2 | Usage error (help is printed) |
+
+Error codes are documented at [politicalcomms.com/errors.md](https://politicalcomms.com/errors.md). Full API reference: [docs.politicalcomms.com](https://docs.politicalcomms.com/api-reference/introduction).
+
+## License
+
+MIT. Questions: support@politicalcomms.com

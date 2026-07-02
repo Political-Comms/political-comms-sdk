@@ -1,0 +1,52 @@
+{
+  "name": "@political-comms/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Political Comms REST API. Zero dependencies, native fetch, built-in retries and rate limit handling.",
+  "license": "MIT",
+  "homepage": "https://politicalcomms.com/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Political-Comms/political-comms-sdk.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "email": "support@politicalcomms.com"
+  },
+  "keywords": [
+    "political texting",
+    "sms",
+    "api",
+    "sdk",
+    "political comms"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

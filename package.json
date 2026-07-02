@@ -1,0 +1,22 @@
+{
+  "name": "political-comms-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @political-comms/sdk && npm run build -w @political-comms/cli && npm run build -w @political-comms/mcp",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.9"
+  }
+}

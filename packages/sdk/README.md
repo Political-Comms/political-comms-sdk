@@ -1,0 +1,133 @@
+# @political-comms/sdk
+
+TypeScript SDK for the [Political Comms](https://politicalcomms.com/) REST API. Direct-to-carrier political texting for campaigns, PACs, advocacy organizations, fundraisers, and elected officials.
+
+Zero runtime dependencies. Uses native fetch. Node 20 or later.
+
+The full API reference lives at [docs.politicalcomms.com](https://docs.politicalcomms.com/api-reference/introduction) and the OpenAPI 3.1 specification at [politicalcomms.com/openapi.json](https://politicalcomms.com/openapi.json).
+
+## Install
+
+```bash
+npm install @political-comms/sdk
+```
+
+## Authentication
+
+Requests authenticate with an API key in the `X-API-Key` header. Keys are created in the dashboard under Admin > API Keys and are prefixed `pc_live_`.
+
+Set the key in the environment:
+
+```bash
+export POLITICAL_COMMS_API_KEY=pc_live_...
+```
+
+```ts
+import { PoliticalCommsClient } from '@political-comms/sdk';
+
+const client = new PoliticalCommsClient();
+```
+
+Or pass it to the constructor:
+
+```ts
+const client = new PoliticalCommsClient({ apiKey: 'pc_live_...' });
+```
+
+## Quickstart
+
+Verify the credential, then run the standard send workflow: create a project, send yourself a test, and schedule it.
+
+```ts
+import { PoliticalCommsClient } from '@political-comms/sdk';
+
+const client = new PoliticalCommsClient();
+
+// 1. Verify the credential.
+const orgs = await client.listOrganizations();
+console.log(orgs.data.map((o) => o.display_name));
+
+// 2. Create a project.
+const created = await client.createProject({
+  organization_id: 'org_...',
+  brand_id: 'brand_...',
+  campaign_id: 'camp_...',
+  phone_number_ids: ['pn_...'],
+  name: 'GOTV reminder',
+  protocol: 'sms',
+  contact_list_ids: ['cl_...'],
+  message_text: 'Polls are open until 8pm. Find your polling place: {link}',
+});
+const projectId = created.data.id!;
+
+// 3. Send a test to yourself.
+await client.testProject(projectId, {
+  test_contacts: [{ phone: '+15555550100' }],
+});
+
+// 4. Schedule the send.
+await client.scheduleProject(projectId, {
+  scheduled_at: '2026-11-03T09:00:00',
+  scheduled_timezone: 'America/New_York',
+});
+```
+
+One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `listTrackingDomains`, `listPhoneNumbers`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `listMedia`, `importMedia`, `getMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `testProject`, `scheduleProject`, `unscheduleProject`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
+
+## Error handling
+
+Non-success responses throw `PoliticalCommsError` with the API's machine readable `code`, the HTTP `statusCode`, and the raw response `body`.
+
+```ts
+import { PoliticalCommsError } from '@political-comms/sdk';
+
+try {
+  await client.getProject('proj_unknown');
+} catch (err) {
+  if (err instanceof PoliticalCommsError) {
+    console.error(err.code, err.statusCode, err.message);
+  }
+}
+```
+
+Network failures throw `PoliticalCommsError` with `code: 'NETWORK_ERROR'` and `statusCode: 0`.
+
+## Retries
+
+The client retries automatically with these rules:
+
+- `400`, `401`, `403`, `404` are never retried.
+- `429` is retried after waiting until the `X-RateLimit-Reset` timestamp.
+- `500`, `502`, `503`, `504` are retried with exponential backoff and jitter: 1 second base, 60 second cap, at most 5 attempts total.
+
+Configure the retry budget with `maxRetries` (retries after the first attempt, default 4):
+
+```ts
+const client = new PoliticalCommsClient({ maxRetries: 2 });
+```
+
+Every `POST` and `PATCH` request carries an `Idempotency-Key` header (a random UUID) so retries are safe; the API returns the cached first response when a key is replayed. Supply your own key per call when you need cross-process deduplication:
+
+```ts
+await client.createProject(body, { idempotencyKey: 'send-2026-11-03-wave-1' });
+```
+
+Each call also accepts an `AbortSignal`:
+
+```ts
+await client.listProjects({}, { signal: AbortSignal.timeout(10_000) });
+```
+
+## Rate limits
+
+The API allows 100 requests per hour per key. The client exposes the most recent rate limit headers:
+
+```ts
+await client.listOrganizations();
+console.log(client.lastRateLimit);
+// { limit: 100, remaining: 97, reset: 1767225600 }  (reset is Unix seconds)
+```
+
+## License
+
+MIT. Questions: support@politicalcomms.com
