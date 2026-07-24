@@ -12,6 +12,7 @@ import type {
   CreateProjectResult,
   GetAllProjectStatsQuery,
   GetHierarchyQuery,
+  GetLedgerUsageByInitiatorQuery,
   GetLedgerUsageQuery,
   GetMessageStatsQuery,
   HierarchyNode,
@@ -325,6 +326,8 @@ export class PoliticalCommsClient {
         brandId: query.brandId,
         campaignId: query.campaignId,
         status: query.status,
+        limit: query.limit !== undefined ? String(query.limit) : undefined,
+        offset: query.offset !== undefined ? String(query.offset) : undefined,
       },
       undefined,
       options,
@@ -424,6 +427,8 @@ export class PoliticalCommsClient {
         startDate: query.startDate,
         endDate: query.endDate,
         organizationId: query.organizationId,
+        brandId: query.brandId,
+        campaignId: query.campaignId,
       },
       undefined,
       options,
@@ -432,7 +437,7 @@ export class PoliticalCommsClient {
 
   /** GET /ledger/usage/by-initiator */
   getLedgerUsageByInitiator(
-    query: GetLedgerUsageQuery,
+    query: GetLedgerUsageByInitiatorQuery,
     options?: RequestOptions,
   ): Promise<ApiResponse<LedgerUsageByInitiator>> {
     return this.request(

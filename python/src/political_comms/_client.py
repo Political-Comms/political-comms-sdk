@@ -320,6 +320,8 @@ class PoliticalCommsClient:
         brand_id: Optional[str] = None,
         campaign_id: Optional[str] = None,
         status: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
     ) -> JsonDict:
         """GET /projects/stats"""
         return self._request(
@@ -332,6 +334,8 @@ class PoliticalCommsClient:
                 "brandId": brand_id,
                 "campaignId": campaign_id,
                 "status": status,
+                "limit": str(limit) if limit is not None else None,
+                "offset": str(offset) if offset is not None else None,
             },
         )
 
@@ -446,6 +450,8 @@ class PoliticalCommsClient:
         end_date: str,
         *,
         organization_id: Optional[str] = None,
+        brand_id: Optional[str] = None,
+        campaign_id: Optional[str] = None,
     ) -> JsonDict:
         """GET /ledger/usage"""
         return self._request(
@@ -455,6 +461,8 @@ class PoliticalCommsClient:
                 "startDate": start_date,
                 "endDate": end_date,
                 "organizationId": organization_id,
+                "brandId": brand_id,
+                "campaignId": campaign_id,
             },
         )
 
