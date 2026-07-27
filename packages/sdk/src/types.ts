@@ -364,6 +364,8 @@ export interface ContactListAnalysisResult {
 // Media
 // ---------------------------------------------------------------------------
 
+/** Media list item. Field names differ from the detail read: id (not media_id)
+ * and org_id (not organization_id). */
 export interface MediaFile {
   id?: string;
   name?: string;
@@ -372,6 +374,22 @@ export interface MediaFile {
   org_id?: string;
   org_name?: string;
   created_at?: string;
+  /**
+   * Permanent URL of the stored file. Populated only when `status` is `ready`,
+   * and null while the file is still optimizing or after a failure. Stable for
+   * the life of the file: a stored file is never re-processed or rewritten, so
+   * this URL always returns the same bytes. Treat it as opaque - the filename
+   * can differ from `name` (video is converted to .mp4).
+   */
+  url?: string | null;
+  storage_key?: string | null;
+  /** Size of the stored file. On rows that are not yet `ready`, this is the
+   * size as submitted rather than the stored size. */
+  file_size_bytes?: number;
+  /** Inferred from the file extension; null when unknown. */
+  content_type?: string | null;
+  status?: MediaStatus;
+  uploaded_via_api?: boolean;
   [key: string]: unknown;
 }
 
@@ -392,6 +410,14 @@ export interface MediaFileDetail {
   /** 0 until the file has been fetched and measured. */
   file_size_bytes?: number;
   storage_key?: string | null;
+  /**
+   * Permanent URL of the stored file. Populated only when `status` is `ready`,
+   * and null while the file is still optimizing or after a failure. Stable for
+   * the life of the file: a stored file is never re-processed or rewritten, so
+   * this URL always returns the same bytes. Treat it as opaque - the filename
+   * can differ from `name` (video is converted to .mp4).
+   */
+  url?: string | null;
   uploaded_via_api?: boolean;
   created_at?: string;
   optimized_at?: string | null;
@@ -404,7 +430,7 @@ export interface ListMediaQuery {
 }
 
 export interface ImportMediaRequest {
-  /** Publicly readable or presigned URL of the media file to import. */
+  /** HTTPS URL of the media file to import. The server retrieves and stores it. */
   source_url: string;
   organization_id?: string;
   brand_id?: string;

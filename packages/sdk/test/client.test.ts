@@ -333,3 +333,73 @@ describe('endpoint serialization', () => {
     );
   });
 });
+
+describe('media', () => {
+  const MEDIA_URL =
+    'https://media.politicalcomms.com/org-1/brand-1/rally-photo_image_5d2b8f4a.jpg';
+
+  it('surfaces url and the stored-file metadata on the list', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse([
+        {
+          id: 'media_1',
+          name: 'rally-photo.jpg',
+          org_id: 'org-1',
+          created_at: '2026-07-27T00:00:00.000Z',
+          url: MEDIA_URL,
+          storage_key: 'org-1/brand-1/rally-photo_image_5d2b8f4a.jpg',
+          file_size_bytes: 482133,
+          content_type: 'image/jpeg',
+          status: 'ready',
+          uploaded_via_api: true,
+        },
+      ]),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.listMedia();
+
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
+      'https://api.politicalcomms.com/v1/media',
+    );
+    // Typed access, not an index-signature `unknown` escape hatch.
+    const file = res.data[0]!;
+    expect(file.url).toBe(MEDIA_URL);
+    expect(file.status).toBe('ready');
+    expect(file.content_type).toBe('image/jpeg');
+    expect(file.file_size_bytes).toBe(482133);
+  });
+
+  it('models a null url while the file is still optimizing', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse([{ id: 'media_2', name: 'clip.mov', url: null, status: 'optimizing' }]),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const file = (await client.listMedia()).data[0]!;
+
+    expect(file.url).toBeNull();
+    expect(file.status).toBe('optimizing');
+  });
+
+  it('exposes url on the single-media read too', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({ media_id: 'media_1', status: 'ready', url: MEDIA_URL }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.getMedia('media_1');
+
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
+      'https://api.politicalcomms.com/v1/media/media_1',
+    );
+    expect(res.data.url).toBe(MEDIA_URL);
+  });
+
+  it('forwards the organization and brand filters', async () => {
+    const fetchMock = vi.fn(async () => okResponse([]));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.listMedia({ organization_id: 'org-1', brand_id: 'brand-1' });
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toContain('organization_id=org-1');
+    expect(url).toContain('brand_id=brand-1');
+  });
+});
