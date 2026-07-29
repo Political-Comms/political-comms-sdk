@@ -290,6 +290,44 @@ const TOOLS: Tool[] = [
       idempotentHint: true,
     },
   },
+  {
+    name: 'copy_project',
+    description:
+      'Copy an existing project into a new draft. The copy keeps the message, phone numbers, and ' +
+      'settings but drops contact lists, schedule, and stats, and gets a versioned name (X becomes ' +
+      'X_v2). Copying never sends messages.',
+    inputSchema: {
+      type: 'object',
+      properties: { project_id: { type: 'string', description: 'ID of the project to copy' } },
+      required: ['project_id'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Copy Project',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    },
+  },
+  {
+    name: 'archive_project',
+    description:
+      'Archive a completed project so it no longer appears in default project listings. Only ' +
+      'projects in completed status can be archived; other statuses are rejected with ' +
+      'INVALID_STATE_TRANSITION.',
+    inputSchema: {
+      type: 'object',
+      properties: { project_id: { type: 'string', description: 'ID of the project to archive' } },
+      required: ['project_id'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Archive Project',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    },
+  },
 ];
 
 const CONFIRM_REQUIRED = new Set(['create_project', 'test_project', 'schedule_project']);
@@ -421,6 +459,10 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       );
     case 'unschedule_project':
       return textResult(await client.unscheduleProject(s(args, 'id')));
+    case 'copy_project':
+      return textResult(await client.copyProject(s(args, 'project_id')));
+    case 'archive_project':
+      return textResult(await client.archiveProject(s(args, 'project_id')));
     default:
       return errorResult(`Unknown tool: ${name}`);
   }
@@ -428,7 +470,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.1.0' },
+    { name: 'political-comms', version: '0.2.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

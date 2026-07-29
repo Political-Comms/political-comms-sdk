@@ -208,6 +208,14 @@ class PoliticalCommsClient:
         """POST /contact-lists/{id}/analyze"""
         return self._request("POST", f"/contact-lists/{id}/analyze", idempotency_key=idempotency_key)
 
+    def delete_contact_list(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+        """DELETE /contact-lists/{id}
+
+        A list referenced by any project cannot be deleted; the API returns
+        409 CONTACT_LIST_IN_USE with the referencing projects in the details.
+        """
+        return self._request("DELETE", f"/contact-lists/{id}", idempotency_key=idempotency_key)
+
     # -- media -------------------------------------------------------------------
 
     def list_media(
@@ -247,6 +255,14 @@ class PoliticalCommsClient:
         """GET /media/{id}"""
         return self._request("GET", f"/media/{id}")
 
+    def delete_media(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+        """DELETE /media/{id}
+
+        A file referenced by any project cannot be deleted; the API returns
+        409 MEDIA_IN_USE with the referencing projects in the details.
+        """
+        return self._request("DELETE", f"/media/{id}", idempotency_key=idempotency_key)
+
     # -- projects -------------------------------------------------------------------
 
     def list_projects(
@@ -255,8 +271,16 @@ class PoliticalCommsClient:
         organization_id: Optional[str] = None,
         brand_id: Optional[str] = None,
         campaign_id: Optional[str] = None,
+        type: Optional[str] = None,
+        archived: Optional[bool] = None,
     ) -> JsonDict:
-        """GET /projects"""
+        """GET /projects
+
+        ``type`` filters to "broadcast" or "survey" projects.
+        ``archived=True`` returns only archived projects, ``archived=False``
+        excludes them, and ``None`` (default) returns everything except
+        deleted projects.
+        """
         return self._request(
             "GET",
             "/projects",
@@ -264,6 +288,8 @@ class PoliticalCommsClient:
                 "organization_id": organization_id,
                 "brand_id": brand_id,
                 "campaign_id": campaign_id,
+                "type": type,
+                "archived": None if archived is None else ("true" if archived else "false"),
             },
         )
 
@@ -274,7 +300,7 @@ class PoliticalCommsClient:
         protocol: str,
         message_text: str,
         phone_number_ids: Sequence[str],
-        contact_list_ids: Sequence[str],
+        contact_list_ids: Optional[Sequence[str]] = None,
         *,
         channel: Optional[str] = None,
         brand_id: Optional[str] = None,
@@ -288,7 +314,12 @@ class PoliticalCommsClient:
         link_tracking_param_field: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """POST /projects"""
+        """POST /projects
+
+        ``contact_list_ids`` is optional: omitting it creates the project in
+        draft status, and it cannot be tested or scheduled until a list is
+        attached via ``update_project``. An explicitly empty list is rejected.
+        """
         body = _compact(
             {
                 "organization_id": organization_id,
@@ -299,7 +330,7 @@ class PoliticalCommsClient:
                 "phone_number_ids": list(phone_number_ids),
                 "name": name,
                 "protocol": protocol,
-                "contact_list_ids": list(contact_list_ids),
+                "contact_list_ids": list(contact_list_ids) if contact_list_ids is not None else None,
                 "suppression_list_ids": list(suppression_list_ids) if suppression_list_ids else None,
                 "message_text": message_text,
                 "media_ids": list(media_ids) if media_ids else None,
@@ -420,6 +451,22 @@ class PoliticalCommsClient:
         """POST /projects/{id}/unschedule"""
         return self._request("POST", f"/projects/{id}/unschedule", idempotency_key=idempotency_key)
 
+    def copy_project(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+        """POST /projects/{id}/copy
+
+        The copy drops contact lists, schedule, and stats, starts in draft
+        status, and gets a versioned name (X becomes X_v2).
+        """
+        return self._request("POST", f"/projects/{id}/copy", idempotency_key=idempotency_key)
+
+    def archive_project(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+        """POST /projects/{id}/archive
+
+        Only projects in completed status can be archived; otherwise the API
+        returns 409 INVALID_STATE_TRANSITION.
+        """
+        return self._request("POST", f"/projects/{id}/archive", idempotency_key=idempotency_key)
+
     # -- analytics and billing -------------------------------------------------------
 
     def get_message_stats(
@@ -505,6 +552,9 @@ class PoliticalCommsClient:
             # Generated once so retries replay the same key and the API can
             # deduplicate the write.
             headers["Idempotency-Key"] = idempotency_key or str(uuid.uuid4())
+        elif method == "DELETE" and idempotency_key is not None:
+            # DELETEs accept an optional Idempotency-Key but never auto-generate one.
+            headers["Idempotency-Key"] = idempotency_key
 
         attempt = 0
         while True:

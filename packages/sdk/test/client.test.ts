@@ -403,3 +403,157 @@ describe('media', () => {
     expect(url).toContain('brand_id=brand-1');
   });
 });
+
+describe('deletes', () => {
+  it('deleteContactList issues DELETE and unwraps the response', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({ list_id: 'cl_1', name: 'Voters', deleted: true }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.deleteContactList('cl_1');
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/contact-lists/cl_1');
+    expect(init.method).toBe('DELETE');
+    expect(init.body).toBeUndefined();
+    expect(res.data.deleted).toBe(true);
+    expect(res.data.list_id).toBe('cl_1');
+  });
+
+  it('deleteMedia issues DELETE and unwraps the response', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({ media_id: 'media_1', name: 'rally-photo.jpg', deleted: true }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.deleteMedia('media_1');
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/media/media_1');
+    expect(init.method).toBe('DELETE');
+    expect(res.data.media_id).toBe('media_1');
+    expect(res.data.deleted).toBe(true);
+  });
+
+  it('sends a caller-provided Idempotency-Key on DELETE', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ list_id: 'cl_1', deleted: true }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.deleteContactList('cl_1', { idempotencyKey: 'delete-key-1' });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('delete-key-1');
+  });
+
+  it('does not auto-generate an Idempotency-Key on DELETE', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ media_id: 'media_1', deleted: true }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.deleteMedia('media_1');
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBeUndefined();
+  });
+
+  it('surfaces 409 in-use conflicts as PoliticalCommsError with the details body', async () => {
+    const body = {
+      success: false,
+      error: 'Contact list is in use',
+      code: 'CONTACT_LIST_IN_USE',
+      statusCode: 409,
+      details: { projects: [{ id: 'proj_1', name: 'GOTV', status: 'draft' }] },
+    };
+    const fetchMock = vi.fn(async () => jsonResponse(409, body));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const err = (await client.deleteContactList('cl_1').catch((e: unknown) => e)) as PoliticalCommsError;
+    expect(err).toBeInstanceOf(PoliticalCommsError);
+    expect(err.code).toBe('CONTACT_LIST_IN_USE');
+    expect(err.statusCode).toBe(409);
+    expect(err.body).toEqual(body);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('project copy and archive', () => {
+  it('copyProject POSTs with no body and unwraps the draft copy', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(201, {
+        success: true,
+        data: {
+          project_id: 'proj_2',
+          name: 'GOTV_v2',
+          type: 'broadcast',
+          status: 'draft',
+          channel: '10dlc',
+          created_via_api: true,
+          estimated_cost_cents: 0,
+          total_recipients: 0,
+          completeness: { has_list: false, has_message: true, has_phone_number: true, ready_to_test: false },
+        },
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.copyProject('proj_1');
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/projects/proj_1/copy');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toMatch(UUID_RE);
+    expect(res.data.name).toBe('GOTV_v2');
+    expect(res.data.status).toBe('draft');
+    expect(res.data.completeness?.has_list).toBe(false);
+  });
+
+  it('archiveProject POSTs with no body and unwraps the archived state', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({ project_id: 'proj_1', status: 'archived', archived_at: '2026-07-29T00:00:00.000Z' }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.archiveProject('proj_1');
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/projects/proj_1/archive');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect(res.data.status).toBe('archived');
+    expect(res.data.archived_at).toBe('2026-07-29T00:00:00.000Z');
+  });
+});
+
+describe('projects list and create options', () => {
+  it('serializes archived as the strings true and false', async () => {
+    const fetchMock = vi.fn(async () => okResponse([]));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+
+    await client.listProjects({ archived: true });
+    await client.listProjects({ archived: false });
+    await client.listProjects({});
+
+    const urls = fetchMock.mock.calls.map((call) => new URL((call as unknown as [string])[0]));
+    expect(urls[0]!.searchParams.get('archived')).toBe('true');
+    expect(urls[1]!.searchParams.get('archived')).toBe('false');
+    expect(urls[2]!.searchParams.has('archived')).toBe(false);
+  });
+
+  it('serializes the type filter and omits it when not set', async () => {
+    const fetchMock = vi.fn(async () => okResponse([]));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+
+    await client.listProjects({ type: 'survey' });
+    await client.listProjects({});
+
+    const urls = fetchMock.mock.calls.map((call) => new URL((call as unknown as [string])[0]));
+    expect(urls[0]!.searchParams.get('type')).toBe('survey');
+    expect(urls[1]!.searchParams.has('type')).toBe(false);
+  });
+
+  it('accepts createProject without contact_list_ids', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ project_id: 'proj_9', status: 'draft' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.createProject({
+      organization_id: 'org_1',
+      phone_number_ids: ['pn_1'],
+      name: 'List attached later',
+      protocol: 'sms',
+      message_text: 'Hello',
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).not.toHaveProperty('contact_list_ids');
+  });
+});

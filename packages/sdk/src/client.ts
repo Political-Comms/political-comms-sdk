@@ -2,14 +2,18 @@ import { PoliticalCommsError } from './error';
 import type {
   AllProjectStats,
   ApiResponse,
+  ArchiveProjectResult,
   Brand,
   Campaign,
   ContactList,
   ContactListAnalysisResult,
   ContactListDetail,
   ContactListImportResult,
+  CopyProjectResult,
   CreateProjectRequest,
   CreateProjectResult,
+  DeleteContactListResult,
+  DeleteMediaResult,
   GetAllProjectStatsQuery,
   GetHierarchyQuery,
   GetLedgerUsageByInitiatorQuery,
@@ -256,6 +260,20 @@ export class PoliticalCommsClient {
     );
   }
 
+  /** DELETE /contact-lists/{id} */
+  deleteContactList(
+    id: string,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<DeleteContactListResult>> {
+    return this.request(
+      'DELETE',
+      `/contact-lists/${encodeURIComponent(id)}`,
+      undefined,
+      undefined,
+      options,
+    );
+  }
+
   // -------------------------------------------------------------------------
   // Media
   // -------------------------------------------------------------------------
@@ -284,6 +302,11 @@ export class PoliticalCommsClient {
     return this.request('GET', `/media/${encodeURIComponent(id)}`, undefined, undefined, options);
   }
 
+  /** DELETE /media/{id} */
+  deleteMedia(id: string, options?: RequestOptions): Promise<ApiResponse<DeleteMediaResult>> {
+    return this.request('DELETE', `/media/${encodeURIComponent(id)}`, undefined, undefined, options);
+  }
+
   // -------------------------------------------------------------------------
   // Projects
   // -------------------------------------------------------------------------
@@ -297,6 +320,8 @@ export class PoliticalCommsClient {
         organization_id: query.organization_id,
         brand_id: query.brand_id,
         campaign_id: query.campaign_id,
+        type: query.type,
+        archived: query.archived !== undefined ? String(query.archived) : undefined,
       },
       undefined,
       options,
@@ -391,6 +416,28 @@ export class PoliticalCommsClient {
     );
   }
 
+  /** POST /projects/{id}/copy */
+  copyProject(id: string, options?: RequestOptions): Promise<ApiResponse<CopyProjectResult>> {
+    return this.request(
+      'POST',
+      `/projects/${encodeURIComponent(id)}/copy`,
+      undefined,
+      undefined,
+      options,
+    );
+  }
+
+  /** POST /projects/{id}/archive */
+  archiveProject(id: string, options?: RequestOptions): Promise<ApiResponse<ArchiveProjectResult>> {
+    return this.request(
+      'POST',
+      `/projects/${encodeURIComponent(id)}/archive`,
+      undefined,
+      undefined,
+      options,
+    );
+  }
+
   // -------------------------------------------------------------------------
   // Analytics and billing
   // -------------------------------------------------------------------------
@@ -458,7 +505,7 @@ export class PoliticalCommsClient {
   // -------------------------------------------------------------------------
 
   private async request<T>(
-    method: 'GET' | 'POST' | 'PATCH',
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     query?: Record<string, QueryValue>,
     body?: unknown,
@@ -480,6 +527,9 @@ export class PoliticalCommsClient {
       // Generated once so retries replay the same key and the API can
       // deduplicate the write.
       headers['Idempotency-Key'] = options.idempotencyKey ?? crypto.randomUUID();
+    } else if (method === 'DELETE' && options.idempotencyKey !== undefined) {
+      // DELETEs accept an optional Idempotency-Key but never auto-generate one.
+      headers['Idempotency-Key'] = options.idempotencyKey;
     }
 
     for (let attempt = 0; ; attempt++) {

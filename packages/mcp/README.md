@@ -56,6 +56,10 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, and
 | `test_project` | Send real test messages to explicit phone numbers. |
 | `schedule_project` | Commit a bulk send at a specific date and time. |
 | `unschedule_project` | Remove a project's schedule. |
+| `copy_project` | Copy a project into a new draft (drops lists, schedule, and stats). |
+| `archive_project` | Archive a completed project. |
+
+The server deliberately exposes no delete operations.
 
 ## Errors
 

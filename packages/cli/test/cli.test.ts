@@ -24,8 +24,14 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     testProject: vi.fn(() => ok({ project_id: 'proj_1', tests_sent: 1 })),
     scheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'scheduled', scheduled_at: '2026-11-03T09:00:00' })),
     unscheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'draft' })),
+    copyProject: vi.fn(() => ok({ project_id: 'proj_2', name: 'GOTV_v2', status: 'draft' })),
+    archiveProject: vi.fn(() => ok({ project_id: 'proj_1', status: 'archived', archived_at: '2026-07-29T00:00:00Z' })),
     listContactLists: vi.fn(() => ok([{ id: 'cl_1', list_name: 'Voters', contact_count: 1200, status: 'ready' }])),
     getContactList: vi.fn(() => ok({ id: 'cl_1', list_name: 'Voters' })),
+    deleteContactList: vi.fn(() => ok({ list_id: 'cl_1', name: 'Voters', deleted: true })),
+    listMedia: vi.fn(() => ok([{ id: 'media_1', name: 'rally-photo.jpg', status: 'ready', org_name: 'Civic Action Fund' }])),
+    getMedia: vi.fn(() => ok({ media_id: 'media_1', name: 'rally-photo.jpg', status: 'ready' })),
+    deleteMedia: vi.fn(() => ok({ media_id: 'media_1', name: 'rally-photo.jpg', deleted: true })),
     getMessageStats: vi.fn(() => ok({ totals: { sent: 10 }, daily: [] })),
     getLedgerUsage: vi.fn(() => ok({ organization_name: 'Civic Action Fund', totals: { total_cost: 12.5 } })),
     ...overrides,
@@ -177,6 +183,79 @@ describe('commands', () => {
       scheduled_at: '2026-11-03T09:00:00',
       scheduled_timezone: 'America/New_York',
     });
+  });
+
+  it('projects copy calls copyProject and reports the new project', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['projects', 'copy', 'proj_1'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.copyProject).toHaveBeenCalledWith('proj_1');
+    expect(out[0]).toBe('Copied project proj_1 to proj_2 (name: GOTV_v2, status: draft).');
+  });
+
+  it('projects archive calls archiveProject and reports the status', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['projects', 'archive', 'proj_1'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.archiveProject).toHaveBeenCalledWith('proj_1');
+    expect(out[0]).toBe('Archived project proj_1 (status: archived).');
+  });
+
+  it('exits 2 when projects copy is missing the id', async () => {
+    const client = makeClient();
+    const { io, err } = makeIO();
+    const code = await main(['projects', 'copy'], deps(client, io));
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('projects copy <id>');
+    expect(client.copyProject).not.toHaveBeenCalled();
+  });
+
+  it('contact-lists delete calls deleteContactList and confirms', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['contact-lists', 'delete', 'cl_1'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.deleteContactList).toHaveBeenCalledWith('cl_1');
+    expect(out[0]).toBe('Deleted contact list Voters.');
+  });
+
+  it('media list renders a table', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['media', 'list', '--organization-id', 'org_1'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.listMedia).toHaveBeenCalledWith({ organization_id: 'org_1', brand_id: undefined });
+    const text = out.join('\n');
+    expect(text).toContain('ID');
+    expect(text).toContain('media_1');
+    expect(text).toContain('rally-photo.jpg');
+  });
+
+  it('media get prints key-value details', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['media', 'get', 'media_1'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.getMedia).toHaveBeenCalledWith('media_1');
+    expect(out.join('\n')).toContain('rally-photo.jpg');
+  });
+
+  it('media delete calls deleteMedia and confirms', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['media', 'delete', 'media_1'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.deleteMedia).toHaveBeenCalledWith('media_1');
+    expect(out[0]).toBe('Deleted media rally-photo.jpg.');
+  });
+
+  it('exits 2 on an unknown media subcommand', async () => {
+    const { io, err } = makeIO();
+    const code = await main(['media', 'frobnicate'], deps(makeClient(), io));
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('media <list|get|delete>');
   });
 
   it('stats messages passes --from and --to as startDate and endDate', async () => {

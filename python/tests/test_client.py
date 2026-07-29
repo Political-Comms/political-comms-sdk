@@ -306,3 +306,167 @@ class TestBackoff:
         assert len(keys) == 2
         assert keys[0] == keys[1]
         assert UUID_RE.match(keys[0])
+
+
+class TestDeletes:
+    def test_delete_contact_list(self):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["path"] = request.url.path
+            seen["idem"] = request.headers.get("Idempotency-Key")
+            return ok_response({"list_id": "cl_1", "name": "Voters", "deleted": True})
+
+        with make_client(handler) as client:
+            result = client.delete_contact_list("cl_1")
+        assert seen["method"] == "DELETE"
+        assert seen["path"] == "/v1/contact-lists/cl_1"
+        # No auto-generated Idempotency-Key on DELETE.
+        assert seen["idem"] is None
+        assert result["data"] == {"list_id": "cl_1", "name": "Voters", "deleted": True}
+
+    def test_delete_media_with_idempotency_key(self):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["path"] = request.url.path
+            seen["idem"] = request.headers.get("Idempotency-Key")
+            return ok_response({"media_id": "media_1", "name": "rally-photo.jpg", "deleted": True})
+
+        with make_client(handler) as client:
+            result = client.delete_media("media_1", idempotency_key="delete-key-1")
+        assert seen == {"method": "DELETE", "path": "/v1/media/media_1", "idem": "delete-key-1"}
+        assert result["data"]["deleted"] is True
+
+    def test_delete_conflict_surfaces_in_use_error(self):
+        def handler(request):
+            return httpx.Response(
+                409,
+                json={
+                    "success": False,
+                    "error": "Contact list is in use",
+                    "code": "CONTACT_LIST_IN_USE",
+                    "statusCode": 409,
+                    "details": {"projects": [{"id": "proj_1", "name": "GOTV", "status": "draft"}]},
+                },
+            )
+
+        with make_client(handler) as client:
+            with pytest.raises(PoliticalCommsError) as excinfo:
+                client.delete_contact_list("cl_1")
+        err = excinfo.value
+        assert err.code == "CONTACT_LIST_IN_USE"
+        assert err.status_code == 409
+        assert err.body["details"]["projects"][0]["id"] == "proj_1"
+
+
+class TestProjectCopyArchive:
+    def test_copy_project_posts_without_body(self):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["path"] = request.url.path
+            seen["content"] = request.content
+            seen["idem"] = request.headers.get("Idempotency-Key")
+            return httpx.Response(
+                201,
+                json={
+                    "success": True,
+                    "data": {"project_id": "proj_2", "name": "GOTV_v2", "status": "draft"},
+                },
+            )
+
+        with make_client(handler) as client:
+            result = client.copy_project("proj_1")
+        assert seen["method"] == "POST"
+        assert seen["path"] == "/v1/projects/proj_1/copy"
+        assert seen["content"] == b""
+        assert UUID_RE.match(seen["idem"])
+        assert result["data"]["name"] == "GOTV_v2"
+        assert result["data"]["status"] == "draft"
+
+    def test_archive_project(self):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["path"] = request.url.path
+            return ok_response(
+                {"project_id": "proj_1", "status": "archived", "archived_at": "2026-07-29T00:00:00Z"}
+            )
+
+        with make_client(handler) as client:
+            result = client.archive_project("proj_1")
+        assert seen == {"method": "POST", "path": "/v1/projects/proj_1/archive"}
+        assert result["data"]["status"] == "archived"
+
+
+class TestProjectListAndCreateOptions:
+    @pytest.mark.parametrize(
+        ("archived", "expected"),
+        [(True, {"archived": "true"}), (False, {"archived": "false"}), (None, {})],
+    )
+    def test_list_projects_archived_serialization(self, archived, expected):
+        seen = {}
+
+        def handler(request):
+            seen["params"] = dict(request.url.params)
+            return ok_response([])
+
+        with make_client(handler) as client:
+            client.list_projects(archived=archived)
+        assert seen["params"] == expected
+
+    @pytest.mark.parametrize(
+        ("type", "expected"),
+        [("survey", {"type": "survey"}), ("broadcast", {"type": "broadcast"}), (None, {})],
+    )
+    def test_list_projects_type_serialization(self, type, expected):
+        seen = {}
+
+        def handler(request):
+            seen["params"] = dict(request.url.params)
+            return ok_response([])
+
+        with make_client(handler) as client:
+            client.list_projects(type=type)
+        assert seen["params"] == expected
+
+    def test_create_project_without_contact_list_ids(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({"project_id": "proj_9", "status": "draft"})
+
+        with make_client(handler) as client:
+            client.create_project(
+                "org_1",
+                "List attached later",
+                "sms",
+                "Hello",
+                phone_number_ids=["pn_1"],
+            )
+        assert "contact_list_ids" not in seen["body"]
+
+    def test_create_project_still_sends_explicit_empty_list(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({})
+
+        with make_client(handler) as client:
+            client.create_project(
+                "org_1",
+                "Empty list",
+                "sms",
+                "Hello",
+                phone_number_ids=["pn_1"],
+                contact_list_ids=[],
+            )
+        # The API rejects an explicitly empty array; the SDK must not drop it.
+        assert seen["body"]["contact_list_ids"] == []

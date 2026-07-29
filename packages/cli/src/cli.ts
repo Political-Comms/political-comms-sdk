@@ -12,8 +12,14 @@ export type CliClient = Pick<
   | 'testProject'
   | 'scheduleProject'
   | 'unscheduleProject'
+  | 'copyProject'
+  | 'archiveProject'
   | 'listContactLists'
   | 'getContactList'
+  | 'deleteContactList'
+  | 'listMedia'
+  | 'getMedia'
+  | 'deleteMedia'
   | 'getMessageStats'
   | 'getLedgerUsage'
 >;
@@ -44,8 +50,14 @@ Commands:
   projects test <id>               Send a test message (--phone, repeatable)
   projects schedule <id>           Schedule a send (--send-at, --timezone)
   projects unschedule <id>         Remove a schedule
+  projects copy <id>               Copy a project (drops lists, schedule, stats)
+  projects archive <id>            Archive a completed project
   contact-lists list               List contact lists
   contact-lists get <id>           Show one contact list
+  contact-lists delete <id>        Delete an unused contact list
+  media list                       List media files
+  media get <id>                   Show one media file
+  media delete <id>                Delete an unused media file
   stats messages                   Message stats (--from, --to; default last 30 days)
   usage                            Billing usage (--from, --to; default last 30 days)
 
@@ -199,7 +211,7 @@ async function dispatch(client: CliClient, positionals: string[], flags: Flags, 
       return projectsCommand(client, sub, arg, flags, io);
 
     case 'contact-lists': {
-      requireSub(sub, ['list', 'get'], 'contact-lists');
+      requireSub(sub, ['list', 'get', 'delete'], 'contact-lists');
       if (sub === 'list') {
         const result = await client.listContactLists({
           organization_id: flags['organization-id'],
@@ -216,8 +228,47 @@ async function dispatch(client: CliClient, positionals: string[], flags: Flags, 
         );
         return 0;
       }
+      if (sub === 'delete') {
+        const id = requireArg(arg, 'contact-lists delete <id>');
+        const result = await client.deleteContactList(id);
+        if (flags.json) return printJson(io, result);
+        io.out(`Deleted contact list ${str(result.data?.name) || id}.`);
+        return 0;
+      }
       const id = requireArg(arg, 'contact-lists get <id>');
       const result = await client.getContactList(id);
+      if (flags.json) return printJson(io, result);
+      io.out(kv(result.data));
+      return 0;
+    }
+
+    case 'media': {
+      requireSub(sub, ['list', 'get', 'delete'], 'media');
+      if (sub === 'list') {
+        const result = await client.listMedia({
+          organization_id: flags['organization-id'],
+          brand_id: flags['brand-id'],
+        });
+        if (flags.json) return printJson(io, result);
+        io.out(
+          table(result.data ?? [], [
+            { key: 'id', header: 'ID' },
+            { key: 'name', header: 'NAME' },
+            { key: 'status', header: 'STATUS' },
+            { key: 'org_name', header: 'ORG' },
+          ]),
+        );
+        return 0;
+      }
+      if (sub === 'delete') {
+        const id = requireArg(arg, 'media delete <id>');
+        const result = await client.deleteMedia(id);
+        if (flags.json) return printJson(io, result);
+        io.out(`Deleted media ${str(result.data?.name) || id}.`);
+        return 0;
+      }
+      const id = requireArg(arg, 'media get <id>');
+      const result = await client.getMedia(id);
       if (flags.json) return printJson(io, result);
       io.out(kv(result.data));
       return 0;
@@ -278,7 +329,7 @@ async function projectsCommand(
   flags: Flags,
   io: CliIO,
 ): Promise<number> {
-  requireSub(sub, ['list', 'get', 'create', 'test', 'schedule', 'unschedule'], 'projects');
+  requireSub(sub, ['list', 'get', 'create', 'test', 'schedule', 'unschedule', 'copy', 'archive'], 'projects');
 
   switch (sub) {
     case 'list': {
@@ -375,6 +426,25 @@ async function projectsCommand(
       const result = await client.unscheduleProject(id);
       if (flags.json) return printJson(io, result);
       io.out(`Unscheduled project ${id} (status: ${str(result.data?.status)}).`);
+      return 0;
+    }
+
+    case 'copy': {
+      const id = requireArg(arg, 'projects copy <id>');
+      const result = await client.copyProject(id);
+      if (flags.json) return printJson(io, result);
+      io.out(
+        `Copied project ${id} to ${str(result.data?.project_id)} ` +
+          `(name: ${str(result.data?.name)}, status: ${str(result.data?.status)}).`,
+      );
+      return 0;
+    }
+
+    case 'archive': {
+      const id = requireArg(arg, 'projects archive <id>');
+      const result = await client.archiveProject(id);
+      if (flags.json) return printJson(io, result);
+      io.out(`Archived project ${id} (status: ${str(result.data?.status)}).`);
       return 0;
     }
 

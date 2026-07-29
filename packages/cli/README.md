@@ -30,8 +30,14 @@ projects create                  Create a project
 projects test <id>               Send a test message (--phone, repeatable)
 projects schedule <id>           Schedule a send (--send-at, --timezone)
 projects unschedule <id>         Remove a schedule
+projects copy <id>               Copy a project (drops lists, schedule, stats)
+projects archive <id>            Archive a completed project
 contact-lists list               List contact lists
 contact-lists get <id>           Show one contact list
+contact-lists delete <id>        Delete an unused contact list
+media list                       List media files
+media get <id>                   Show one media file
+media delete <id>                Delete an unused media file
 stats messages                   Message stats (--from, --to; default last 30 days)
 usage                            Billing usage (--from, --to; default last 30 days)
 ```

@@ -34,9 +34,10 @@ export interface ErrorResponse {
 /** Per-request options accepted by every client method. */
 export interface RequestOptions {
   /**
-   * Idempotency-Key header value for POST and PATCH requests. When omitted
-   * the client generates a UUID automatically. The API returns the cached
-   * first response when the same key is replayed.
+   * Idempotency-Key header value for POST, PATCH, and DELETE requests. For
+   * POST and PATCH the client generates a UUID automatically when omitted;
+   * for DELETE the header is sent only when a key is supplied. The API
+   * returns the cached first response when the same key is replayed.
    */
   idempotencyKey?: string;
   /** AbortSignal to cancel the request. */
@@ -360,6 +361,18 @@ export interface ContactListAnalysisResult {
   [key: string]: unknown;
 }
 
+/**
+ * 200 OK for DELETE /contact-lists/{id}. A list referenced by any project
+ * cannot be deleted; the API returns 409 CONTACT_LIST_IN_USE with
+ * `details.projects` listing the referencing projects ({ id, name, status }).
+ */
+export interface DeleteContactListResult {
+  list_id?: string;
+  name?: string;
+  deleted?: boolean;
+  [key: string]: unknown;
+}
+
 // ---------------------------------------------------------------------------
 // Media
 // ---------------------------------------------------------------------------
@@ -444,6 +457,18 @@ export interface MediaImportResult {
   uploaded_via_api?: boolean;
   file_size_bytes?: number;
   name?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * 200 OK for DELETE /media/{id}. A file referenced by any project cannot be
+ * deleted; the API returns 409 MEDIA_IN_USE with `details.projects` listing
+ * the referencing projects ({ id, name, status }).
+ */
+export interface DeleteMediaResult {
+  media_id?: string;
+  name?: string;
+  deleted?: boolean;
   [key: string]: unknown;
 }
 
@@ -544,6 +569,11 @@ export interface ListProjectsQuery {
   brand_id?: string;
   campaign_id?: string;
   type?: ProjectType;
+  /**
+   * true returns only archived projects; false excludes archived projects;
+   * omitted returns everything except deleted projects.
+   */
+  archived?: boolean;
 }
 
 export interface CreateProjectRequest {
@@ -572,7 +602,12 @@ export interface CreateProjectRequest {
   phone_number_id?: string;
   name: string;
   protocol: ProjectProtocol;
-  contact_list_ids: string[];
+  /**
+   * Contact list IDs to send to. Optional: omitting it creates the project
+   * in draft status, and it cannot be tested or scheduled until a list is
+   * attached via PATCH /projects/{id}. An explicitly empty array is rejected.
+   */
+  contact_list_ids?: string[];
   suppression_list_ids?: string[];
   message_text: string;
   media_ids?: string[];
@@ -762,6 +797,41 @@ export interface UnscheduleProjectResult {
   project_id?: string;
   status?: string;
   unscheduled_at?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * 201 Created for POST /projects/{id}/copy. The copy drops contact lists,
+ * schedule, and stats, starts in draft status, and gets a versioned name
+ * (X becomes X_v2).
+ */
+export interface CopyProjectResult {
+  project_id?: string;
+  name?: string;
+  type?: ProjectType;
+  status?: string;
+  channel?: string;
+  created_via_api?: boolean;
+  estimated_cost_cents?: number;
+  total_recipients?: number;
+  completeness?: {
+    has_list?: boolean;
+    has_message?: boolean;
+    has_phone_number?: boolean;
+    ready_to_test?: boolean;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/**
+ * 200 OK for POST /projects/{id}/archive. Only projects in completed status
+ * can be archived; otherwise the API returns 409 INVALID_STATE_TRANSITION.
+ */
+export interface ArchiveProjectResult {
+  project_id?: string;
+  status?: string;
+  archived_at?: string;
   [key: string]: unknown;
 }
 

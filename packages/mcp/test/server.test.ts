@@ -20,6 +20,8 @@ const EXPECTED_TOOLS = [
   'test_project',
   'schedule_project',
   'unschedule_project',
+  'copy_project',
+  'archive_project',
 ];
 
 describe('political-comms MCP server (stdio)', () => {
@@ -43,6 +45,9 @@ describe('political-comms MCP server (stdio)', () => {
     const result = await client.listTools();
     const names = result.tools.map((tool) => tool.name).sort();
     expect(names).toEqual([...EXPECTED_TOOLS].sort());
+
+    // The MCP surface deliberately exposes no destructive delete operations.
+    expect(names.filter((name) => name.startsWith('delete_'))).toEqual([]);
 
     for (const tool of result.tools) {
       expect(tool.description, `${tool.name} description`).toBeTruthy();

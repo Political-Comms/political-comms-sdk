@@ -1,6 +1,6 @@
 {
   "name": "@political-comms/mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for the Political Comms REST API. Compliant political SMS, MMS, and RCS from Claude and other MCP clients.",
   "license": "MIT",
   "homepage": "https://politicalcomms.com/",
@@ -39,6 +39,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@political-comms/sdk": "^0.1.0"
+    "@political-comms/sdk": "^0.2.0"
   }
 }
