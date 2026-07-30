@@ -63,7 +63,7 @@ The server deliberately exposes no delete operations.
 
 ## Errors
 
-API errors are returned as tool errors with the machine readable code and a recovery hint. Rate limited requests (100 per hour per key) mention the `X-RateLimit-Reset` wait; authentication failures explain that a human must create a key in the dashboard.
+API errors are returned as tool errors with the machine readable code and a recovery hint. Rate limited requests (100/min reads, 60/min writes, 30/min deletes per key) mention the `X-RateLimit-Reset` wait; authentication failures explain that a human must create a key in the dashboard.
 
 Full API reference: [docs.politicalcomms.com](https://docs.politicalcomms.com/api-reference/introduction). OpenAPI spec: [politicalcomms.com/openapi.json](https://politicalcomms.com/openapi.json).
 

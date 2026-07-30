@@ -120,7 +120,7 @@ await client.listProjects({}, { signal: AbortSignal.timeout(10_000) });
 
 ## Rate limits
 
-The API allows 100 requests per hour per key. The client exposes the most recent rate limit headers:
+The API allows, per key over a 60-second sliding window, 100 requests/minute for reads, 60/minute for writes, and 30/minute for deletes. The client exposes the most recent rate limit headers:
 
 ```ts
 await client.listOrganizations();

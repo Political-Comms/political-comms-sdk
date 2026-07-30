@@ -15,7 +15,8 @@ const SERVER_INSTRUCTIONS =
   'schedule compliant political SMS and MMS sends. An API key is required via the ' +
   'POLITICAL_COMMS_API_KEY environment variable (created in the dashboard under Admin > API Keys). ' +
   'The write tools create_project, test_project, and schedule_project send or stage real messages ' +
-  'and require confirm: true. The API allows 100 requests per hour per key.';
+  'and require confirm: true. Rate limits per key (60-second sliding window): 100 requests/minute ' +
+  'for reads, 60/minute for writes.';
 
 // JSON Schema fragments reused across tools.
 const idParam = { type: 'string', description: 'Resource ID' } as const;
@@ -343,7 +344,8 @@ function errorResult(text: string): CallToolResult {
 function recoveryHint(err: PoliticalCommsError): string {
   if (err.statusCode === 429) {
     return (
-      'The API allows 100 requests per hour per key. Wait until the time in the X-RateLimit-Reset ' +
+      'The API allows, per key over a 60-second sliding window, 100 requests/minute for reads and ' +
+      '60/minute for writes. Wait until the time in the X-RateLimit-Reset ' +
       'header (Unix seconds) before retrying; the SDK already waited through its retry budget.'
     );
   }
