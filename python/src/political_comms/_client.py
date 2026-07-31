@@ -312,6 +312,7 @@ class PoliticalCommsClient:
         link_tracking_destination_url: Optional[str] = None,
         link_tracking_domain_id: Optional[str] = None,
         link_tracking_param_field: Optional[str] = None,
+        opt_out_footer_enabled: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /projects
@@ -319,6 +320,12 @@ class PoliticalCommsClient:
         ``contact_list_ids`` is optional: omitting it creates the project in
         draft status, and it cannot be tested or scheduled until a list is
         attached via ``update_project``. An explicitly empty list is rejected.
+
+        ``opt_out_footer_enabled`` controls the automatic "STOP=END" footer
+        (default ``True``). ``link_tracking_destination_url`` may embed the
+        selected ``link_tracking_param_field`` anywhere via a placeholder named
+        after it (e.g. ``?utm_content=xyzd_{linkid}``); without a placeholder
+        the parameter is appended as its own query pair.
         """
         body = _compact(
             {
@@ -338,6 +345,7 @@ class PoliticalCommsClient:
                 "link_tracking_destination_url": link_tracking_destination_url,
                 "link_tracking_domain_id": link_tracking_domain_id,
                 "link_tracking_param_field": link_tracking_param_field,
+                "opt_out_footer_enabled": opt_out_footer_enabled,
             }
         )
         return self._request("POST", "/projects", body=body, idempotency_key=idempotency_key)
@@ -389,9 +397,13 @@ class PoliticalCommsClient:
         link_tracking_destination_url: Optional[str] = None,
         link_tracking_domain_id: Optional[str] = None,
         link_tracking_param_field: Optional[str] = None,
+        opt_out_footer_enabled: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """PATCH /projects/{id}"""
+        """PATCH /projects/{id}
+
+        ``opt_out_footer_enabled`` toggles the automatic "STOP=END" footer.
+        """
         body = _compact(
             {
                 "name": name,
@@ -405,6 +417,7 @@ class PoliticalCommsClient:
                 "link_tracking_destination_url": link_tracking_destination_url,
                 "link_tracking_domain_id": link_tracking_domain_id,
                 "link_tracking_param_field": link_tracking_param_field,
+                "opt_out_footer_enabled": opt_out_footer_enabled,
             }
         )
         return self._request("PATCH", f"/projects/{id}", body=body, idempotency_key=idempotency_key)

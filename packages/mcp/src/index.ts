@@ -194,11 +194,22 @@ const TOOLS: Tool[] = [
         },
         media_ids: { type: 'array', items: { type: 'string' }, description: 'Media file IDs for MMS' },
         link_tracking_enabled: { type: 'boolean', description: 'Enable link tracking' },
-        link_tracking_destination_url: { type: 'string', description: 'Destination URL for tracked links' },
+        link_tracking_destination_url: {
+          type: 'string',
+          description:
+            'Destination URL for tracked links. May embed the selected link parameter via a ' +
+            'placeholder named after it (e.g. ?utm_content=xyzd_{linkid}); without a placeholder ' +
+            'the parameter is appended as its own query pair',
+        },
         link_tracking_domain_id: { type: 'string', description: 'Tracking domain ID' },
         link_tracking_param_field: {
           type: 'string',
-          description: 'Contact field appended as a redirect query param on tracking links',
+          description: 'Contact field carried on tracking-link redirects (phone or a custom-field name)',
+        },
+        opt_out_footer_enabled: {
+          type: 'boolean',
+          description:
+            'Whether the STOP=END opt-out footer is appended to every message (default true)',
         },
       },
       required: [
@@ -442,6 +453,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
           link_tracking_destination_url: opt(args, 'link_tracking_destination_url'),
           link_tracking_domain_id: opt(args, 'link_tracking_domain_id'),
           link_tracking_param_field: opt(args, 'link_tracking_param_field'),
+          opt_out_footer_enabled: args.opt_out_footer_enabled as boolean | undefined,
         }),
       );
     case 'test_project': {

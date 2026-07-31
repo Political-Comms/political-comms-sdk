@@ -1,6 +1,6 @@
 {
   "name": "@political-comms/mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "mcpName": "com.politicalcomms/api",
   "description": "MCP server for the Political Comms REST API. Compliant political SMS, MMS, and RCS from Claude and other MCP clients.",
   "license": "MIT",

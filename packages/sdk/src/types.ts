@@ -551,6 +551,11 @@ export interface ProjectDetail {
   link_tracking_destination_url?: string | null;
   link_tracking_domain_id?: string | null;
   link_tracking_param_field?: string | null;
+  /**
+   * Whether the "STOP=END" opt-out footer is appended to outbound messages.
+   * Broadcast only; surveys never carry the footer.
+   */
+  opt_out_footer_enabled?: boolean;
   ai_survey_analysis_enabled?: boolean;
   total_recipients?: number;
   estimated_cost_cents?: number;
@@ -612,13 +617,30 @@ export interface CreateProjectRequest {
   message_text: string;
   media_ids?: string[];
   link_tracking_enabled?: boolean;
+  /**
+   * Where tracking links redirect. May embed the selected link parameter
+   * anywhere via a placeholder named after it, e.g.
+   * "https://test.com?utm_content=xyzd_{linkid}" redirects as
+   * "...utm_content=xyzd_ABC123" (URL-encoded value; the parameter is then
+   * not appended separately). A placeholder that does not match
+   * link_tracking_param_field is rejected with a 400
+   * (INVALID_LINK_PLACEHOLDER). Without a placeholder the parameter is
+   * appended as its own query pair.
+   */
   link_tracking_destination_url?: string;
   link_tracking_domain_id?: string;
   /**
-   * Contact field appended as a redirect query param on tracking links. Use
-   * "phone", a contact custom-field name, or omit for no param (default).
+   * Contact field carried on tracking-link redirects. Use "phone", a contact
+   * custom-field name, or omit for no param (default). Appended as a query
+   * pair, or embedded in place of a matching {field} placeholder in the
+   * destination URL.
    */
   link_tracking_param_field?: string;
+  /**
+   * Whether the "STOP=END" opt-out footer is appended to every outbound
+   * message. Defaults to true.
+   */
+  opt_out_footer_enabled?: boolean;
 }
 
 /** 201 Created. */
@@ -656,9 +678,13 @@ export interface UpdateProjectRequest {
   suppression_list_ids?: string[];
   media_ids?: string[];
   link_tracking_enabled?: boolean;
+  /** Supports the {field} placeholder; see CreateProjectRequest. */
   link_tracking_destination_url?: string | null;
   link_tracking_domain_id?: string | null;
+  /** "phone", a custom-field name, or null for none. */
   link_tracking_param_field?: string | null;
+  /** Whether the "STOP=END" opt-out footer is appended to outbound messages. */
+  opt_out_footer_enabled?: boolean;
 }
 
 /** PATCH returns the full project object, same shape as GET /projects/{id}. */
