@@ -6,7 +6,7 @@ import {
   type CallToolResult,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { PoliticalCommsClient, PoliticalCommsError } from '@political-comms/sdk';
+import { PoliticalCommsClient, PoliticalCommsError, type ScheduleTimezone } from '@political-comms/sdk';
 
 const SERVER_INSTRUCTIONS =
   'Political Comms is a direct-to-carrier political texting platform for US campaigns, PACs, ' +
@@ -271,7 +271,15 @@ const TOOLS: Tool[] = [
         scheduled_at: { type: 'string', description: 'ISO 8601 date-time at which to send' },
         scheduled_timezone: {
           type: 'string',
-          description: 'IANA timezone name, for example America/New_York',
+          description: 'One of the six supported US IANA zones',
+          enum: [
+            'America/New_York',
+            'America/Chicago',
+            'America/Denver',
+            'America/Los_Angeles',
+            'America/Anchorage',
+            'Pacific/Honolulu',
+          ],
         },
       },
       required: ['confirm', 'id', 'scheduled_at', 'scheduled_timezone'],
@@ -468,7 +476,9 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       return textResult(
         await client.scheduleProject(s(args, 'id'), {
           scheduled_at: s(args, 'scheduled_at'),
-          scheduled_timezone: s(args, 'scheduled_timezone'),
+          // The tool inputSchema enum constrains the value; the server rejects
+          // anything outside the six supported zones with a 400.
+          scheduled_timezone: s(args, 'scheduled_timezone') as ScheduleTimezone,
         }),
       );
     case 'unschedule_project':

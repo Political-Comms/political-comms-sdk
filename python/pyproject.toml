@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "political-comms"
-version = "0.2.1"
+version = "0.2.2"
 description = "Python SDK for the Political Comms REST API. Direct-to-carrier political texting for campaigns, PACs, advocacy organizations, fundraisers, and elected officials."
 readme = "README.md"
 license = "MIT"

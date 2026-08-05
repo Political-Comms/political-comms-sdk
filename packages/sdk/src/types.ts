@@ -801,14 +801,23 @@ export interface TestProjectResult {
   [key: string]: unknown;
 }
 
+/** The six US IANA zones the schedule endpoint accepts; any other value is rejected with a 400. */
+export type ScheduleTimezone =
+  | 'America/New_York'
+  | 'America/Chicago'
+  | 'America/Denver'
+  | 'America/Los_Angeles'
+  | 'America/Anchorage'
+  | 'Pacific/Honolulu';
+
 export interface ScheduleProjectRequest {
   /**
    * ISO 8601 date-time including a timezone offset, at least 60 seconds in
    * the future.
    */
   scheduled_at: string;
-  /** IANA timezone name, for example "America/New_York". */
-  scheduled_timezone: string;
+  /** One of the six supported US IANA zones, for example "America/New_York". */
+  scheduled_timezone: ScheduleTimezone;
 }
 
 export interface ScheduleProjectResult {

@@ -452,7 +452,13 @@ class PoliticalCommsClient:
         *,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """POST /projects/{id}/schedule"""
+        """POST /projects/{id}/schedule
+
+        ``scheduled_timezone`` must be one of the six supported US IANA zones:
+        ``America/New_York``, ``America/Chicago``, ``America/Denver``,
+        ``America/Los_Angeles``, ``America/Anchorage``, or ``Pacific/Honolulu``.
+        Any other value is rejected with a 400.
+        """
         return self._request(
             "POST",
             f"/projects/{id}/schedule",
