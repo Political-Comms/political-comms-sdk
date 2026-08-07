@@ -705,6 +705,16 @@ export interface ProjectStats {
     opt_outs?: number;
     [key: string]: unknown;
   };
+  /** Test-send activity, tracked separately - `metrics` excludes it. */
+  test?: {
+    sent?: number;
+    delivered?: number;
+    failed?: number;
+    replies?: number;
+    clicks_total?: number;
+    clicks_unique?: number;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 
@@ -812,8 +822,9 @@ export type ScheduleTimezone =
 
 export interface ScheduleProjectRequest {
   /**
-   * ISO 8601 date-time including a timezone offset, at least 60 seconds in
-   * the future.
+   * ISO 8601 date-time including a timezone offset. May be now or in the
+   * past - the project starts sending as soon as audience compilation
+   * finishes (no minimum lead time).
    */
   scheduled_at: string;
   /** One of the six supported US IANA zones, for example "America/New_York". */

@@ -85,7 +85,8 @@ const TOOLS: Tool[] = [
     name: 'get_project_stats',
     description:
       'Get delivery and engagement stats for one project: sent, delivered, undeliverable, replies, ' +
-      'opt outs, clicks, and the derived rates.',
+      'opt outs, clicks, and the derived rates. The response also carries a `test` object with ' +
+      'test-send activity tracked separately from the production metrics.',
     inputSchema: {
       type: 'object',
       properties: { id: idParam },
@@ -268,7 +269,12 @@ const TOOLS: Tool[] = [
       properties: {
         confirm: confirmParam,
         id: idParam,
-        scheduled_at: { type: 'string', description: 'ISO 8601 date-time at which to send' },
+        scheduled_at: {
+          type: 'string',
+          description:
+            'ISO 8601 date-time at which to send (with offset). May be now or in the past - ' +
+            'sending starts as soon as audience compilation finishes (no minimum lead time).',
+        },
         scheduled_timezone: {
           type: 'string',
           description: 'One of the six supported US IANA zones',
@@ -494,7 +500,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.2.0' },
+    { name: 'political-comms', version: '0.3.1' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

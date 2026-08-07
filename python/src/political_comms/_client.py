@@ -423,7 +423,12 @@ class PoliticalCommsClient:
         return self._request("PATCH", f"/projects/{id}", body=body, idempotency_key=idempotency_key)
 
     def get_project_stats(self, id: str) -> JsonDict:
-        """GET /projects/{id}/stats"""
+        """GET /projects/{id}/stats
+
+        The response nests production counters under ``metrics`` and carries a
+        ``test`` object with test-send activity (sent/delivered/failed/replies/
+        clicks) tracked separately - ``metrics`` excludes test traffic.
+        """
         return self._request("GET", f"/projects/{id}/stats")
 
     def test_project(
@@ -453,6 +458,10 @@ class PoliticalCommsClient:
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /projects/{id}/schedule
+
+        ``scheduled_at`` is an ISO 8601 date-time with an explicit offset. It
+        may be now or in the past - the project starts sending as soon as
+        audience compilation finishes (no minimum lead time).
 
         ``scheduled_timezone`` must be one of the six supported US IANA zones:
         ``America/New_York``, ``America/Chicago``, ``America/Denver``,
