@@ -552,6 +552,12 @@ export interface ProjectDetail {
   link_tracking_domain_id?: string | null;
   link_tracking_param_field?: string | null;
   /**
+   * Set only when link_tracking_destination_url is a whole-URL placeholder
+   * ("https://{custom_url}"): where recipients whose field was empty or not
+   * a valid URL were sent.
+   */
+  link_tracking_fallback_url?: string | null;
+  /**
    * Whether the "STOP=END" opt-out footer is appended to outbound messages.
    * Broadcast only; surveys never carry the footer.
    */
@@ -626,6 +632,12 @@ export interface CreateProjectRequest {
    * link_tracking_param_field is rejected with a 400
    * (INVALID_LINK_PLACEHOLDER). Without a placeholder the parameter is
    * appended as its own query pair.
+   *
+   * May also be exactly "https://{<link_tracking_param_field>}", e.g.
+   * "https://{custom_url}": each recipient's tracking link then redirects to
+   * the URL stored in that contact field. In that mode
+   * link_tracking_fallback_url is required, and "{phone}" is not allowed as
+   * a whole URL.
    */
   link_tracking_destination_url?: string;
   link_tracking_domain_id?: string;
@@ -636,6 +648,13 @@ export interface CreateProjectRequest {
    * destination URL.
    */
   link_tracking_param_field?: string;
+  /**
+   * Redirect used when a recipient's link_tracking_param_field value is empty
+   * or not a valid URL. Required when link_tracking_destination_url is a
+   * whole-URL placeholder; rejected with a 400 (INVALID_LINK_PLACEHOLDER)
+   * otherwise.
+   */
+  link_tracking_fallback_url?: string;
   /**
    * Whether the "STOP=END" opt-out footer is appended to every outbound
    * message. Defaults to true.
@@ -683,6 +702,11 @@ export interface UpdateProjectRequest {
   link_tracking_domain_id?: string | null;
   /** "phone", a custom-field name, or null for none. */
   link_tracking_param_field?: string | null;
+  /**
+   * Required when link_tracking_destination_url is a whole-URL placeholder
+   * ("https://{custom_url}"); see CreateProjectRequest.
+   */
+  link_tracking_fallback_url?: string | null;
   /** Whether the "STOP=END" opt-out footer is appended to outbound messages. */
   opt_out_footer_enabled?: boolean;
 }
@@ -705,7 +729,12 @@ export interface ProjectStats {
     opt_outs?: number;
     [key: string]: unknown;
   };
-  /** Test-send activity, tracked separately - `metrics` excludes it. */
+  /**
+   * Test-send activity, tracked separately - `metrics` excludes it. Unlike
+   * the cumulative production counters, these form a pipeline: `sent` holds
+   * only tests still awaiting a delivery outcome and moves into `delivered`
+   * or `failed` once the carrier reports back.
+   */
   test?: {
     sent?: number;
     delivered?: number;
@@ -829,6 +858,21 @@ export interface ScheduleProjectRequest {
   scheduled_at: string;
   /** One of the six supported US IANA zones, for example "America/New_York". */
   scheduled_timezone: ScheduleTimezone;
+  /**
+   * Run the whole project past the brand's T-Mobile daily cap instead of
+   * pausing at it.
+   *
+   * Only meaningful for brands T-Mobile meters (Aegis-vetted, non-political):
+   * those carry a per-brand daily cap, and a project otherwise pauses at it
+   * each Pacific day and must be started again to continue. Ignored for
+   * brands with no cap.
+   *
+   * Setting this accepts that messages to T-Mobile recipients over the limit
+   * may fail and are still billed - carrier is not reliably known before
+   * sending, so the platform cannot skip only those recipients. Defaults to
+   * false (pause), and persists for the life of the project.
+   */
+  daily_cap_bypass?: boolean;
 }
 
 export interface ScheduleProjectResult {
@@ -836,6 +880,8 @@ export interface ScheduleProjectResult {
   status?: string;
   scheduled_at?: string;
   scheduled_timezone?: string;
+  /** The persisted bypass setting, so you can confirm what took effect. */
+  daily_cap_bypass?: boolean;
   [key: string]: unknown;
 }
 

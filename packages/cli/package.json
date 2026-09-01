@@ -1,6 +1,6 @@
 {
   "name": "@political-comms/cli",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Command line interface for the Political Comms REST API.",
   "license": "MIT",
   "homepage": "https://politicalcomms.com/",
@@ -38,6 +38,6 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@political-comms/sdk": "^0.3.1"
+    "@political-comms/sdk": "^0.4.0"
   }
 }

@@ -65,6 +65,12 @@ client.test_project(project_id, [{"phone": "+15555550100"}])
 
 # 4. Schedule the send.
 client.schedule_project(project_id, "2026-11-03T09:00:00", "America/New_York")
+# Optional: run the whole project past the brand's daily T-Mobile carrier limit
+# instead of pausing at it each day. Over-limit messages to T-Mobile recipients
+# may fail and are still billed.
+# client.schedule_project(
+#     project_id, "2026-11-03T09:00:00", "America/New_York", daily_cap_bypass=True
+# )
 ```
 
 One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `list_tracking_domains`, `list_phone_numbers`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `delete_contact_list`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `test_project`, `schedule_project`, `unschedule_project`, `copy_project`, `archive_project`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.

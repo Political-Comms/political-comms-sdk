@@ -312,6 +312,7 @@ class PoliticalCommsClient:
         link_tracking_destination_url: Optional[str] = None,
         link_tracking_domain_id: Optional[str] = None,
         link_tracking_param_field: Optional[str] = None,
+        link_tracking_fallback_url: Optional[str] = None,
         opt_out_footer_enabled: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
@@ -325,7 +326,12 @@ class PoliticalCommsClient:
         (default ``True``). ``link_tracking_destination_url`` may embed the
         selected ``link_tracking_param_field`` anywhere via a placeholder named
         after it (e.g. ``?utm_content=xyzd_{linkid}``); without a placeholder
-        the parameter is appended as its own query pair.
+        the parameter is appended as its own query pair. It may also be exactly
+        ``https://{<link_tracking_param_field>}`` (e.g. ``https://{custom_url}``)
+        to send each recipient to the URL in their own contact field; then
+        ``link_tracking_fallback_url`` is required and catches recipients whose
+        value is empty or not a valid URL. ``{phone}`` is not allowed as a whole
+        URL.
         """
         body = _compact(
             {
@@ -345,6 +351,7 @@ class PoliticalCommsClient:
                 "link_tracking_destination_url": link_tracking_destination_url,
                 "link_tracking_domain_id": link_tracking_domain_id,
                 "link_tracking_param_field": link_tracking_param_field,
+                "link_tracking_fallback_url": link_tracking_fallback_url,
                 "opt_out_footer_enabled": opt_out_footer_enabled,
             }
         )
@@ -397,12 +404,16 @@ class PoliticalCommsClient:
         link_tracking_destination_url: Optional[str] = None,
         link_tracking_domain_id: Optional[str] = None,
         link_tracking_param_field: Optional[str] = None,
+        link_tracking_fallback_url: Optional[str] = None,
         opt_out_footer_enabled: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """PATCH /projects/{id}
 
         ``opt_out_footer_enabled`` toggles the automatic "STOP=END" footer.
+        ``link_tracking_fallback_url`` is required whenever
+        ``link_tracking_destination_url`` is a whole-URL placeholder such as
+        ``https://{custom_url}``; see ``create_project``.
         """
         body = _compact(
             {
@@ -417,6 +428,7 @@ class PoliticalCommsClient:
                 "link_tracking_destination_url": link_tracking_destination_url,
                 "link_tracking_domain_id": link_tracking_domain_id,
                 "link_tracking_param_field": link_tracking_param_field,
+                "link_tracking_fallback_url": link_tracking_fallback_url,
                 "opt_out_footer_enabled": opt_out_footer_enabled,
             }
         )
@@ -427,7 +439,9 @@ class PoliticalCommsClient:
 
         The response nests production counters under ``metrics`` and carries a
         ``test`` object with test-send activity (sent/delivered/failed/replies/
-        clicks) tracked separately - ``metrics`` excludes test traffic.
+        clicks) tracked separately - ``metrics`` excludes test traffic. The
+        test counters form a pipeline: ``sent`` holds only tests awaiting a
+        delivery outcome and moves into ``delivered``/``failed`` on the DLR.
         """
         return self._request("GET", f"/projects/{id}/stats")
 
@@ -455,6 +469,7 @@ class PoliticalCommsClient:
         scheduled_at: str,
         scheduled_timezone: str,
         *,
+        daily_cap_bypass: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /projects/{id}/schedule
@@ -467,11 +482,26 @@ class PoliticalCommsClient:
         ``America/New_York``, ``America/Chicago``, ``America/Denver``,
         ``America/Los_Angeles``, ``America/Anchorage``, or ``Pacific/Honolulu``.
         Any other value is rejected with a 400.
+
+        ``daily_cap_bypass`` runs the whole project past the brand's T-Mobile
+        daily cap instead of pausing at it. It only applies to brands T-Mobile
+        meters (Aegis-vetted, non-political), which otherwise pause each
+        Pacific day at their cap and must be started again to continue.
+        Setting it accepts that messages to T-Mobile recipients over the limit
+        may fail and are still billed: carrier is not reliably known before
+        sending, so the platform cannot skip only those recipients. Defaults to
+        pausing. The response echoes the persisted ``daily_cap_bypass``.
         """
+        body: JsonDict = {
+            "scheduled_at": scheduled_at,
+            "scheduled_timezone": scheduled_timezone,
+        }
+        if daily_cap_bypass is not None:
+            body["daily_cap_bypass"] = daily_cap_bypass
         return self._request(
             "POST",
             f"/projects/{id}/schedule",
-            body={"scheduled_at": scheduled_at, "scheduled_timezone": scheduled_timezone},
+            body=body,
             idempotency_key=idempotency_key,
         )
 

@@ -66,6 +66,12 @@ npx @political-comms/cli projects test proj_123 --phone +15555550100
 npx @political-comms/cli projects schedule proj_123 \
   --send-at 2026-11-03T09:00:00 --timezone America/New_York
 
+# Same, but run the whole project through the brand's daily T-Mobile carrier
+# limit instead of pausing at it each day (over-limit messages to T-Mobile
+# recipients may fail and are still billed)
+npx @political-comms/cli projects schedule proj_123 \
+  --send-at 2026-11-03T09:00:00 --timezone America/New_York --daily-cap-bypass
+
 # Message stats for June
 npx @political-comms/cli stats messages --from 2026-06-01 --to 2026-06-30 --json
 ```

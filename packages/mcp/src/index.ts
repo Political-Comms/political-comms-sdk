@@ -200,12 +200,20 @@ const TOOLS: Tool[] = [
           description:
             'Destination URL for tracked links. May embed the selected link parameter via a ' +
             'placeholder named after it (e.g. ?utm_content=xyzd_{linkid}); without a placeholder ' +
-            'the parameter is appended as its own query pair',
+            'the parameter is appended as its own query pair. May also be exactly ' +
+            'https://{<link_tracking_param_field>} (e.g. https://{custom_url}) to send each ' +
+            'recipient to the URL in that contact field; then link_tracking_fallback_url is required',
         },
         link_tracking_domain_id: { type: 'string', description: 'Tracking domain ID' },
         link_tracking_param_field: {
           type: 'string',
           description: 'Contact field carried on tracking-link redirects (phone or a custom-field name)',
+        },
+        link_tracking_fallback_url: {
+          type: 'string',
+          description:
+            'Redirect for recipients whose link_tracking_param_field value is empty or not a valid ' +
+            'URL. Required when link_tracking_destination_url is a whole-URL placeholder; rejected otherwise',
         },
         opt_out_footer_enabled: {
           type: 'boolean',
@@ -286,6 +294,15 @@ const TOOLS: Tool[] = [
             'America/Anchorage',
             'Pacific/Honolulu',
           ],
+        },
+        daily_cap_bypass: {
+          type: 'boolean',
+          description:
+            'Optional. Run the whole project past the brand daily carrier limit instead of ' +
+            'pausing at it. Only applies to brands T-Mobile meters (Aegis-vetted, non-political), ' +
+            'which otherwise pause each Pacific day at their T-Mobile cap and must be started ' +
+            'again to continue. Setting this accepts that messages to T-Mobile recipients over ' +
+            'the limit may fail and are still billed. Defaults to false.',
         },
       },
       required: ['confirm', 'id', 'scheduled_at', 'scheduled_timezone'],
@@ -467,6 +484,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
           link_tracking_destination_url: opt(args, 'link_tracking_destination_url'),
           link_tracking_domain_id: opt(args, 'link_tracking_domain_id'),
           link_tracking_param_field: opt(args, 'link_tracking_param_field'),
+          link_tracking_fallback_url: opt(args, 'link_tracking_fallback_url'),
           opt_out_footer_enabled: args.opt_out_footer_enabled as boolean | undefined,
         }),
       );
@@ -485,6 +503,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
           // The tool inputSchema enum constrains the value; the server rejects
           // anything outside the six supported zones with a 400.
           scheduled_timezone: s(args, 'scheduled_timezone') as ScheduleTimezone,
+          daily_cap_bypass: args.daily_cap_bypass as boolean | undefined,
         }),
       );
     case 'unschedule_project':
@@ -500,7 +519,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.3.1' },
+    { name: 'political-comms', version: '0.4.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

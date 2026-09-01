@@ -452,6 +452,93 @@ class TestProjectListAndCreateOptions:
             )
         assert "contact_list_ids" not in seen["body"]
 
+    def test_create_project_sends_link_tracking_fallback_url(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({"project_id": "proj_10", "status": "awaiting_test"})
+
+        with make_client(handler) as client:
+            client.create_project(
+                "org_1",
+                "Per-recipient links",
+                "sms",
+                "Hello {tracking_url}",
+                phone_number_ids=["pn_1"],
+                contact_list_ids=["cl_1"],
+                link_tracking_enabled=True,
+                link_tracking_domain_id="td_1",
+                link_tracking_param_field="custom_url",
+                link_tracking_destination_url="https://{custom_url}",
+                link_tracking_fallback_url="https://example.com/fallback",
+            )
+        assert seen["body"]["link_tracking_destination_url"] == "https://{custom_url}"
+        assert seen["body"]["link_tracking_fallback_url"] == "https://example.com/fallback"
+
+    def test_update_project_omits_link_tracking_fallback_url_unless_given(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({"project_id": "proj_1"})
+
+        with make_client(handler) as client:
+            client.update_project("proj_1", name="Renamed")
+            client.update_project("proj_1", link_tracking_fallback_url="https://example.com/fb")
+        assert seen["body"] == {"link_tracking_fallback_url": "https://example.com/fb"}
+
+    def test_schedule_project_omits_daily_cap_bypass_by_default(self):
+        # Absent means pause at the brand's daily T-Mobile carrier limit, which
+        # is the safe default; the client must not send the field unasked.
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({"project_id": "proj_1", "status": "scheduled"})
+
+        with make_client(handler) as client:
+            client.schedule_project(
+                "proj_1", "2026-11-03T09:00:00-04:00", "America/New_York"
+            )
+        assert seen["body"] == {
+            "scheduled_at": "2026-11-03T09:00:00-04:00",
+            "scheduled_timezone": "America/New_York",
+        }
+
+    def test_schedule_project_sends_daily_cap_bypass_when_set(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({"project_id": "proj_1", "daily_cap_bypass": True})
+
+        with make_client(handler) as client:
+            client.schedule_project(
+                "proj_1",
+                "2026-11-03T09:00:00-04:00",
+                "America/New_York",
+                daily_cap_bypass=True,
+            )
+        assert seen["body"]["daily_cap_bypass"] is True
+
+    def test_schedule_project_sends_explicit_false(self):
+        # False is a real choice ("pause at the limit"), not an omission.
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({})
+
+        with make_client(handler) as client:
+            client.schedule_project(
+                "proj_1",
+                "2026-11-03T09:00:00-04:00",
+                "America/New_York",
+                daily_cap_bypass=False,
+            )
+        assert seen["body"]["daily_cap_bypass"] is False
+
     def test_create_project_still_sends_explicit_empty_list(self):
         seen = {}
 

@@ -48,7 +48,8 @@ Commands:
   projects get <id>                Show one project
   projects create                  Create a project (see create flags)
   projects test <id>               Send a test message (--phone, repeatable)
-  projects schedule <id>           Schedule a send (--send-at, --timezone)
+  projects schedule <id>           Schedule a send (--send-at, --timezone,
+                                   [--daily-cap-bypass])
   projects unschedule <id>         Remove a schedule
   projects copy <id>               Copy a project (drops lists, schedule, stats)
   projects archive <id>            Archive a completed project
@@ -103,6 +104,7 @@ const PARSE_OPTIONS = {
   phone: { type: 'string', multiple: true },
   'send-at': { type: 'string' },
   timezone: { type: 'string' },
+  'daily-cap-bypass': { type: 'boolean', default: false },
   from: { type: 'string' },
   to: { type: 'string' },
 } as const;
@@ -412,11 +414,18 @@ async function projectsCommand(
       const result = await client.scheduleProject(id, {
         scheduled_at: flags['send-at'],
         scheduled_timezone: flags.timezone,
+        // Opt-in only: omitted means the project pauses at the brand's
+        // T-Mobile daily cap, which is the safe default.
+        ...(flags['daily-cap-bypass'] ? { daily_cap_bypass: true } : {}),
       });
       if (flags.json) return printJson(io, result);
       io.out(
         `Scheduled project ${id} for ${str(result.data?.scheduled_at) || flags['send-at']} ` +
-          `(${str(result.data?.scheduled_timezone) || flags.timezone}).`,
+          `(${str(result.data?.scheduled_timezone) || flags.timezone}).` +
+          (result.data?.daily_cap_bypass
+            ? ' Sending will not pause at the brand daily carrier limit; over-limit ' +
+              'T-Mobile messages may fail and are still billed.'
+            : ''),
       );
       return 0;
     }

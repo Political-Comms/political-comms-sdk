@@ -185,6 +185,45 @@ describe('commands', () => {
     });
   });
 
+  it('projects schedule omits daily_cap_bypass unless the flag is passed', async () => {
+    // Absent means pause at the brand's daily carrier limit - the safe default.
+    // The CLI must not send the field at all rather than sending false.
+    const client = makeClient();
+    const { io } = makeIO();
+    await main(
+      ['projects', 'schedule', 'proj_1', '--send-at', '2026-11-03T09:00:00', '--timezone', 'America/New_York'],
+      deps(client, io),
+    );
+    expect(client.scheduleProject).toHaveBeenCalledWith('proj_1', {
+      scheduled_at: '2026-11-03T09:00:00',
+      scheduled_timezone: 'America/New_York',
+    });
+  });
+
+  it('projects schedule sends daily_cap_bypass when --daily-cap-bypass is passed', async () => {
+    const client = makeClient();
+    const { io } = makeIO();
+    const code = await main(
+      [
+        'projects',
+        'schedule',
+        'proj_1',
+        '--send-at',
+        '2026-11-03T09:00:00',
+        '--timezone',
+        'America/New_York',
+        '--daily-cap-bypass',
+      ],
+      deps(client, io),
+    );
+    expect(code).toBe(0);
+    expect(client.scheduleProject).toHaveBeenCalledWith('proj_1', {
+      scheduled_at: '2026-11-03T09:00:00',
+      scheduled_timezone: 'America/New_York',
+      daily_cap_bypass: true,
+    });
+  });
+
   it('projects copy calls copyProject and reports the new project', async () => {
     const client = makeClient();
     const { io, out } = makeIO();

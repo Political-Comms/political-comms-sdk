@@ -309,6 +309,25 @@ describe('endpoint serialization', () => {
     });
   });
 
+  it('sends daily_cap_bypass only when the caller sets it', async () => {
+    // Opt-in to running past the brand's T-Mobile daily cap. Omitted means the
+    // project pauses at the cap, which is the safe default - the SDK must not
+    // invent the field.
+    const fetchMock = vi.fn(async () => okResponse({}));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.scheduleProject('p1', {
+      scheduled_at: '2026-07-04T09:00:00Z',
+      scheduled_timezone: 'America/New_York',
+      daily_cap_bypass: true,
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      scheduled_at: '2026-07-04T09:00:00Z',
+      scheduled_timezone: 'America/New_York',
+      daily_cap_bypass: true,
+    });
+  });
+
   it('sends POST without a body for unscheduleProject', async () => {
     const fetchMock = vi.fn(async () => okResponse({}));
     const client = makeClient(fetchMock as unknown as typeof fetch);
@@ -555,5 +574,27 @@ describe('projects list and create options', () => {
     });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(init.body as string)).not.toHaveProperty('contact_list_ids');
+  });
+
+  it('passes a whole-URL link tracking destination and its fallback through unchanged', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ project_id: 'proj_10', status: 'awaiting_test' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.createProject({
+      organization_id: 'org_1',
+      phone_number_ids: ['pn_1'],
+      name: 'Per-recipient links',
+      protocol: 'sms',
+      contact_list_ids: ['cl_1'],
+      message_text: 'Hello {tracking_url}',
+      link_tracking_enabled: true,
+      link_tracking_domain_id: 'td_1',
+      link_tracking_param_field: 'custom_url',
+      link_tracking_destination_url: 'https://{custom_url}',
+      link_tracking_fallback_url: 'https://example.com/fallback',
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.link_tracking_destination_url).toBe('https://{custom_url}');
+    expect(body.link_tracking_fallback_url).toBe('https://example.com/fallback');
   });
 });
