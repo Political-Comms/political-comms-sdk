@@ -557,3 +557,292 @@ class TestProjectListAndCreateOptions:
             )
         # The API rejects an explicitly empty array; the SDK must not drop it.
         assert seen["body"]["contact_list_ids"] == []
+
+
+class TestEmailTemplates:
+    def test_list_serializes_query_and_omits_unset(self):
+        seen = {}
+
+        def handler(request):
+            seen["url"] = request.url
+            return ok_response({"data": [], "has_more": False, "next_cursor": None})
+
+        with make_client(handler) as client:
+            client.list_email_templates(limit=100, search="gotv")
+        assert seen["url"].path == "/v1/email/templates"
+        assert seen["url"].params["limit"] == "100"
+        assert seen["url"].params["search"] == "gotv"
+        assert "cursor" not in seen["url"].params
+
+    def test_create_returns_lint_alongside_the_template(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(
+                201,
+                json={
+                    "success": True,
+                    "data": {
+                        "id": "tpl_1",
+                        "name": "GOTV",
+                        "content": {"subject": "Vote Tuesday", "editor": "html"},
+                        "lint": {"errors": [{"code": "MISSING_UNSUBSCRIBE"}], "warnings": []},
+                    },
+                },
+            )
+
+        with make_client(handler) as client:
+            result = client.create_email_template(
+                "GOTV", {"subject": "Vote Tuesday", "html": "<p>Vote</p>"}
+            )
+        assert seen["body"]["content"]["subject"] == "Vote Tuesday"
+        assert "description" not in seen["body"]
+        assert len(result["data"]["lint"]["errors"]) == 1
+
+    def test_update_patches_and_delete_sends_no_auto_key(self):
+        seen = {}
+
+        def handler(request):
+            seen.setdefault("methods", []).append(request.method)
+            seen["idempotency"] = request.headers.get("Idempotency-Key")
+            return ok_response({"id": "tpl_1"})
+
+        with make_client(handler) as client:
+            client.update_email_template("tpl_1", {"name": "Renamed"})
+            client.delete_email_template("tpl_1")
+        assert seen["methods"] == ["PATCH", "DELETE"]
+        # DELETE never auto-generates a key.
+        assert seen["idempotency"] is None
+
+
+class TestEmailTemplateDrafts:
+    @staticmethod
+    def _draft(status, **extra):
+        return {
+            "id": "draft_1",
+            "status": status,
+            "prompt": "A GOTV email for Tuesday",
+            "subject": None,
+            "error_code": None,
+            "error_message": None,
+            "completed_at": None,
+            **extra,
+        }
+
+    def test_request_posts_and_returns_the_unit_price(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            seen["path"] = request.url.path
+            return httpx.Response(
+                202,
+                json={
+                    "success": True,
+                    "data": {"draft": self._draft("queued"), "unit_price": 3},
+                },
+            )
+
+        with make_client(handler) as client:
+            result = client.request_email_template_draft(
+                "A GOTV email for Tuesday", brand_colors={"primary": "#1a3d7c"}
+            )
+        assert seen["path"] == "/v1/email/templates/drafts"
+        assert seen["body"]["brand_colors"]["primary"] == "#1a3d7c"
+        assert "image_media_ids" not in seen["body"]
+        assert result["data"]["unit_price"] == 3
+
+    def test_insufficient_balance_is_not_retried(self):
+        calls = []
+
+        def handler(request):
+            calls.append(request.url.path)
+            return error_response(402, "INSUFFICIENT_BALANCE")
+
+        with make_client(handler) as client:
+            with pytest.raises(PoliticalCommsError) as excinfo:
+                client.request_email_template_draft("A GOTV email for Tuesday")
+        assert excinfo.value.code == "INSUFFICIENT_BALANCE"
+        assert len(calls) == 1
+
+    def test_wait_polls_past_the_non_terminal_states(self):
+        statuses = iter(["queued", "running", "ready"])
+        calls = []
+
+        def handler(request):
+            calls.append(request.url.path)
+            return ok_response(self._draft(next(statuses)))
+
+        with make_client(handler) as client:
+            draft = client.wait_for_email_template_draft("draft_1", interval_seconds=0)
+        assert len(calls) == 3
+        assert draft["status"] == "ready"
+
+    def test_wait_returns_a_failed_draft_rather_than_raising(self):
+        def handler(request):
+            return ok_response(
+                self._draft("failed", error_code="EMAIL_DRAFT_MODEL_ERROR")
+            )
+
+        with make_client(handler) as client:
+            draft = client.wait_for_email_template_draft("draft_1", interval_seconds=0)
+        assert draft["error_code"] == "EMAIL_DRAFT_MODEL_ERROR"
+
+    def test_wait_raises_a_timeout_carrying_the_last_draft(self):
+        def handler(request):
+            return ok_response(self._draft("running"))
+
+        with make_client(handler) as client:
+            with pytest.raises(PoliticalCommsError) as excinfo:
+                client.wait_for_email_template_draft(
+                    "draft_1", interval_seconds=10, timeout_seconds=0
+                )
+        assert excinfo.value.code == "EMAIL_DRAFT_TIMEOUT"
+        assert excinfo.value.status_code == 0
+
+
+class TestEmailListImports:
+    def test_start_posts_the_consent_block(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            seen["path"] = request.url.path
+            return httpx.Response(
+                202, json={"success": True, "data": {"id": "imp_1", "status": "queued"}}
+            )
+
+        with make_client(handler) as client:
+            client.start_email_list_import(
+                "https://example.com/donors.csv", "lst_1", {"source": "donation_form"}
+            )
+        assert seen["path"] == "/v1/email/lists/import"
+        assert seen["body"]["consent"]["source"] == "donation_form"
+        # Omitted mapping lets the server recognizer run.
+        assert "mapping" not in seen["body"]
+
+    def test_missing_email_column_surfaces_the_headers_that_were_read(self):
+        def handler(request):
+            return httpx.Response(
+                400,
+                json={
+                    "success": False,
+                    "error": "No email column found",
+                    "code": "VALIDATION_ERROR",
+                    "details": {"headers": ["First", "Last", "Contact"]},
+                },
+            )
+
+        with make_client(handler) as client:
+            with pytest.raises(PoliticalCommsError) as excinfo:
+                client.start_email_list_import(
+                    "https://example.com/donors.csv", "lst_1", {"source": "other"}
+                )
+        assert excinfo.value.body["details"]["headers"] == ["First", "Last", "Contact"]
+
+    def test_get_reads_one_import(self):
+        seen = {}
+
+        def handler(request):
+            seen["path"] = request.url.path
+            return ok_response({"id": "imp_1", "status": "completed"})
+
+        with make_client(handler) as client:
+            client.get_email_list_import("imp_1")
+        assert seen["path"] == "/v1/email/lists/imports/imp_1"
+
+
+class TestEmailListValidationExport:
+    def test_queues_an_export_defaulting_to_every_address(self):
+        seen = {}
+
+        def handler(request):
+            seen["path"] = request.url.path
+            seen["method"] = request.method
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(
+                202,
+                json={
+                    "success": True,
+                    "data": {"file_id": "file_1", "status": "generating"},
+                },
+            )
+
+        with make_client(handler) as client:
+            result = client.export_email_list("lst_1")
+        assert seen["path"] == "/v1/email/lists/lst_1/export"
+        assert seen["method"] == "POST"
+        assert seen["body"] == {"state": "all"}
+        assert result["data"]["file_id"] == "file_1"
+
+    def test_sends_the_verdict_class_when_one_is_asked_for(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(202, json={"success": True, "data": {"file_id": "f"}})
+
+        with make_client(handler) as client:
+            client.export_email_list("lst_1", state="undeliverable")
+        assert seen["body"] == {"state": "undeliverable"}
+
+    def test_download_reads_the_file_by_id(self):
+        seen = {}
+
+        def handler(request):
+            seen["path"] = request.url.path
+            return ok_response(
+                {"file_id": "file_1", "download_url": "/public/email-list-exports/tok"}
+            )
+
+        with make_client(handler) as client:
+            result = client.get_email_list_export_download("lst_1", "file_1")
+        assert seen["path"] == "/v1/email/lists/lst_1/export/file_1/download"
+        assert result["data"]["download_url"] == "/public/email-list-exports/tok"
+
+    def test_export_not_ready_raises_rather_than_looking_like_success(self):
+        def handler(request):
+            return httpx.Response(
+                409,
+                json={
+                    "success": False,
+                    "error": "Export is not ready yet",
+                    "code": "EXPORT_NOT_READY",
+                },
+            )
+
+        with make_client(handler) as client:
+            with pytest.raises(PoliticalCommsError) as excinfo:
+                client.get_email_list_export_download("lst_1", "file_1")
+        assert excinfo.value.code == "EXPORT_NOT_READY"
+
+
+class TestMediaUsage:
+    def test_email_asset_usage_is_sent_without_a_brand(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({"media_id": "media_1"})
+
+        with make_client(handler) as client:
+            client.import_media(
+                "https://example.com/header.png",
+                organization_id="org_1",
+                usage="email_asset",
+            )
+        assert seen["body"]["usage"] == "email_asset"
+        # Email assets are organization-scoped: sending brand_id too is a 400.
+        assert "brand_id" not in seen["body"]
+
+    def test_usage_is_omitted_for_a_default_mms_import(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({"media_id": "media_2"})
+
+        with make_client(handler) as client:
+            client.import_media("https://example.com/rally.jpg", brand_id="brand_1")
+        assert "usage" not in seen["body"]

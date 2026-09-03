@@ -1,24 +1,24 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.politicalcomms/api",
-  "description": "Compliant political SMS/MMS from MCP clients: projects, contacts, analytics, billing.",
+  "description": "Compliant political SMS/MMS from MCP clients: projects, contacts, analytics, billing, and email (early access).",
   "repository": {
     "url": "https://github.com/Political-Comms/political-comms-sdk",
     "source": "github",
     "subfolder": "packages/mcp"
   },
-  "version": "0.4.1",
+  "version": "0.6.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@political-comms/mcp",
-      "version": "0.4.1",
+      "version": "0.6.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
-          "description": "Political Comms API key (pc_live_*), created by a human operator in the dashboard under Admin > API Keys",
+          "description": "Political Comms API key (pc_live_*), created by a human operator in the dashboard under Admin > API",
           "isRequired": true,
           "format": "string",
           "isSecret": true,

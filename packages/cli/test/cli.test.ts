@@ -34,6 +34,54 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     deleteMedia: vi.fn(() => ok({ media_id: 'media_1', name: 'rally-photo.jpg', deleted: true })),
     getMessageStats: vi.fn(() => ok({ totals: { sent: 10 }, daily: [] })),
     getLedgerUsage: vi.fn(() => ok({ organization_name: 'Civic Action Fund', totals: { total_cost: 12.5 } })),
+    listEmailTemplates: vi.fn(() =>
+      ok({
+        data: [
+          {
+            id: 'tpl_1',
+            name: 'GOTV',
+            content: { subject: 'Vote Tuesday', html: '<p>Vote</p>', editor: 'html' },
+            updated_at: '2026-09-01T00:00:00Z',
+          },
+        ],
+        has_more: false,
+        next_cursor: null,
+      }),
+    ),
+    getEmailTemplate: vi.fn(() =>
+      ok({
+        id: 'tpl_1',
+        name: 'GOTV',
+        description: null,
+        content: { subject: 'Vote Tuesday', preheader: null, html: '<p>Vote</p>', editor: 'html' },
+        updated_at: '2026-09-01T00:00:00Z',
+      }),
+    ),
+    getEmailTemplateDraft: vi.fn(() =>
+      ok({
+        id: 'draft_1',
+        status: 'ready',
+        subject: 'Vote Tuesday',
+        preheader: null,
+        error_code: null,
+        error_message: null,
+        html: '<p>Vote</p>',
+        completed_at: '2026-09-01T00:01:00Z',
+      }),
+    ),
+    getEmailListImport: vi.fn(() =>
+      ok({
+        id: 'imp_1',
+        status: 'completed',
+        email_list_id: 'lst_1',
+        file_name: 'donors.csv',
+        headers: ['Email', 'First Name'],
+        recognized_provider: 'mailchimp',
+        error_message: null,
+        summary: { imported: 1200, rejected: 3 },
+        completed_at: '2026-09-01T00:05:00Z',
+      }),
+    ),
     ...overrides,
   };
   return base as unknown as CliClient;
@@ -355,5 +403,86 @@ describe('formatting helpers', () => {
 
   it('kv aligns keys', () => {
     expect(kv({ id: 'x', list_name: 'Voters' }).split('\n')).toEqual(['id         x', 'list_name  Voters']);
+  });
+});
+
+describe('email read commands', () => {
+  it('email templates list renders the subject from the nested content object', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['email', 'templates', 'list', '--search', 'gotv'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.listEmailTemplates).toHaveBeenCalledWith({ limit: undefined, search: 'gotv' });
+    expect(out.join('\n')).toContain('SUBJECT');
+    expect(out.join('\n')).toContain('Vote Tuesday');
+  });
+
+  it('email templates get reports the html size rather than dumping the body', async () => {
+    const { io, out } = makeIO();
+    const code = await main(['email', 'templates', 'get', 'tpl_1'], deps(makeClient(), io));
+
+    expect(code).toBe(0);
+    const text = out.join('\n');
+    expect(text).toContain('html_bytes');
+    expect(text).not.toContain('<p>Vote</p>');
+  });
+
+  it('email templates get --json includes the html', async () => {
+    const { io, out } = makeIO();
+    const code = await main(['email', 'templates', 'get', 'tpl_1', '--json'], deps(makeClient(), io));
+
+    expect(code).toBe(0);
+    expect(out.join('\n')).toContain('<p>Vote</p>');
+  });
+
+  it('email drafts get prints the status and error code', async () => {
+    const client = makeClient({
+      getEmailTemplateDraft: vi.fn(() =>
+        ok({
+          id: 'draft_1',
+          status: 'failed',
+          subject: null,
+          error_code: 'EMAIL_DRAFT_MODEL_ERROR',
+          error_message: 'model timeout',
+          html: null,
+        }),
+      ),
+    });
+    const { io, out } = makeIO();
+    const code = await main(['email', 'drafts', 'get', 'draft_1'], deps(client, io));
+
+    expect(code).toBe(0);
+    const text = out.join('\n');
+    expect(text).toContain('failed');
+    expect(text).toContain('EMAIL_DRAFT_MODEL_ERROR');
+  });
+
+  it('email imports get prints the header count and the summary', async () => {
+    const { io, out } = makeIO();
+    const code = await main(['email', 'imports', 'get', 'imp_1'], deps(makeClient(), io));
+
+    expect(code).toBe(0);
+    const text = out.join('\n');
+    expect(text).toContain('donors.csv');
+    expect(text).toContain('headers');
+    expect(text).toContain('Summary:');
+    expect(text).toContain('imported');
+  });
+
+  it('exits 2 when email templates get is missing the id', async () => {
+    const { io, err } = makeIO();
+    const code = await main(['email', 'templates', 'get'], deps(makeClient(), io));
+
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('email templates get <id>');
+  });
+
+  it('exits 2 on a write subcommand: email writes belong in an SDK script', async () => {
+    const { io, err } = makeIO();
+    const code = await main(['email', 'templates', 'create'], deps(makeClient(), io));
+
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('email templates <list|get>');
   });
 });

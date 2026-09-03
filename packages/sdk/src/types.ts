@@ -442,12 +442,22 @@ export interface ListMediaQuery {
   brand_id?: string;
 }
 
+/**
+ * What the imported file is for. MMS attachments are brand-scoped; email
+ * assets are organization-scoped, so `brand_id` must be omitted when usage is
+ * 'email_asset'. Sending both is refused at the schema layer with a 400
+ * VALIDATION_ERROR rather than the brand being ignored.
+ */
+export type MediaUsage = 'mms' | 'email_asset';
+
 export interface ImportMediaRequest {
   /** HTTPS URL of the media file to import. The server retrieves and stores it. */
   source_url: string;
   organization_id?: string;
   brand_id?: string;
   name?: string;
+  /** Defaults to 'mms'. Use 'email_asset' for images an email template references. */
+  usage?: MediaUsage;
 }
 
 /** 202 Accepted. Poll GET /media/{id} for readiness. */
@@ -1065,4 +1075,609 @@ export interface GetLedgerUsageByInitiatorQuery {
   /** End date in YYYY-MM-DD format. */
   endDate: string;
   organizationId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Email (early access)
+//
+// Every /v1/email endpoint returns 403 EMAIL_EARLY_ACCESS until the email
+// product reaches general availability. The contract below is stable.
+// ---------------------------------------------------------------------------
+
+/** Keyset-paginated list envelope used by every email list endpoint. */
+export interface CursorPage<T> {
+  data: T[];
+  has_more: boolean;
+  /** Opaque; pass back as `cursor`. Null on the last page. Never parse it. */
+  next_cursor: string | null;
+}
+
+export interface EmailPageQuery {
+  /** Rows per page, 1-200. Defaults to 50. */
+  limit?: number;
+  /** Cursor from the previous page's `next_cursor`. */
+  cursor?: string;
+}
+
+export interface EmailDnsRecord {
+  type: 'CNAME' | 'TXT' | 'MX';
+  name: string;
+  value: string | null;
+  purpose?: string | null;
+  [key: string]: unknown;
+}
+
+export interface EmailDomain {
+  id: string;
+  domain: string;
+  status: 'pending' | 'active' | 'failed';
+  dns_records?: EmailDnsRecord[];
+  verification?: Record<string, string | null>;
+  error_message?: string | null;
+  last_checked_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+export interface ListEmailDomainsQuery extends EmailPageQuery {
+  search?: string;
+}
+
+export interface CreateEmailDomainRequest {
+  domain: string;
+}
+
+export interface EmailSenderIdentity {
+  id: string;
+  email_domain_id: string;
+  from_address: string;
+  from_local_part?: string;
+  from_name?: string;
+  reply_to?: string | null;
+  status: 'draft' | 'active' | 'paused';
+  physical_address?: string | null;
+  disclaimer?: string | null;
+  disclaimer_required?: boolean;
+  authorized_by_candidate?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+export interface CreateEmailSenderRequest {
+  email_domain_id: string;
+  from_local_part: string;
+  from_name: string;
+  reply_to?: string;
+  physical_address?: string;
+  disclaimer?: string;
+  disclaimer_required?: boolean;
+  authorized_by_candidate?: boolean;
+}
+
+/** At least one field is required. */
+export interface UpdateEmailSenderRequest {
+  from_name?: string;
+  reply_to?: string;
+  forward_to?: string;
+  physical_address?: string;
+  disclaimer?: string;
+  disclaimer_required?: boolean;
+  authorized_by_candidate?: boolean;
+}
+
+export type EmailListSourceType = 'uploaded' | 'segmented' | 'winred' | 'anedot';
+
+export type EmailContactStatus =
+  | 'subscribed'
+  | 'unsubscribed'
+  | 'bounced'
+  | 'complained'
+  | 'invalid'
+  | 'sunset';
+
+export interface EmailListCounts {
+  total?: number;
+  sendable?: number;
+  bounced?: number;
+  complained?: number;
+  unsubscribed?: number;
+  invalid?: number;
+  suppressed_global?: number;
+  [key: string]: unknown;
+}
+
+export interface EmailList {
+  id: string;
+  name: string;
+  description?: string | null;
+  source_type: EmailListSourceType;
+  status: 'processing' | 'ready' | 'failed' | 'archived';
+  sender_identity_id?: string | null;
+  /** Provenance for a list you did not collect yourself. Acquired lists must be validated before the first send. */
+  acquired?: string | null;
+  sunset_enabled?: boolean;
+  validated_at?: string | null;
+  counts?: EmailListCounts;
+  last_send_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+/** How the people on a list consented to hear from you. Required on create. */
+export interface EmailConsentAttestation {
+  source: string;
+  note?: string;
+}
+
+export interface ListEmailListsQuery extends EmailPageQuery {
+  source_type?: EmailListSourceType;
+  search?: string;
+}
+
+export interface CreateEmailListRequest {
+  name: string;
+  consent_attestation: EmailConsentAttestation;
+  description?: string;
+  sender_identity_id?: string;
+  acquired?: string;
+  sunset_enabled?: boolean;
+}
+
+/** At least one field is required. */
+export interface UpdateEmailListRequest {
+  name?: string;
+  description?: string;
+  acquired?: string;
+  sunset_enabled?: boolean;
+  consent_attestation?: EmailConsentAttestation;
+}
+
+export interface EmailListContact {
+  id: string;
+  email: string;
+  status: EmailContactStatus;
+  status_reason?: string | null;
+  fields?: Record<string, unknown>;
+  consent_source?: string | null;
+  consent_at?: string | null;
+  validation_state?: string | null;
+  added_at?: string;
+  last_engaged_at?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ListEmailContactsQuery extends EmailPageQuery {
+  status?: EmailContactStatus;
+  search?: string;
+}
+
+export interface EmailContactInput {
+  email: string;
+  fields?: Record<string, unknown>;
+  consent_source?: string;
+  /** ISO 8601 date-time. */
+  consent_at?: string;
+}
+
+/** Per-row outcome. Invalid rows are reported, not fatal. */
+export interface BulkUpsertResult {
+  written: number;
+  accepted: number;
+  rejected: number;
+  duplicates: number;
+  results: Array<{
+    index: number;
+    email: string;
+    status: 'accepted' | 'rejected' | 'duplicate';
+    reason: string | null;
+  }>;
+  [key: string]: unknown;
+}
+
+export interface RemoveEmailContactsResult {
+  unsubscribed: number;
+  submitted: number;
+  [key: string]: unknown;
+}
+
+export interface EmailValidationJob {
+  id: string;
+  list_id: string;
+  status: string;
+  total_count?: number;
+  processed_count?: number;
+  pending_count?: number;
+  validated_at?: string | null;
+  created_at?: string;
+  completed_at?: string | null;
+  [key: string]: unknown;
+}
+
+/** The verdict classes a list export may be narrowed to, plus every address. */
+export type EmailListExportState =
+  | 'all'
+  | 'deliverable'
+  | 'undeliverable'
+  | 'risky'
+  | 'unknown';
+
+export interface EmailListExport {
+  file_id: string;
+  file_name?: string;
+  /** Present when the export was just queued. */
+  status?: string;
+  /**
+   * Only on the download endpoint. A tokenized path valid for 7 days; join it
+   * to the API host. The redirect it serves is signed at click time, so the
+   * link keeps working for its full window.
+   */
+  download_url?: string;
+  [key: string]: unknown;
+}
+
+export type EmailSuppressionScope = 'org' | 'identity' | 'list';
+
+export interface EmailSuppression {
+  email: string;
+  scope: EmailSuppressionScope;
+  reason?: string | null;
+  source?: string | null;
+  sender_identity_id?: string | null;
+  suppression_list_id?: string | null;
+  suppressed_at?: string;
+  [key: string]: unknown;
+}
+
+export interface ListEmailSuppressionsQuery extends EmailPageQuery {
+  scope?: EmailSuppressionScope;
+}
+
+export interface AddEmailSuppressionsRequest {
+  scope: EmailSuppressionScope;
+  /** 1-5000 addresses. */
+  emails: string[];
+  reason?: string;
+  /** Required when scope is 'identity'. */
+  sender_identity_id?: string;
+  /** Required when scope is 'list'. */
+  suppression_list_id?: string;
+}
+
+export interface RemoveEmailSuppressionsRequest {
+  scope: EmailSuppressionScope;
+  /** 1-5000 addresses. */
+  emails: string[];
+  sender_identity_id?: string;
+  suppression_list_id?: string;
+}
+
+export interface AddEmailSuppressionsResult {
+  added: number;
+  submitted: number;
+  invalid: string[];
+  [key: string]: unknown;
+}
+
+export interface RemoveEmailSuppressionsResult {
+  removed: number;
+  submitted: number;
+  [key: string]: unknown;
+}
+
+export type EmailCampaignStatus =
+  | 'draft'
+  | 'awaiting_test'
+  | 'awaiting_approval'
+  | 'ready'
+  | 'scheduled'
+  | 'compiling'
+  | 'sending'
+  | 'paused'
+  | 'completed'
+  | 'archived'
+  | 'deleted';
+
+export interface EmailCampaignCounts {
+  queued?: number;
+  sent?: number;
+  delivered?: number;
+  bounced?: number;
+  complained?: number;
+  unsubscribed?: number;
+  opened?: number;
+  clicked?: number;
+  failed?: number;
+  [key: string]: unknown;
+}
+
+export type EmailCampaignApprovalStatus = 'not_required' | 'pending' | 'approved' | 'rejected';
+
+export interface EmailCampaign {
+  id: string;
+  name: string;
+  status: EmailCampaignStatus;
+  sender_identity_id: string;
+  list_ids?: string[];
+  suppression_list_ids?: string[];
+  refcode?: string | null;
+  source_code?: string | null;
+  scheduled_at?: string | null;
+  timezone?: string | null;
+  audience_count?: number | null;
+  counts?: EmailCampaignCounts;
+  pause_reason?: string | null;
+  /** Tracking domain serving this campaign's `/e/*` URLs. `null` = the platform link host. */
+  tracking_domain_id?: string | null;
+  /**
+   * The resolved tracking domain, on the single-campaign read. Links are
+   * branded only while `status` is `active`; any other status means the send
+   * falls back to the platform link host.
+   */
+  tracking_domain?: { id: string; domain: string; status: string } | null;
+  /** Returned by the single-campaign read: why this campaign will not schedule yet. */
+  blocked?: Array<{ code: string; message: string }>;
+  require_approval?: boolean;
+  approval_status?: EmailCampaignApprovalStatus;
+  /** ISO 8601 date-time of the last accepted test send, or null. */
+  last_tested_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+export interface ListEmailCampaignsQuery extends EmailPageQuery {
+  status?: EmailCampaignStatus;
+  search?: string;
+}
+
+export interface CreateEmailCampaignRequest {
+  name: string;
+  sender_identity_id: string;
+  /** 1-50 list ids. */
+  list_ids: string[];
+  suppression_list_ids?: string[];
+  template_id?: string;
+  subject?: string;
+  preheader?: string;
+  html?: string;
+  source_code?: string;
+  refcode?: string;
+  append_utm?: boolean;
+  is_repermission?: boolean;
+  /**
+   * Tracking domain for this campaign's tracked links, open pixel, unsubscribe
+   * page and browser view, so recipients see your own `links.` host. Must be an
+   * active tracking domain your organization owns or inherits. Omit to let the
+   * platform pick the obvious default (the one matching your sending domain's
+   * root, or your only one); pass `null` to force the platform link host.
+   */
+  tracking_domain_id?: string | null;
+  require_approval?: boolean;
+}
+
+/** At least one field is required. Drafts only. */
+export type UpdateEmailCampaignRequest = Partial<CreateEmailCampaignRequest>;
+
+export interface TestEmailCampaignRequest {
+  /** 1-10 addresses. */
+  to: string[];
+}
+
+export interface TestEmailCampaignResult {
+  sent: number;
+  recipients: string[];
+  [key: string]: unknown;
+}
+
+export interface ScheduleEmailCampaignRequest {
+  /** ISO 8601 date-time. Omit to send now. */
+  scheduled_at?: string;
+}
+
+export interface EmailCampaignStats {
+  campaign_id: string;
+  status: string;
+  tiles?: Record<string, unknown>;
+  links?: Array<{
+    id: string;
+    url: string;
+    label: string | null;
+    is_donation_link: boolean;
+    clicks: number;
+    unique_clicks: number;
+  }>;
+  /** Always true: test and seed sends are excluded from every figure. */
+  excludes_test_and_seed?: boolean;
+  [key: string]: unknown;
+}
+
+export interface DeletedResult {
+  deleted?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Template body. `editor` is always 'html' on this surface: the API neither
+ * accepts nor returns the visual designer's document, so a template edited in
+ * the dashboard designer is readable here as its rendered HTML only.
+ */
+export interface EmailTemplateContent {
+  subject: string | null;
+  preheader: string | null;
+  html: string | null;
+  text: string | null;
+  editor: 'html';
+}
+
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  content: EmailTemplateContent;
+  thumbnail_url: string | null;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Deliverability and compliance findings for the saved HTML, in the same shape
+ * the dashboard renders. Typed loosely because the rule set grows without a
+ * version bump; read `errors` and `warnings` and show the rest verbatim.
+ */
+export interface EmailTemplateLint {
+  errors?: unknown[];
+  warnings?: unknown[];
+  [key: string]: unknown;
+}
+
+/**
+ * Create and update return the saved template plus its lint findings. The save
+ * succeeds regardless, but a campaign will not schedule while `lint.errors` is
+ * non-empty, so check it here rather than at send time.
+ */
+export interface EmailTemplateWithLint extends EmailTemplate {
+  lint?: EmailTemplateLint;
+}
+
+export interface ListEmailTemplatesQuery extends EmailPageQuery {
+  /** Case-insensitive substring match, 1-255 characters. */
+  search?: string;
+}
+
+export interface CreateEmailTemplateRequest {
+  /** 1-255 characters. */
+  name: string;
+  content: {
+    /** 1-900 characters. */
+    subject: string;
+    /** Up to 255 characters. */
+    preheader?: string;
+    /** 1 character to 2 MB. */
+    html: string;
+    /** Up to 500 KB. Generated from the HTML when omitted. */
+    text?: string;
+  };
+  /** Up to 2000 characters. */
+  description?: string;
+}
+
+/** At least one field is required. `content`, when sent, replaces the whole object. */
+export interface UpdateEmailTemplateRequest {
+  name?: string;
+  description?: string;
+  content?: CreateEmailTemplateRequest['content'];
+}
+
+export type EmailTemplateDraftStatus = 'queued' | 'running' | 'ready' | 'failed';
+
+/**
+ * INSUFFICIENT_BALANCE here means the wallet emptied mid-generation, which
+ * leaves the draft failed and unbilled. A wallet that cannot cover the draft
+ * up front is rejected at request time with a 402 instead, and no draft row
+ * is created.
+ */
+export type EmailTemplateDraftErrorCode =
+  | 'EMAIL_DRAFT_INVALID'
+  | 'EMAIL_DRAFT_MODEL_ERROR'
+  | 'INSUFFICIENT_BALANCE';
+
+export interface EmailTemplateDraft {
+  id: string;
+  status: EmailTemplateDraftStatus;
+  prompt: string;
+  subject: string | null;
+  preheader: string | null;
+  /**
+   * Present on the single-draft read only, where it is null until `status` is
+   * 'ready'. The create response omits the key entirely.
+   */
+  html?: string | null;
+  error_code: EmailTemplateDraftErrorCode | null;
+  error_message: string | null;
+  created_at?: string;
+  completed_at: string | null;
+  [key: string]: unknown;
+}
+
+/** Hex triplets (#rrggbb) the generated design should use. */
+export interface EmailDraftBrandColors {
+  primary?: string;
+  secondary?: string;
+  accent?: string;
+}
+
+export interface CreateEmailTemplateDraftRequest {
+  /** What the email should say, 10-4000 characters. */
+  prompt: string;
+  /**
+   * Up to 6 media ids to place in the design. Each must be media imported with
+   * usage 'email_asset' and owned by this organization; anything else is 400.
+   */
+  image_media_ids?: string[];
+  brand_colors?: EmailDraftBrandColors;
+}
+
+/** 202 Accepted. `unit_price` is what the draft costs once it reaches 'ready'. */
+export interface RequestEmailTemplateDraftResult {
+  draft: EmailTemplateDraft;
+  unit_price: number;
+  [key: string]: unknown;
+}
+
+/** How the people in the imported file consented to hear from you. */
+export type EmailListImportConsentSource =
+  | 'donation_form'
+  | 'petition'
+  | 'signup_form'
+  | 'event'
+  | 'purchased'
+  | 'rented'
+  | 'other';
+
+export interface EmailListImport {
+  id: string;
+  status: string;
+  email_list_id: string | null;
+  file_name: string | null;
+  file_size: number;
+  /** Column headers read from the CSV. */
+  headers: string[];
+  /** CSV header to contact field, as applied. */
+  mapping: Record<string, string>;
+  /** The ESP export format the recognizer matched, or null. */
+  recognized_provider: string | null;
+  summary: Record<string, unknown> | null;
+  error_message: string | null;
+  created_at?: string;
+  started_at: string | null;
+  completed_at: string | null;
+  [key: string]: unknown;
+}
+
+export interface StartEmailListImportRequest {
+  /** HTTPS URL of the CSV. The server fetches it; there is no file upload on this surface. */
+  source_url: string;
+  email_list_id: string;
+  consent: {
+    source: EmailListImportConsentSource;
+    note?: string;
+  };
+  /**
+   * CSV header to contact field. Omit to let the server recognize a common ESP
+   * export; when neither your mapping nor the recognizer finds an email column
+   * the call is a 400 VALIDATION_ERROR whose `details.headers` lists the
+   * headers that were read, so you can retry with a mapping instead of
+   * guessing.
+   */
+  mapping?: Record<string, string>;
+  options?: {
+    /** Accept role addresses (info@, sales@) instead of rejecting them. */
+    allow_role?: boolean;
+  };
 }

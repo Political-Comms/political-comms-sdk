@@ -14,7 +14,7 @@ npm install @political-comms/sdk
 
 ## Authentication
 
-Requests authenticate with an API key in the `X-API-Key` header. Keys are created in the dashboard under Admin > API Keys and are prefixed `pc_live_`.
+Requests authenticate with an API key in the `X-API-Key` header. Keys are created in the dashboard under Admin > API and are prefixed `pc_live_`.
 
 Set the key in the environment:
 
@@ -78,6 +78,96 @@ await client.scheduleProject(projectId, {
 ```
 
 One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `listTrackingDomains`, `listPhoneNumbers`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `deleteContactList`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `testProject`, `scheduleProject`, `unscheduleProject`, `copyProject`, `archiveProject`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
+
+## Email (early access)
+
+The `/v1/email` surface is wrapped in full: sending domains, sender identities,
+lists and contacts, list imports, suppressions, templates, AI drafts, and
+campaigns. **Every email method returns `403 EMAIL_EARLY_ACCESS` until the
+email product reaches general availability.**
+The contract is stable, so integrations can be written against it now.
+
+Email lists are keyset paginated: the payload is
+`{ data, has_more, next_cursor }`. Page until `next_cursor` is null, and never
+parse or construct a cursor.
+
+There is no inbound email or inbox surface, and no A/B testing.
+
+```ts
+// Page through campaigns.
+let cursor: string | undefined;
+do {
+  const page = await client.listEmailCampaigns({ limit: 100, cursor });
+  for (const campaign of page.data!.data) console.log(campaign.name, campaign.status);
+  cursor = page.data!.next_cursor ?? undefined;
+} while (cursor);
+
+// Check what is blocking a campaign before scheduling it.
+const { data: campaign } = await client.getEmailCampaign(id);
+if (campaign?.blocked?.length) {
+  for (const reason of campaign.blocked) console.log(reason.code, reason.message);
+} else {
+  await client.scheduleEmailCampaign(id, { scheduled_at: '2026-09-05T15:00:00Z' });
+}
+```
+
+### Templates and AI drafts
+
+Templates save the HTML a campaign sends. Create and update also return `lint`:
+the save succeeds either way, but a campaign will not schedule while
+`lint.errors` is non-empty, so check it at save time rather than at send time.
+`content.editor` is always `'html'`; the designer document is not exposed.
+
+Drafting is asynchronous and **costs money**: one `email_ai_draft` charge
+($3.00 by default, per-org pricing) is recorded only when a draft reaches
+`ready`. A failed draft is never billed, and a wallet that cannot cover the
+draft up front is refused with `402 INSUFFICIENT_BALANCE` before any draft row
+is created.
+
+```ts
+// Images must be email assets in the same organization.
+const { data: asset } = await client.importMedia({
+  source_url: 'https://example.com/header.png',
+  organization_id: 'org_1',
+  usage: 'email_asset', // brand_id must be omitted: email assets are org-scoped
+});
+
+const { data: requested } = await client.requestEmailTemplateDraft({
+  prompt: 'A get-out-the-vote email for Tuesday, warm and urgent.',
+  image_media_ids: [asset.media_id!],
+  brand_colors: { primary: '#1a3d7c' },
+});
+
+// Generation runs on a queue, so the API is poll-based. This helper does the
+// polling; a failed draft is returned, not thrown.
+const draft = await client.waitForEmailTemplateDraft(requested.draft.id);
+if (draft.status === 'ready') {
+  await client.createEmailTemplate({
+    name: 'GOTV Tuesday',
+    content: { subject: draft.subject!, html: draft.html! },
+  });
+} else {
+  console.error(draft.error_code, draft.error_message);
+}
+```
+
+### List imports
+
+`startEmailListImport` fetches a CSV you host over https (50 MB cap) and commits
+it in one call. Omit `mapping` to let the server recognize a common ESP export;
+when neither your mapping nor the recognizer finds an email column the call is a
+`400 VALIDATION_ERROR` whose `details.headers` lists the headers that were read,
+so you can retry with a mapping instead of guessing.
+
+```ts
+const { data: started } = await client.startEmailListImport({
+  source_url: 'https://example.com/donors.csv',
+  email_list_id: 'lst_1',
+  consent: { source: 'donation_form', note: 'ActBlue donors, 2026 cycle' },
+});
+const { data: imported } = await client.getEmailListImport(started.id);
+console.log(imported.status, imported.summary);
+```
 
 ## Error handling
 

@@ -2,7 +2,7 @@
 
 Official client libraries and tools for the [Political Comms](https://politicalcomms.com/) REST API. Direct-to-carrier political texting for campaigns, PACs, advocacy organizations, fundraisers, and elected officials.
 
-The API surface covers Projects (compose, test, schedule, send), Contact Lists, Media Files, Organizations and hierarchy, Brands, Campaigns, Tracking Domains, Phone Numbers, Analytics, and Billing. The full OpenAPI 3.1 specification lives at [politicalcomms.com/openapi.json](https://politicalcomms.com/openapi.json) and the reference documentation at [docs.politicalcomms.com](https://docs.politicalcomms.com/api-reference/introduction).
+The API surface covers Projects (compose, test, schedule, send), Contact Lists, Media Files, Organizations and hierarchy, Brands, Campaigns, Tracking Domains, Phone Numbers, Analytics, Billing, and Email (early access: sending domains, sender identities, lists and imports, suppressions, templates and AI drafts, and campaigns, each returning `403 EMAIL_EARLY_ACCESS` until general availability). The full OpenAPI 3.1 specification lives at [politicalcomms.com/openapi.json](https://politicalcomms.com/openapi.json) and the reference documentation at [docs.politicalcomms.com](https://docs.politicalcomms.com/api-reference/introduction).
 
 ## Packages
 
@@ -15,7 +15,7 @@ The API surface covers Projects (compose, test, schedule, send), Contact Lists, 
 
 ## Authentication
 
-Every client authenticates with an API key passed in the `X-API-Key` header. Keys are created in the dashboard under Admin > API Keys and are prefixed `pc_live_`. All packages read the `POLITICAL_COMMS_API_KEY` environment variable by default.
+Every client authenticates with an API key passed in the `X-API-Key` header. Keys are created in the dashboard under Admin > API and are prefixed `pc_live_`. All packages read the `POLITICAL_COMMS_API_KEY` environment variable by default.
 
 ## Development
 

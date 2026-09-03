@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 import { PoliticalCommsClient, PoliticalCommsError } from '@political-comms/sdk';
+import type { ScheduleTimezone } from '@political-comms/sdk';
 
 /** The subset of the SDK the CLI uses. Injectable for tests. */
 export type CliClient = Pick<
@@ -22,6 +23,17 @@ export type CliClient = Pick<
   | 'deleteMedia'
   | 'getMessageStats'
   | 'getLedgerUsage'
+  | 'listEmailDomains'
+  | 'listEmailSenders'
+  | 'listEmailLists'
+  | 'listEmailSuppressions'
+  | 'listEmailCampaigns'
+  | 'getEmailCampaign'
+  | 'getEmailCampaignStats'
+  | 'listEmailTemplates'
+  | 'getEmailTemplate'
+  | 'getEmailTemplateDraft'
+  | 'getEmailListImport'
 >;
 
 export interface CliIO {
@@ -61,6 +73,21 @@ Commands:
   media delete <id>                Delete an unused media file
   stats messages                   Message stats (--from, --to; default last 30 days)
   usage                            Billing usage (--from, --to; default last 30 days)
+  email domains list               List email sending domains (early access)
+  email senders list               List email sender identities (early access)
+  email lists list                 List email lists (early access)
+  email suppressions list          List email suppressions (--scope) (early access)
+  email campaigns list             List email campaigns (--status) (early access)
+  email campaigns get <id>         Show one email campaign, including blockers
+  email campaigns stats <id>       Show email campaign report tiles
+  email templates list             List email templates (--search) (early access)
+  email templates get <id>         Show one email template (HTML only with --json)
+  email drafts get <id>            Show one AI draft's status (HTML only with --json)
+  email imports get <id>           Show one email list import
+
+Email commands are early access: every one returns 403 EMAIL_EARLY_ACCESS until
+the email product reaches general availability. Template and draft HTML is
+printed only with --json, so a body never floods the terminal.
 
 Create flags (projects create):
   --name <name>                    Project name (required)
@@ -107,6 +134,10 @@ const PARSE_OPTIONS = {
   'daily-cap-bypass': { type: 'boolean', default: false },
   from: { type: 'string' },
   to: { type: 'string' },
+  scope: { type: 'string' },
+  status: { type: 'string' },
+  limit: { type: 'string' },
+  search: { type: 'string' },
 } as const;
 
 class UsageError extends Error {}
@@ -174,7 +205,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
 }
 
 async function dispatch(client: CliClient, positionals: string[], flags: Flags, io: CliIO): Promise<number> {
-  const [command, sub, arg] = positionals;
+  const [command, sub, arg, arg2] = positionals;
 
   switch (command) {
     case 'auth': {
@@ -319,9 +350,258 @@ async function dispatch(client: CliClient, positionals: string[], flags: Flags, 
       return 0;
     }
 
+    case 'email':
+      return emailCommand(client, sub, arg, arg2, flags, io);
+
     default:
       throw new UsageError(`Unknown command: ${command}`);
   }
+}
+
+/**
+ * Email commands (early access).
+ *
+ * Read-only: the write side of /v1/email (creating domains, importing
+ * contacts, scheduling campaigns, saving templates) is multi-step and belongs
+ * in a script against the SDK, not in flag-per-field shell invocations. That
+ * covers requesting an AI draft and starting a list import too: both cost
+ * money or write contacts, and both need a poll loop the SDK already has.
+ * Every call here returns 403 EMAIL_EARLY_ACCESS until the product reaches
+ * general availability.
+ */
+async function emailCommand(
+  client: CliClient,
+  sub: string | undefined,
+  arg: string | undefined,
+  arg2: string | undefined,
+  flags: Flags,
+  io: CliIO,
+): Promise<number> {
+  requireSub(
+    sub,
+    ['domains', 'senders', 'lists', 'suppressions', 'campaigns', 'templates', 'drafts', 'imports'],
+    'email',
+  );
+  const limit = flags.limit === undefined ? undefined : Number(flags.limit);
+  if (limit !== undefined && !Number.isInteger(limit)) {
+    throw new UsageError('--limit must be an integer');
+  }
+
+  switch (sub) {
+    case 'domains': {
+      requireSub(arg, ['list'], 'email domains');
+      const result = await client.listEmailDomains({ limit });
+      if (flags.json) return printJson(io, result);
+      io.out(
+        table(result.data?.data ?? [], [
+          { key: 'id', header: 'ID' },
+          { key: 'domain', header: 'DOMAIN' },
+          { key: 'status', header: 'STATUS' },
+        ]),
+      );
+      return 0;
+    }
+
+    case 'senders': {
+      requireSub(arg, ['list'], 'email senders');
+      const result = await client.listEmailSenders();
+      if (flags.json) return printJson(io, result);
+      io.out(
+        table(result.data?.data ?? [], [
+          { key: 'id', header: 'ID' },
+          { key: 'from_address', header: 'FROM' },
+          { key: 'from_name', header: 'NAME' },
+          { key: 'status', header: 'STATUS' },
+        ]),
+      );
+      return 0;
+    }
+
+    case 'lists': {
+      requireSub(arg, ['list'], 'email lists');
+      const result = await client.listEmailLists({ limit });
+      if (flags.json) return printJson(io, result);
+      io.out(
+        table(result.data?.data ?? [], [
+          { key: 'id', header: 'ID' },
+          { key: 'name', header: 'NAME' },
+          { key: 'source_type', header: 'SOURCE' },
+          { key: 'status', header: 'STATUS' },
+        ]),
+      );
+      return 0;
+    }
+
+    case 'suppressions': {
+      requireSub(arg, ['list'], 'email suppressions');
+      const result = await client.listEmailSuppressions({
+        limit,
+        scope: flags.scope as 'org' | 'identity' | 'list' | undefined,
+      });
+      if (flags.json) return printJson(io, result);
+      io.out(
+        table(result.data?.data ?? [], [
+          { key: 'email', header: 'EMAIL' },
+          { key: 'scope', header: 'SCOPE' },
+          { key: 'reason', header: 'REASON' },
+          { key: 'suppressed_at', header: 'SUPPRESSED' },
+        ]),
+      );
+      return 0;
+    }
+
+    case 'templates': {
+      requireSub(arg, ['list', 'get'], 'email templates');
+      if (arg === 'list') {
+        const result = await client.listEmailTemplates({ limit, search: flags.search });
+        if (flags.json) return printJson(io, result);
+        io.out(
+          table(
+            (result.data?.data ?? []).map((template) => ({
+              ...template,
+              subject: template.content?.subject,
+            })),
+            [
+              { key: 'id', header: 'ID' },
+              { key: 'name', header: 'NAME' },
+              { key: 'subject', header: 'SUBJECT' },
+              { key: 'updated_at', header: 'UPDATED' },
+            ],
+          ),
+        );
+        return 0;
+      }
+      const id = requireArg(arg2, 'email templates get <id>');
+      const result = await client.getEmailTemplate(id);
+      if (flags.json) return printJson(io, result);
+      const template = result.data;
+      // The HTML body is megabytes wide; --json is the way to get it.
+      io.out(
+        kv({
+          id: template?.id,
+          name: template?.name,
+          description: template?.description,
+          subject: template?.content?.subject,
+          preheader: template?.content?.preheader,
+          html_bytes: template?.content?.html?.length ?? 0,
+          updated_at: template?.updated_at,
+        }),
+      );
+      return 0;
+    }
+
+    case 'drafts': {
+      requireSub(arg, ['get'], 'email drafts');
+      const id = requireArg(arg2, 'email drafts get <id>');
+      const result = await client.getEmailTemplateDraft(id);
+      if (flags.json) return printJson(io, result);
+      const draft = result.data;
+      io.out(
+        kv({
+          id: draft?.id,
+          status: draft?.status,
+          subject: draft?.subject,
+          preheader: draft?.preheader,
+          error_code: draft?.error_code,
+          error_message: draft?.error_message,
+          html_bytes: draft?.html?.length ?? 0,
+          completed_at: draft?.completed_at,
+        }),
+      );
+      return 0;
+    }
+
+    case 'imports': {
+      requireSub(arg, ['get'], 'email imports');
+      const id = requireArg(arg2, 'email imports get <id>');
+      const result = await client.getEmailListImport(id);
+      if (flags.json) return printJson(io, result);
+      const record = result.data;
+      io.out(
+        kv({
+          id: record?.id,
+          status: record?.status,
+          email_list_id: record?.email_list_id,
+          file_name: record?.file_name,
+          headers: record?.headers?.length ?? 0,
+          recognized_provider: record?.recognized_provider,
+          error_message: record?.error_message,
+          completed_at: record?.completed_at,
+        }),
+      );
+      if (record?.summary) {
+        io.out('');
+        io.out('Summary:');
+        io.out(indent(kv(record.summary), 2));
+      }
+      return 0;
+    }
+
+    case 'campaigns':
+      return emailCampaignsCommand(client, arg, arg2, flags, io);
+
+    default:
+      throw new UsageError(`Unknown email command: ${String(sub)}`);
+  }
+}
+
+async function emailCampaignsCommand(
+  client: CliClient,
+  arg: string | undefined,
+  arg2: string | undefined,
+  flags: Flags,
+  io: CliIO,
+): Promise<number> {
+  requireSub(arg, ['list', 'get', 'stats'], 'email campaigns');
+  const limit = flags.limit === undefined ? undefined : Number(flags.limit);
+
+  if (arg === 'list') {
+    const result = await client.listEmailCampaigns({
+      limit,
+      status: flags.status as never,
+    });
+    if (flags.json) return printJson(io, result);
+    io.out(
+      table(result.data?.data ?? [], [
+        { key: 'id', header: 'ID' },
+        { key: 'name', header: 'NAME' },
+        { key: 'status', header: 'STATUS' },
+        { key: 'audience_count', header: 'AUDIENCE' },
+      ]),
+    );
+    return 0;
+  }
+
+  const id = requireArg(arg2, `email campaigns ${arg} <id>`);
+
+  if (arg === 'get') {
+    const result = await client.getEmailCampaign(id);
+    if (flags.json) return printJson(io, result);
+    const campaign = result.data;
+    io.out(kv({
+      id: campaign?.id,
+      name: campaign?.name,
+      status: campaign?.status,
+      audience_count: campaign?.audience_count,
+      scheduled_at: campaign?.scheduled_at,
+      pause_reason: campaign?.pause_reason,
+    }));
+    const blocked = campaign?.blocked ?? [];
+    if (blocked.length > 0) {
+      io.out('');
+      io.out('Blocked from scheduling:');
+      for (const item of blocked) io.out(`  ${item.code}: ${item.message}`);
+    }
+    return 0;
+  }
+
+  const result = await client.getEmailCampaignStats(id);
+  if (flags.json) return printJson(io, result);
+  io.out(`Campaign ${str(result.data?.campaign_id)} (${str(result.data?.status)})`);
+  io.out('');
+  io.out('Tiles:');
+  io.out(indent(kv(result.data?.tiles ?? {}), 2));
+  return 0;
 }
 
 async function projectsCommand(
@@ -413,7 +693,7 @@ async function projectsCommand(
       if (!flags.timezone) throw new UsageError('projects schedule requires --timezone <iana tz>');
       const result = await client.scheduleProject(id, {
         scheduled_at: flags['send-at'],
-        scheduled_timezone: flags.timezone,
+        scheduled_timezone: parseTimezone(flags.timezone),
         // Opt-in only: omitted means the project pauses at the brand's
         // T-Mobile daily cap, which is the safe default.
         ...(flags['daily-cap-bypass'] ? { daily_cap_bypass: true } : {}),
@@ -470,6 +750,26 @@ function requireSub(sub: string | undefined, allowed: string[], command: string)
   if (!sub || !allowed.includes(sub)) {
     throw new UsageError(`Usage: political-comms ${command} <${allowed.join('|')}>`);
   }
+}
+
+/** The six US zones the API accepts. Rejected here so the error names the flag. */
+const SCHEDULE_TIMEZONES: readonly ScheduleTimezone[] = [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Anchorage',
+  'Pacific/Honolulu',
+];
+
+function parseTimezone(value: string): ScheduleTimezone {
+  const match = SCHEDULE_TIMEZONES.find((zone) => zone === value);
+  if (!match) {
+    throw new UsageError(
+      `--timezone must be one of: ${SCHEDULE_TIMEZONES.join(', ')}`,
+    );
+  }
+  return match;
 }
 
 function requireArg(arg: string | undefined, usage: string): string {

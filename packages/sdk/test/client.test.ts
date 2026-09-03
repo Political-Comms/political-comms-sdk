@@ -598,3 +598,334 @@ describe('projects list and create options', () => {
     expect(body.link_tracking_fallback_url).toBe('https://example.com/fallback');
   });
 });
+
+describe('email templates', () => {
+  it('serializes the list query and unwraps the cursor page', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({
+        data: [{ id: 'tpl_1', name: 'GOTV', description: null, thumbnail_url: null }],
+        has_more: true,
+        next_cursor: 'cursor_2',
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.listEmailTemplates({ limit: 100, cursor: 'cursor_1', search: 'gotv' });
+
+    const parsed = new URL((fetchMock.mock.calls[0] as unknown as [string])[0]);
+    expect(parsed.pathname).toBe('/v1/email/templates');
+    expect(parsed.searchParams.get('limit')).toBe('100');
+    expect(parsed.searchParams.get('cursor')).toBe('cursor_1');
+    expect(parsed.searchParams.get('search')).toBe('gotv');
+    expect(res.data.data[0]!.name).toBe('GOTV');
+    expect(res.data.next_cursor).toBe('cursor_2');
+  });
+
+  it('omits unset list query params', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ data: [], has_more: false, next_cursor: null }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.listEmailTemplates();
+
+    const parsed = new URL((fetchMock.mock.calls[0] as unknown as [string])[0]);
+    expect(parsed.searchParams.has('limit')).toBe(false);
+    expect(parsed.searchParams.has('cursor')).toBe(false);
+    expect(parsed.searchParams.has('search')).toBe(false);
+  });
+
+  it('encodes the id on the single-template read', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ id: 'tpl/1' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.getEmailTemplate('tpl/1');
+
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
+      'https://api.politicalcomms.com/v1/email/templates/tpl%2F1',
+    );
+  });
+
+  it('surfaces lint findings alongside the created template', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(201, {
+        success: true,
+        data: {
+          id: 'tpl_1',
+          name: 'GOTV',
+          description: null,
+          content: {
+            subject: 'Vote Tuesday',
+            preheader: null,
+            html: '<p>Vote</p>',
+            text: null,
+            editor: 'html',
+          },
+          thumbnail_url: null,
+          lint: { errors: [{ code: 'MISSING_UNSUBSCRIBE' }], warnings: [] },
+        },
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.createEmailTemplate({
+      name: 'GOTV',
+      content: { subject: 'Vote Tuesday', html: '<p>Vote</p>' },
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/email/templates');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string).content.subject).toBe('Vote Tuesday');
+    expect(res.data.content.editor).toBe('html');
+    expect(res.data.lint?.errors).toHaveLength(1);
+  });
+
+  it('PATCHes a partial update', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ id: 'tpl_1', name: 'Renamed' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.updateEmailTemplate('tpl_1', { name: 'Renamed' });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/email/templates/tpl_1');
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'Renamed' });
+  });
+
+  it('deleteEmailTemplate issues DELETE without auto-generating an idempotency key', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ id: 'tpl_1', deleted: true }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.deleteEmailTemplate('tpl_1');
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/email/templates/tpl_1');
+    expect(init.method).toBe('DELETE');
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBeUndefined();
+  });
+});
+
+describe('email template drafts', () => {
+  function draft(status: string, extra: Record<string, unknown> = {}) {
+    return {
+      id: 'draft_1',
+      status,
+      prompt: 'A GOTV email for Tuesday',
+      subject: null,
+      preheader: null,
+      error_code: null,
+      error_message: null,
+      completed_at: null,
+      ...extra,
+    };
+  }
+
+  it('POSTs the draft request and returns the unit price', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(202, { success: true, data: { draft: draft('queued'), unit_price: 3 } }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.requestEmailTemplateDraft({
+      prompt: 'A GOTV email for Tuesday',
+      image_media_ids: ['media_1'],
+      brand_colors: { primary: '#1a3d7c' },
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/email/templates/drafts');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string).brand_colors.primary).toBe('#1a3d7c');
+    expect(res.data.unit_price).toBe(3);
+    expect(res.data.draft.status).toBe('queued');
+  });
+
+  it('surfaces a 402 when the wallet cannot cover the draft', async () => {
+    const fetchMock = vi.fn(async () => errorResponse(402, 'INSUFFICIENT_BALANCE'));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+
+    await expect(
+      client.requestEmailTemplateDraft({ prompt: 'A GOTV email for Tuesday' }),
+    ).rejects.toMatchObject({ code: 'INSUFFICIENT_BALANCE', statusCode: 402 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads a ready draft, which carries html unlike the create response', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse(draft('ready', { subject: 'Vote Tuesday', html: '<p>Vote</p>' })),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.getEmailTemplateDraft('draft_1');
+
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
+      'https://api.politicalcomms.com/v1/email/templates/drafts/draft_1',
+    );
+    expect(res.data.html).toBe('<p>Vote</p>');
+  });
+
+  it('waitForEmailTemplateDraft polls past the non-terminal states', async () => {
+    const statuses = ['queued', 'running', 'ready'];
+    const fetchMock = vi.fn(async () => okResponse(draft(statuses.shift()!)));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+
+    const result = await client.waitForEmailTemplateDraft('draft_1', { intervalMs: 0 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.status).toBe('ready');
+  });
+
+  it('returns a failed draft rather than throwing, so the caller reads error_code', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse(
+        draft('failed', { error_code: 'EMAIL_DRAFT_MODEL_ERROR', error_message: 'model timeout' }),
+      ),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+
+    const result = await client.waitForEmailTemplateDraft('draft_1', { intervalMs: 0 });
+
+    expect(result.status).toBe('failed');
+    expect(result.error_code).toBe('EMAIL_DRAFT_MODEL_ERROR');
+  });
+
+  it('throws EMAIL_DRAFT_TIMEOUT with the last draft as the body', async () => {
+    const fetchMock = vi.fn(async () => okResponse(draft('running')));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+
+    await expect(
+      client.waitForEmailTemplateDraft('draft_1', { intervalMs: 10, timeoutMs: 0 }),
+    ).rejects.toMatchObject({ code: 'EMAIL_DRAFT_TIMEOUT', statusCode: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('email list imports', () => {
+  it('POSTs the import request', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(202, {
+        success: true,
+        data: { id: 'imp_1', status: 'queued', email_list_id: 'lst_1', headers: [], mapping: {} },
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.startEmailListImport({
+      source_url: 'https://example.com/donors.csv',
+      email_list_id: 'lst_1',
+      consent: { source: 'donation_form' },
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/email/lists/import');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string).consent.source).toBe('donation_form');
+    expect(res.data.id).toBe('imp_1');
+  });
+
+  it('surfaces the headers the server read when no email column is found', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(400, {
+        success: false,
+        error: 'No email column found',
+        code: 'VALIDATION_ERROR',
+        details: { headers: ['First', 'Last', 'Contact'] },
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+
+    await expect(
+      client.startEmailListImport({
+        source_url: 'https://example.com/donors.csv',
+        email_list_id: 'lst_1',
+        consent: { source: 'other' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      body: { details: { headers: ['First', 'Last', 'Contact'] } },
+    });
+  });
+
+  it('reads one import by id', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ id: 'imp_1', status: 'completed' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.getEmailListImport('imp_1');
+
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
+      'https://api.politicalcomms.com/v1/email/lists/imports/imp_1',
+    );
+  });
+});
+
+describe('email list validation export', () => {
+  it('queues an export, defaulting the filter to every address', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(202, {
+        success: true,
+        data: { file_id: 'file_1', file_name: 'donors-validation-1.csv', status: 'generating' },
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.exportEmailList('lst_1');
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/email/lists/lst_1/export');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ state: 'all' });
+    expect(res.data.file_id).toBe('file_1');
+  });
+
+  it('sends the verdict class when one is asked for', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(202, { success: true, data: { file_id: 'f' } }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.exportEmailList('lst_1', 'undeliverable');
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ state: 'undeliverable' });
+  });
+
+  it('encodes both path segments on the download', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({ file_id: 'file_1', download_url: '/public/email-list-exports/tok' }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.getEmailListExportDownload('lst 1', 'file/1');
+
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
+      'https://api.politicalcomms.com/v1/email/lists/lst%201/export/file%2F1/download',
+    );
+    expect(res.data.download_url).toBe('/public/email-list-exports/tok');
+  });
+
+  it('surfaces EXPORT_NOT_READY rather than treating it as success', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(409, {
+        success: false,
+        error: 'Export is not ready yet',
+        code: 'EXPORT_NOT_READY',
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+
+    await expect(client.getEmailListExportDownload('lst_1', 'file_1')).rejects.toMatchObject({
+      code: 'EXPORT_NOT_READY',
+    });
+  });
+});
+
+describe('media usage', () => {
+  it('sends usage: email_asset for an image an email template will reference', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ media_id: 'media_1', status: 'optimizing' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.importMedia({
+      source_url: 'https://example.com/header.png',
+      organization_id: 'org_1',
+      usage: 'email_asset',
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.usage).toBe('email_asset');
+    // Email assets are organization-scoped: sending brand_id too is a 400.
+    expect(body).not.toHaveProperty('brand_id');
+  });
+
+  it('omits usage entirely for a default MMS import', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ media_id: 'media_2', status: 'optimizing' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.importMedia({ source_url: 'https://example.com/rally.jpg', brand_id: 'brand_1' });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).not.toHaveProperty('usage');
+  });
+});
