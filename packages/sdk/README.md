@@ -82,9 +82,11 @@ One method exists per API operation, named after its `operationId`: `listOrganiz
 ## Email (early access)
 
 The `/v1/email` surface is wrapped in full: sending domains, sender identities,
-lists and contacts, list imports, suppressions, templates, AI drafts, and
-campaigns. **Every email method returns `403 EMAIL_EARLY_ACCESS` until the
-email product reaches general availability.**
+lists and contacts, list imports, suppressions, templates, and campaigns. Paid
+and human-driven workflows (AI drafting, list validation, result exports) and
+deliverability triage (pausing a live send) run in the dashboard.
+**Every email method returns `403 EMAIL_EARLY_ACCESS` until the email product
+reaches general availability.**
 The contract is stable, so integrations can be written against it now.
 
 Email lists are keyset paginated: the payload is
@@ -111,45 +113,12 @@ if (campaign?.blocked?.length) {
 }
 ```
 
-### Templates and AI drafts
+### Templates
 
-Templates save the HTML a campaign sends. Create and update also return `lint`:
-the save succeeds either way, but a campaign will not schedule while
-`lint.errors` is non-empty, so check it at save time rather than at send time.
-`content.editor` is always `'html'`; the designer document is not exposed.
-
-Drafting is asynchronous and **costs money**: one `email_ai_draft` charge
-($3.00 by default, per-org pricing) is recorded only when a draft reaches
-`ready`. A failed draft is never billed, and a wallet that cannot cover the
-draft up front is refused with `402 INSUFFICIENT_BALANCE` before any draft row
-is created.
-
-```ts
-// Images must be email assets in the same organization.
-const { data: asset } = await client.importMedia({
-  source_url: 'https://example.com/header.png',
-  organization_id: 'org_1',
-  usage: 'email_asset', // brand_id must be omitted: email assets are org-scoped
-});
-
-const { data: requested } = await client.requestEmailTemplateDraft({
-  prompt: 'A get-out-the-vote email for Tuesday, warm and urgent.',
-  image_media_ids: [asset.media_id!],
-  brand_colors: { primary: '#1a3d7c' },
-});
-
-// Generation runs on a queue, so the API is poll-based. This helper does the
-// polling; a failed draft is returned, not thrown.
-const draft = await client.waitForEmailTemplateDraft(requested.draft.id);
-if (draft.status === 'ready') {
-  await client.createEmailTemplate({
-    name: 'GOTV Tuesday',
-    content: { subject: draft.subject!, html: draft.html! },
-  });
-} else {
-  console.error(draft.error_code, draft.error_message);
-}
-```
+Templates save the HTML a campaign sends. Create also returns `lint`: the save
+succeeds either way, but a campaign will not schedule while `lint.errors` is
+non-empty, so check it at save time rather than at send time. `content.editor`
+is always `'html'`; the designer document is not exposed.
 
 ### List imports
 
@@ -157,7 +126,8 @@ if (draft.status === 'ready') {
 it in one call. Omit `mapping` to let the server recognize a common ESP export;
 when neither your mapping nor the recognizer finds an email column the call is a
 `400 VALIDATION_ERROR` whose `details.headers` lists the headers that were read,
-so you can retry with a mapping instead of guessing.
+so you can retry with a mapping instead of guessing. The call returns 202; the
+import's progress is shown on the list in the dashboard.
 
 ```ts
 const { data: started } = await client.startEmailListImport({
@@ -165,8 +135,7 @@ const { data: started } = await client.startEmailListImport({
   email_list_id: 'lst_1',
   consent: { source: 'donation_form', note: 'ActBlue donors, 2026 cycle' },
 });
-const { data: imported } = await client.getEmailListImport(started.id);
-console.log(imported.status, imported.summary);
+console.log(started.id);
 ```
 
 ## Error handling

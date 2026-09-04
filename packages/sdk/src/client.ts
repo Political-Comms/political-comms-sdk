@@ -59,10 +59,7 @@ import type {
   AddEmailSuppressionsResult,
   BulkUpsertResult,
   CreateEmailCampaignRequest,
-  CreateEmailDomainRequest,
   CreateEmailListRequest,
-  CreateEmailSenderRequest,
-  CreateEmailTemplateDraftRequest,
   CreateEmailTemplateRequest,
   CursorPage,
   DeletedResult,
@@ -77,11 +74,7 @@ import type {
   EmailSenderIdentity,
   EmailSuppression,
   EmailTemplate,
-  EmailTemplateDraft,
   EmailTemplateWithLint,
-  EmailListExport,
-  EmailListExportState,
-  EmailValidationJob,
   ListEmailCampaignsQuery,
   ListEmailContactsQuery,
   ListEmailDomainsQuery,
@@ -91,15 +84,9 @@ import type {
   RemoveEmailContactsResult,
   RemoveEmailSuppressionsRequest,
   RemoveEmailSuppressionsResult,
-  RequestEmailTemplateDraftResult,
   ScheduleEmailCampaignRequest,
   StartEmailListImportRequest,
-  TestEmailCampaignRequest,
   TestEmailCampaignResult,
-  UpdateEmailCampaignRequest,
-  UpdateEmailListRequest,
-  UpdateEmailSenderRequest,
-  UpdateEmailTemplateRequest,
 } from './types';
 
 const DEFAULT_BASE_URL = 'https://api.politicalcomms.com/v1';
@@ -123,14 +110,6 @@ export interface PoliticalCommsClientOptions {
   fetch?: typeof fetch;
 }
 
-export interface WaitForEmailTemplateDraftOptions {
-  /** Delay between polls. Defaults to 2000ms. */
-  intervalMs?: number;
-  /** Give up after this long. Defaults to 300000ms (5 minutes). */
-  timeoutMs?: number;
-  /** AbortSignal applied to each poll request. */
-  signal?: AbortSignal;
-}
 
 type QueryValue = string | number | undefined;
 
@@ -589,34 +568,6 @@ export class PoliticalCommsClient {
     );
   }
 
-  /**
-   * POST /email/domains. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   *
-   * Publish every record in the returned `dns_records`, then poll
-   * getEmailDomain until `status` is 'active'. DNS is manual: we never write
-   * records in your zone.
-   */
-  createEmailDomain(
-    body: CreateEmailDomainRequest,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailDomain>> {
-    return this.request('POST', '/email/domains', undefined, body, options);
-  }
-
-  /**
-   * DELETE /email/domains/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   * Returns 409 CONFLICT while live sender identities still reference it.
-   */
-  deleteEmailDomain(id: string, options?: RequestOptions): Promise<ApiResponse<DeletedResult>> {
-    return this.request(
-      'DELETE',
-      `/email/domains/${encodeURIComponent(id)}`,
-      undefined,
-      undefined,
-      options,
-    );
-  }
-
   /** GET /email/senders. Not paginated. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
   listEmailSenders(
     options?: RequestOptions,
@@ -634,32 +585,6 @@ export class PoliticalCommsClient {
       `/email/senders/${encodeURIComponent(id)}`,
       undefined,
       undefined,
-      options,
-    );
-  }
-
-  /** POST /email/senders. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
-  createEmailSender(
-    body: CreateEmailSenderRequest,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailSenderIdentity>> {
-    return this.request('POST', '/email/senders', undefined, body, options);
-  }
-
-  /**
-   * PATCH /email/senders/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   * Patching an active identity out of compliance pauses it.
-   */
-  updateEmailSender(
-    id: string,
-    body: UpdateEmailSenderRequest,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailSenderIdentity>> {
-    return this.request(
-      'PATCH',
-      `/email/senders/${encodeURIComponent(id)}`,
-      undefined,
-      body,
       options,
     );
   }
@@ -705,32 +630,6 @@ export class PoliticalCommsClient {
     return this.request('POST', '/email/lists', undefined, body, options);
   }
 
-  /** PATCH /email/lists/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
-  updateEmailList(
-    id: string,
-    body: UpdateEmailListRequest,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailList>> {
-    return this.request(
-      'PATCH',
-      `/email/lists/${encodeURIComponent(id)}`,
-      undefined,
-      body,
-      options,
-    );
-  }
-
-  /** DELETE /email/lists/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
-  deleteEmailList(id: string, options?: RequestOptions): Promise<ApiResponse<DeletedResult>> {
-    return this.request(
-      'DELETE',
-      `/email/lists/${encodeURIComponent(id)}`,
-      undefined,
-      undefined,
-      options,
-    );
-  }
-
   /** GET /email/lists/{id}/contacts. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
   listEmailListContacts(
     id: string,
@@ -767,110 +666,6 @@ export class PoliticalCommsClient {
       `/email/lists/${encodeURIComponent(id)}/contacts`,
       undefined,
       { contacts },
-      options,
-    );
-  }
-
-  /**
-   * DELETE /email/lists/{id}/contacts. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   *
-   * Unsubscribes the addresses; it does not delete the rows. They carry the
-   * bounce and complaint history that stops a later re-import from
-   * resurrecting a suppressed address.
-   */
-  removeEmailListContacts(
-    id: string,
-    emails: string[],
-    options?: RequestOptions,
-  ): Promise<ApiResponse<RemoveEmailContactsResult>> {
-    return this.request(
-      'DELETE',
-      `/email/lists/${encodeURIComponent(id)}/contacts`,
-      undefined,
-      { emails },
-      options,
-    );
-  }
-
-  /**
-   * POST /email/lists/{id}/validate. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   *
-   * Queues a paid validation run (billed per address). Returns 409
-   * EMAIL_LIST_NOT_READY if the list is still importing, or 409
-   * EMAIL_VALIDATION_IN_PROGRESS if a run is already active.
-   */
-  validateEmailList(
-    id: string,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailValidationJob>> {
-    return this.request(
-      'POST',
-      `/email/lists/${encodeURIComponent(id)}/validate`,
-      undefined,
-      undefined,
-      options,
-    );
-  }
-
-  /**
-   * GET /email/lists/{id}/validation. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   * Returns 404 EMAIL_VALIDATION_JOB_NOT_FOUND when the list has never been validated.
-   */
-  getEmailListValidation(
-    id: string,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailValidationJob>> {
-    return this.request(
-      'GET',
-      `/email/lists/${encodeURIComponent(id)}/validation`,
-      undefined,
-      undefined,
-      options,
-    );
-  }
-
-  /**
-   * POST /email/lists/{id}/export. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   *
-   * Queues a CSV of the list's addresses and their validation verdicts: the
-   * uploaded file's own columns followed by every verdict field. Answers 202
-   * with a `file_id`; poll getEmailListExportDownload, which answers 409
-   * EXPORT_NOT_READY until the worker has finished building the file.
-   *
-   * Verdict columns are blank when an address has no cached verdict (never
-   * validated, or the 90-day cache expired), which is not the same as false.
-   */
-  exportEmailList(
-    id: string,
-    state: EmailListExportState = 'all',
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailListExport>> {
-    return this.request(
-      'POST',
-      `/email/lists/${encodeURIComponent(id)}/export`,
-      undefined,
-      { state },
-      options,
-    );
-  }
-
-  /**
-   * GET /email/lists/{id}/export/{fileId}/download. Early access: 403
-   * EMAIL_EARLY_ACCESS until GA.
-   *
-   * Returns 409 EXPORT_NOT_READY while the file is still building, which is
-   * the polling signal rather than an error.
-   */
-  getEmailListExportDownload(
-    id: string,
-    fileId: string,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailListExport>> {
-    return this.request(
-      'GET',
-      `/email/lists/${encodeURIComponent(id)}/export/${encodeURIComponent(fileId)}/download`,
-      undefined,
-      undefined,
       options,
     );
   }
@@ -952,41 +747,6 @@ export class PoliticalCommsClient {
     return this.request('POST', '/email/campaigns', undefined, body, options);
   }
 
-  /** PATCH /email/campaigns/{id}. Drafts only. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
-  updateEmailCampaign(
-    id: string,
-    body: UpdateEmailCampaignRequest,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailCampaign>> {
-    return this.request(
-      'PATCH',
-      `/email/campaigns/${encodeURIComponent(id)}`,
-      undefined,
-      body,
-      options,
-    );
-  }
-
-  /**
-   * POST /email/campaigns/{id}/test. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   *
-   * Sends a real message to up to 10 addresses. Test sends are billed but are
-   * excluded from campaign stats and never fire webhooks.
-   */
-  testEmailCampaign(
-    id: string,
-    body: TestEmailCampaignRequest,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<TestEmailCampaignResult>> {
-    return this.request(
-      'POST',
-      `/email/campaigns/${encodeURIComponent(id)}/test`,
-      undefined,
-      body,
-      options,
-    );
-  }
-
   /**
    * POST /email/campaigns/{id}/schedule. Early access: 403 EMAIL_EARLY_ACCESS until GA.
    * Omit `scheduled_at` to send now. If this refuses, read `blocked` on the campaign.
@@ -1013,34 +773,6 @@ export class PoliticalCommsClient {
     return this.request(
       'POST',
       `/email/campaigns/${encodeURIComponent(id)}/unschedule`,
-      undefined,
-      undefined,
-      options,
-    );
-  }
-
-  /** POST /email/campaigns/{id}/pause. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
-  pauseEmailCampaign(id: string, options?: RequestOptions): Promise<ApiResponse<EmailCampaign>> {
-    return this.request(
-      'POST',
-      `/email/campaigns/${encodeURIComponent(id)}/pause`,
-      undefined,
-      undefined,
-      options,
-    );
-  }
-
-  /**
-   * POST /email/campaigns/{id}/resume. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   *
-   * A campaign a deliverability breaker auto-paused twice returns 409
-   * EMAIL_CAMPAIGN_RESUME_REQUIRES_SUPPORT. There is no override: escalate to a
-   * human rather than retrying.
-   */
-  resumeEmailCampaign(id: string, options?: RequestOptions): Promise<ApiResponse<EmailCampaign>> {
-    return this.request(
-      'POST',
-      `/email/campaigns/${encodeURIComponent(id)}/resume`,
       undefined,
       undefined,
       options,
@@ -1101,134 +833,20 @@ export class PoliticalCommsClient {
   }
 
   /**
-   * PATCH /email/templates/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   * `content`, when sent, replaces the whole object. Returns `lint` like create.
-   */
-  updateEmailTemplate(
-    id: string,
-    body: UpdateEmailTemplateRequest,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailTemplateWithLint>> {
-    return this.request(
-      'PATCH',
-      `/email/templates/${encodeURIComponent(id)}`,
-      undefined,
-      body,
-      options,
-    );
-  }
-
-  /** DELETE /email/templates/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
-  deleteEmailTemplate(id: string, options?: RequestOptions): Promise<ApiResponse<DeletedResult>> {
-    return this.request(
-      'DELETE',
-      `/email/templates/${encodeURIComponent(id)}`,
-      undefined,
-      undefined,
-      options,
-    );
-  }
-
-  /**
-   * POST /email/templates/drafts. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   *
-   * Drafting runs on a queue: this returns 202 with the draft metadata and
-   * `unit_price`, and no `html` at all. Poll getEmailTemplateDraft for that, or
-   * let waitForEmailTemplateDraft do it. Usually under two minutes.
-   *
-   * One email_ai_draft charge ($3.00 by default, per-org pricing) is recorded
-   * only when the draft reaches 'ready'; a failed draft is never billed. A
-   * wallet that cannot cover the draft now is a 402 INSUFFICIENT_BALANCE and
-   * no draft row is created.
-   *
-   * Any of the up to 6 `image_media_ids` must be media imported with usage
-   * 'email_asset' and owned by this organization; anything else is a 400.
-   */
-  requestEmailTemplateDraft(
-    body: CreateEmailTemplateDraftRequest,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<RequestEmailTemplateDraftResult>> {
-    return this.request('POST', '/email/templates/drafts', undefined, body, options);
-  }
-
-  /**
-   * GET /email/templates/drafts/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   * Unlike the create response, this one carries `html`, null until ready.
-   */
-  getEmailTemplateDraft(
-    id: string,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailTemplateDraft>> {
-    return this.request(
-      'GET',
-      `/email/templates/drafts/${encodeURIComponent(id)}`,
-      undefined,
-      undefined,
-      options,
-    );
-  }
-
-  /**
-   * Poll getEmailTemplateDraft until the draft reaches 'ready' or 'failed', and
-   * return it. Generation runs on a queue and can outlast a load balancer's
-   * idle timeout, which is why the API is poll-based rather than a long
-   * request; this saves every caller writing the same loop.
-   *
-   * A failed draft is returned, not thrown: read `error_code` to tell an
-   * unusable prompt (EMAIL_DRAFT_INVALID) from a model failure
-   * (EMAIL_DRAFT_MODEL_ERROR) or a wallet that emptied mid-generation
-   * (INSUFFICIENT_BALANCE). Only the timeout throws.
-   */
-  async waitForEmailTemplateDraft(
-    id: string,
-    options: WaitForEmailTemplateDraftOptions = {},
-  ): Promise<EmailTemplateDraft> {
-    const intervalMs = options.intervalMs ?? 2_000;
-    const timeoutMs = options.timeoutMs ?? 300_000;
-    const deadline = Date.now() + timeoutMs;
-
-    for (;;) {
-      const { data: draft } = await this.getEmailTemplateDraft(id, { signal: options.signal });
-      if (draft.status === 'ready' || draft.status === 'failed') return draft;
-
-      if (Date.now() + intervalMs >= deadline) {
-        throw new PoliticalCommsError(
-          `Email template draft ${id} was still ${draft.status} after ${timeoutMs}ms.`,
-          'EMAIL_DRAFT_TIMEOUT',
-          0,
-          draft,
-        );
-      }
-      await sleep(intervalMs);
-    }
-  }
-
-  /**
    * POST /email/lists/import. Early access: 403 EMAIL_EARLY_ACCESS until GA.
    *
    * Fetches your CSV over https (50 MB cap, SSRF-guarded) and commits it in
    * one call. Omit `mapping` to let the server recognize a common ESP export;
    * when neither your mapping nor the recognizer finds an email column the
    * call is a 400 VALIDATION_ERROR whose `details.headers` lists the headers
-   * that were read, so retry with a mapping instead of guessing. Returns 202:
-   * poll getEmailListImport for the outcome.
+   * that were read, so retry with a mapping instead of guessing. Returns 202;
+   * the import's progress is shown on the list in the dashboard.
    */
   startEmailListImport(
     body: StartEmailListImportRequest,
     options?: RequestOptions,
   ): Promise<ApiResponse<EmailListImport>> {
     return this.request('POST', '/email/lists/import', undefined, body, options);
-  }
-
-  /** GET /email/lists/imports/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
-  getEmailListImport(id: string, options?: RequestOptions): Promise<ApiResponse<EmailListImport>> {
-    return this.request(
-      'GET',
-      `/email/lists/imports/${encodeURIComponent(id)}`,
-      undefined,
-      undefined,
-      options,
-    );
   }
 
   // -------------------------------------------------------------------------

@@ -32,8 +32,6 @@ export type CliClient = Pick<
   | 'getEmailCampaignStats'
   | 'listEmailTemplates'
   | 'getEmailTemplate'
-  | 'getEmailTemplateDraft'
-  | 'getEmailListImport'
 >;
 
 export interface CliIO {
@@ -82,8 +80,6 @@ Commands:
   email campaigns stats <id>       Show email campaign report tiles
   email templates list             List email templates (--search) (early access)
   email templates get <id>         Show one email template (HTML only with --json)
-  email drafts get <id>            Show one AI draft's status (HTML only with --json)
-  email imports get <id>           Show one email list import
 
 Email commands are early access: every one returns 403 EMAIL_EARLY_ACCESS until
 the email product reaches general availability. Template and draft HTML is
@@ -487,53 +483,6 @@ async function emailCommand(
           updated_at: template?.updated_at,
         }),
       );
-      return 0;
-    }
-
-    case 'drafts': {
-      requireSub(arg, ['get'], 'email drafts');
-      const id = requireArg(arg2, 'email drafts get <id>');
-      const result = await client.getEmailTemplateDraft(id);
-      if (flags.json) return printJson(io, result);
-      const draft = result.data;
-      io.out(
-        kv({
-          id: draft?.id,
-          status: draft?.status,
-          subject: draft?.subject,
-          preheader: draft?.preheader,
-          error_code: draft?.error_code,
-          error_message: draft?.error_message,
-          html_bytes: draft?.html?.length ?? 0,
-          completed_at: draft?.completed_at,
-        }),
-      );
-      return 0;
-    }
-
-    case 'imports': {
-      requireSub(arg, ['get'], 'email imports');
-      const id = requireArg(arg2, 'email imports get <id>');
-      const result = await client.getEmailListImport(id);
-      if (flags.json) return printJson(io, result);
-      const record = result.data;
-      io.out(
-        kv({
-          id: record?.id,
-          status: record?.status,
-          email_list_id: record?.email_list_id,
-          file_name: record?.file_name,
-          headers: record?.headers?.length ?? 0,
-          recognized_provider: record?.recognized_provider,
-          error_message: record?.error_message,
-          completed_at: record?.completed_at,
-        }),
-      );
-      if (record?.summary) {
-        io.out('');
-        io.out('Summary:');
-        io.out(indent(kv(record.summary), 2));
-      }
       return 0;
     }
 

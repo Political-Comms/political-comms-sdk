@@ -49,20 +49,17 @@ email campaigns get <id>         Show one email campaign, including blockers
 email campaigns stats <id>       Show email campaign report tiles
 email templates list             List email templates (--search) (early access)
 email templates get <id>         Show one email template (HTML only with --json)
-email drafts get <id>            Show one AI draft's status (HTML only with --json)
-email imports get <id>           Show one email list import
 ```
 
 Email commands are early access: each one returns `403 EMAIL_EARLY_ACCESS` until
 the email product reaches general availability. They are read-only by design.
-The write side of the email API (registering domains, importing contacts,
-scheduling campaigns, saving templates) is multi-step and belongs in a script
-against the SDK rather than in flag-per-field shell invocations. That covers
-requesting an AI draft and starting a list import too: both cost money or write
-contacts, and both need a poll loop the SDK already provides.
+The write side of the email API (importing contacts, scheduling campaigns,
+saving templates) is multi-step and belongs in a script against the SDK rather
+than in flag-per-field shell invocations. Paid and human-driven workflows
+(AI drafting, list validation, result exports) run in the dashboard.
 
-Template and draft HTML is printed only with `--json`. Without it the commands
-report the body size, so a multi-megabyte email never floods the terminal.
+Template HTML is printed only with `--json`. Without it the commands report the
+body size, so a multi-megabyte email never floods the terminal.
 
 ### Examples
 

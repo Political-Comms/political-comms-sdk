@@ -29,20 +29,14 @@ const EXPECTED_TOOLS = [
   'get_email_domain',
   'list_email_senders',
   'list_email_lists',
-  'get_email_list_validation',
   'list_email_suppressions',
   'list_email_campaigns',
   'get_email_campaign',
   'get_email_campaign_stats',
   'schedule_email_campaign',
   'unschedule_email_campaign',
-  'pause_email_campaign',
-  'resume_email_campaign',
   'list_email_templates',
   'get_email_template',
-  'get_email_template_draft',
-  'get_email_list_import',
-  'create_email_template_draft',
   'start_email_list_import',
 ];
 
@@ -95,27 +89,14 @@ describe('political-comms MCP server (stdio)', () => {
         'get_email_domain',
         'list_email_senders',
         'list_email_lists',
-        'get_email_list_validation',
-        'list_email_suppressions',
+              'list_email_suppressions',
         'list_email_campaigns',
         'get_email_campaign',
         'get_email_campaign_stats',
         'list_email_templates',
         'get_email_template',
-        'get_email_template_draft',
-        'get_email_list_import',
-      ].sort(),
+                  ].sort(),
     );
-  });
-
-  it('refuses the paid drafting tool without confirm: true', async () => {
-    const result = await client.callTool({
-      name: 'create_email_template_draft',
-      arguments: { confirm: false, prompt: 'A GOTV email for Tuesday' },
-    });
-    expect(result.isError).toBe(true);
-    const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? '';
-    expect(text).toContain('confirm: true');
   });
 
   it('refuses write tools without confirm: true', async () => {

@@ -436,40 +436,6 @@ describe('email read commands', () => {
     expect(out.join('\n')).toContain('<p>Vote</p>');
   });
 
-  it('email drafts get prints the status and error code', async () => {
-    const client = makeClient({
-      getEmailTemplateDraft: vi.fn(() =>
-        ok({
-          id: 'draft_1',
-          status: 'failed',
-          subject: null,
-          error_code: 'EMAIL_DRAFT_MODEL_ERROR',
-          error_message: 'model timeout',
-          html: null,
-        }),
-      ),
-    });
-    const { io, out } = makeIO();
-    const code = await main(['email', 'drafts', 'get', 'draft_1'], deps(client, io));
-
-    expect(code).toBe(0);
-    const text = out.join('\n');
-    expect(text).toContain('failed');
-    expect(text).toContain('EMAIL_DRAFT_MODEL_ERROR');
-  });
-
-  it('email imports get prints the header count and the summary', async () => {
-    const { io, out } = makeIO();
-    const code = await main(['email', 'imports', 'get', 'imp_1'], deps(makeClient(), io));
-
-    expect(code).toBe(0);
-    const text = out.join('\n');
-    expect(text).toContain('donors.csv');
-    expect(text).toContain('headers');
-    expect(text).toContain('Summary:');
-    expect(text).toContain('imported');
-  });
-
   it('exits 2 when email templates get is missing the id', async () => {
     const { io, err } = makeIO();
     const code = await main(['email', 'templates', 'get'], deps(makeClient(), io));

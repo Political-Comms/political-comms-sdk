@@ -80,8 +80,9 @@ Every method returns the parsed JSON response, a dict of the form `{"success": T
 ## Email (early access)
 
 The `/v1/email` surface is wrapped in full: sending domains, sender identities,
-lists and contacts, list imports, suppressions, templates, AI drafts, and
-campaigns. **Every email method returns `403 EMAIL_EARLY_ACCESS` until the
+lists and contacts, list imports, suppressions, templates, and campaigns.
+Paid and human-driven workflows (AI drafting, list validation, result exports)
+and deliverability triage (pausing a live send) run in the dashboard. **Every email method returns `403 EMAIL_EARLY_ACCESS` until the
 email product reaches general availability.**
 The contract is stable, so integrations can be written against it now.
 
@@ -111,44 +112,12 @@ else:
     client.schedule_email_campaign(campaign_id, scheduled_at="2026-09-05T15:00:00Z")
 ```
 
-### Templates and AI drafts
+### Templates
 
-Templates save the HTML a campaign sends. Create and update also return `lint`:
-the save succeeds either way, but a campaign will not schedule while
-`lint["errors"]` is non-empty, so check it at save time rather than at send time.
+Templates save the HTML a campaign sends. Create also returns `lint`: the save
+succeeds either way, but a campaign will not schedule while `lint["errors"]` is
+non-empty, so check it at save time rather than at send time.
 `content["editor"]` is always `"html"`; the designer document is not exposed.
-
-Drafting is asynchronous and **costs money**: one `email_ai_draft` charge
-($3.00 by default, per-org pricing) is recorded only when a draft reaches
-`ready`. A failed draft is never billed, and a wallet that cannot cover the
-draft up front is refused with `402 INSUFFICIENT_BALANCE` before any draft row
-is created.
-
-```python
-# Images must be email assets in the same organization.
-asset = client.import_media(
-    "https://example.com/header.png",
-    organization_id="org_1",
-    usage="email_asset",  # brand_id must be omitted: email assets are org-scoped
-)["data"]
-
-requested = client.request_email_template_draft(
-    "A get-out-the-vote email for Tuesday, warm and urgent.",
-    image_media_ids=[asset["media_id"]],
-    brand_colors={"primary": "#1a3d7c"},
-)["data"]
-
-# Generation runs on a queue, so the API is poll-based. This helper does the
-# polling; a failed draft is returned, not raised.
-draft = client.wait_for_email_template_draft(requested["draft"]["id"])
-if draft["status"] == "ready":
-    client.create_email_template(
-        "GOTV Tuesday",
-        {"subject": draft["subject"], "html": draft["html"]},
-    )
-else:
-    print(draft["error_code"], draft["error_message"])
-```
 
 ### List imports
 
@@ -156,7 +125,8 @@ else:
 commits it in one call. Omit `mapping` to let the server recognize a common ESP
 export; when neither your mapping nor the recognizer finds an email column the
 call is a `400 VALIDATION_ERROR` whose `details["headers"]` lists the headers
-that were read, so you can retry with a mapping instead of guessing.
+that were read, so you can retry with a mapping instead of guessing. The call
+returns 202; the import's progress is shown on the list in the dashboard.
 
 ```python
 started = client.start_email_list_import(
@@ -164,8 +134,7 @@ started = client.start_email_list_import(
     "lst_1",
     {"source": "donation_form", "note": "ActBlue donors, 2026 cycle"},
 )["data"]
-imported = client.get_email_list_import(started["id"])["data"]
-print(imported["status"], imported["summary"])
+print(started["id"])
 ```
 
 ## Error handling

@@ -58,8 +58,6 @@ Read only:
 | `get_email_campaign_stats` | Report tiles and per-link clicks. |
 | `list_email_templates` | Saved email templates with subject and last-updated time. |
 | `get_email_template` | One template including its full HTML body. |
-| `get_email_template_draft` | One AI draft: status, subject, and HTML once ready. |
-| `get_email_list_import` | One CSV import: headers read, mapping applied, summary. |
 
 Write (each is annotated as non read-only; `create_project`, `test_project`, and `schedule_project` additionally require `confirm: true` because they stage or send real messages):
 
@@ -73,9 +71,6 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, and
 | `archive_project` | Archive a completed project. |
 | `schedule_email_campaign` | Commit an email send. Requires `confirm: true`. |
 | `unschedule_email_campaign` | Return a scheduled campaign to a draft state. |
-| `pause_email_campaign` | Pause a sending campaign. |
-| `resume_email_campaign` | Resume a paused campaign. Requires `confirm: true`. |
-| `create_email_template_draft` | Generate an email design from a prompt. **Costs $3.00 per finished draft.** Requires `confirm: true`. |
 | `start_email_list_import` | Import a CSV of contacts into an email list. Requires `confirm: true`. |
 
 The server deliberately exposes no delete operations.
@@ -83,15 +78,11 @@ The server deliberately exposes no delete operations.
 ### Email tools are early access
 
 Every `*_email_*` tool returns `403 EMAIL_EARLY_ACCESS` until the email product
-reaches general availability. `create_email_template_draft` is the one tool that
-spends money on its own: each draft that finishes is billed $3.00 by default
-(per-org pricing), a draft that fails is never billed, and a wallet that cannot
-cover it is refused up front with `402 INSUFFICIENT_BALANCE`. Drafting is
-asynchronous: poll `get_email_template_draft` until status is `ready` or
-`failed`. `resume_email_campaign` requires `confirm: true`
-because a campaign a deliverability breaker auto-paused twice returns
-`409 EMAIL_CAMPAIGN_RESUME_REQUIRES_SUPPORT`, which no retry will clear: that one
-needs a human. There is no inbound email or inbox surface.
+reaches general availability. Paid and human-driven email workflows (AI
+drafting, list validation, result exports) and deliverability triage (pausing
+and resuming a live send) are dashboard features rather than tools: they cost
+money or need a human watching a send. There is no inbound email or inbox
+surface.
 
 ## Errors
 

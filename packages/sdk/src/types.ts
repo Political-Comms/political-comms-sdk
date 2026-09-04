@@ -1124,10 +1124,6 @@ export interface ListEmailDomainsQuery extends EmailPageQuery {
   search?: string;
 }
 
-export interface CreateEmailDomainRequest {
-  domain: string;
-}
-
 /** Status of this address in Google's Gmail Verified Sender Program, submitted through Campaign Verify. Read-only. */
 export interface GmailVerifiedSender {
   status:
@@ -1160,28 +1156,6 @@ export interface EmailSenderIdentity {
   created_at?: string;
   updated_at?: string;
   [key: string]: unknown;
-}
-
-export interface CreateEmailSenderRequest {
-  email_domain_id: string;
-  from_local_part: string;
-  from_name: string;
-  reply_to?: string;
-  physical_address?: string;
-  disclaimer?: string;
-  disclaimer_required?: boolean;
-  authorized_by_candidate?: boolean;
-}
-
-/** At least one field is required. */
-export interface UpdateEmailSenderRequest {
-  from_name?: string;
-  reply_to?: string;
-  forward_to?: string;
-  physical_address?: string;
-  disclaimer?: string;
-  disclaimer_required?: boolean;
-  authorized_by_candidate?: boolean;
 }
 
 export type EmailListSourceType = 'uploaded' | 'segmented' | 'winred' | 'anedot';
@@ -1243,15 +1217,6 @@ export interface CreateEmailListRequest {
   sunset_enabled?: boolean;
 }
 
-/** At least one field is required. */
-export interface UpdateEmailListRequest {
-  name?: string;
-  description?: string;
-  acquired?: string;
-  sunset_enabled?: boolean;
-  consent_attestation?: EmailConsentAttestation;
-}
-
 export interface EmailListContact {
   id: string;
   email: string;
@@ -1297,51 +1262,6 @@ export interface BulkUpsertResult {
 export interface RemoveEmailContactsResult {
   unsubscribed: number;
   submitted: number;
-  [key: string]: unknown;
-}
-
-export interface EmailValidationJob {
-  id: string;
-  list_id: string;
-  status: string;
-  total_count?: number;
-  processed_count?: number;
-  pending_count?: number;
-  validated_at?: string | null;
-  created_at?: string;
-  completed_at?: string | null;
-  [key: string]: unknown;
-}
-
-/**
- * The verdict classes a list export may be narrowed to, plus every address,
- * plus three presets. `max_deliverability` is deliverable addresses only.
- * `max_reach` is deliverable, risky, and unknown addresses, minus disposable
- * and role mailboxes. `only_bad` is undeliverable addresses plus disposable
- * and role mailboxes. The presets exclude addresses that have never been
- * validated; `all` is the only filter that includes them.
- */
-export type EmailListExportState =
-  | 'all'
-  | 'deliverable'
-  | 'undeliverable'
-  | 'risky'
-  | 'unknown'
-  | 'max_deliverability'
-  | 'max_reach'
-  | 'only_bad';
-
-export interface EmailListExport {
-  file_id: string;
-  file_name?: string;
-  /** Present when the export was just queued. */
-  status?: string;
-  /**
-   * Only on the download endpoint. A tokenized path valid for 7 days; join it
-   * to the API host. The redirect it serves is signed at click time, so the
-   * link keeps working for its full window.
-   */
-  download_url?: string;
   [key: string]: unknown;
 }
 
@@ -1508,14 +1428,6 @@ export interface CreateEmailCampaignRequest {
   recipient_policy?: EmailCampaignRecipientPolicy;
 }
 
-/** At least one field is required. Drafts only. */
-export type UpdateEmailCampaignRequest = Partial<CreateEmailCampaignRequest>;
-
-export interface TestEmailCampaignRequest {
-  /** 1-10 addresses. */
-  to: string[];
-}
-
 export interface TestEmailCampaignResult {
   sent: number;
   recipients: string[];
@@ -1615,13 +1527,6 @@ export interface CreateEmailTemplateRequest {
   description?: string;
 }
 
-/** At least one field is required. `content`, when sent, replaces the whole object. */
-export interface UpdateEmailTemplateRequest {
-  name?: string;
-  description?: string;
-  content?: CreateEmailTemplateRequest['content'];
-}
-
 export type EmailTemplateDraftStatus = 'queued' | 'running' | 'ready' | 'failed';
 
 /**
@@ -1635,49 +1540,7 @@ export type EmailTemplateDraftErrorCode =
   | 'EMAIL_DRAFT_MODEL_ERROR'
   | 'INSUFFICIENT_BALANCE';
 
-export interface EmailTemplateDraft {
-  id: string;
-  status: EmailTemplateDraftStatus;
-  prompt: string;
-  subject: string | null;
-  preheader: string | null;
-  /**
-   * Present on the single-draft read only, where it is null until `status` is
-   * 'ready'. The create response omits the key entirely.
-   */
-  html?: string | null;
-  error_code: EmailTemplateDraftErrorCode | null;
-  error_message: string | null;
-  created_at?: string;
-  completed_at: string | null;
-  [key: string]: unknown;
-}
-
 /** Hex triplets (#rrggbb) the generated design should use. */
-export interface EmailDraftBrandColors {
-  primary?: string;
-  secondary?: string;
-  accent?: string;
-}
-
-export interface CreateEmailTemplateDraftRequest {
-  /** What the email should say, 10-4000 characters. */
-  prompt: string;
-  /**
-   * Up to 6 media ids to place in the design. Each must be media imported with
-   * usage 'email_asset' and owned by this organization; anything else is 400.
-   */
-  image_media_ids?: string[];
-  brand_colors?: EmailDraftBrandColors;
-}
-
-/** 202 Accepted. `unit_price` is what the draft costs once it reaches 'ready'. */
-export interface RequestEmailTemplateDraftResult {
-  draft: EmailTemplateDraft;
-  unit_price: number;
-  [key: string]: unknown;
-}
-
 /** How the people in the imported file consented to hear from you. */
 export type EmailListImportConsentSource =
   | 'donation_form'

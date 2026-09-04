@@ -9,7 +9,6 @@ import {
 import {
   PoliticalCommsClient,
   PoliticalCommsError,
-  type EmailDraftBrandColors,
   type EmailListImportConsentSource,
   type ScheduleTimezone,
 } from '@political-comms/sdk';
@@ -459,21 +458,6 @@ const TOOLS: Tool[] = [
     annotations: { title: 'List Email Lists', readOnlyHint: true },
   },
   {
-    name: 'get_email_list_validation',
-    description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
-      'Get the status of the most recent paid validation run for an email list. Returns 404 ' +
-      'EMAIL_VALIDATION_JOB_NOT_FOUND when the list has never been validated, which is distinct ' +
-      'from a 404 for a list id that does not exist.',
-    inputSchema: {
-      type: 'object',
-      properties: { id: idParam },
-      required: ['id'],
-      additionalProperties: false,
-    },
-    annotations: { title: 'Get Email List Validation', readOnlyHint: true },
-  },
-  {
     name: 'list_email_suppressions',
     description:
       'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
@@ -599,24 +583,6 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: 'pause_email_campaign',
-    description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
-      'Pause a sending email campaign. Recipients already handed to the mail provider still deliver.',
-    inputSchema: {
-      type: 'object',
-      properties: { id: idParam },
-      required: ['id'],
-      additionalProperties: false,
-    },
-    annotations: {
-      title: 'Pause Email Campaign',
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-    },
-  },
-  {
     name: 'list_email_templates',
     description:
       'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
@@ -642,80 +608,6 @@ const TOOLS: Tool[] = [
       additionalProperties: false,
     },
     annotations: { title: 'Get Email Template', readOnlyHint: true },
-  },
-  {
-    name: 'get_email_template_draft',
-    description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
-      'Get one AI-generated email draft. Poll this after create_email_template_draft until ' +
-      'status is "ready" or "failed"; usually under two minutes. "html" is null until ready. ' +
-      'On failure read error_code: EMAIL_DRAFT_INVALID (unusable prompt), EMAIL_DRAFT_MODEL_ERROR, ' +
-      'or INSUFFICIENT_BALANCE (the wallet emptied mid-generation; the draft is not billed).',
-    inputSchema: {
-      type: 'object',
-      properties: { id: idParam },
-      required: ['id'],
-      additionalProperties: false,
-    },
-    annotations: { title: 'Get Email Template Draft', readOnlyHint: true },
-  },
-  {
-    name: 'get_email_list_import',
-    description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
-      'Get the status of one email list CSV import, including the headers that were read, the ' +
-      'mapping that was applied, and the per-row summary once it completes.',
-    inputSchema: {
-      type: 'object',
-      properties: { id: idParam },
-      required: ['id'],
-      additionalProperties: false,
-    },
-    annotations: { title: 'Get Email List Import', readOnlyHint: true },
-  },
-  {
-    name: 'create_email_template_draft',
-    description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
-      'THIS COSTS MONEY: each draft that finishes is billed $3.00 by default (per-org pricing). ' +
-      'Generate an email design from a prompt. Returns immediately with a draft id and the ' +
-      'unit_price; poll get_email_template_draft until status is "ready" or "failed". A draft ' +
-      'that fails is never billed, and a wallet that cannot cover it is refused up front with ' +
-      '402 INSUFFICIENT_BALANCE. Any image_media_ids must already be uploaded as email assets ' +
-      'in this organization. Requires confirm: true.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        confirm: confirmParam,
-        prompt: {
-          type: 'string',
-          description: 'What the email should say, 10 to 4000 characters.',
-        },
-        image_media_ids: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Up to 6 media ids, each uploaded with usage "email_asset" in this organization.',
-        },
-        brand_colors: {
-          type: 'object',
-          description: 'Hex triplets (#rrggbb) the design should use.',
-          properties: {
-            primary: { type: 'string' },
-            secondary: { type: 'string' },
-            accent: { type: 'string' },
-          },
-          additionalProperties: false,
-        },
-      },
-      required: ['confirm', 'prompt'],
-      additionalProperties: false,
-    },
-    annotations: {
-      title: 'Create Email Template Draft',
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: false,
-    },
   },
   {
     name: 'start_email_list_import',
@@ -762,26 +654,6 @@ const TOOLS: Tool[] = [
     },
     annotations: {
       title: 'Start Email List Import',
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: false,
-    },
-  },
-  {
-    name: 'resume_email_campaign',
-    description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
-      'Resume a paused email campaign. A campaign a deliverability breaker auto-paused twice ' +
-      'returns 409 EMAIL_CAMPAIGN_RESUME_REQUIRES_SUPPORT. There is no override: escalate to a ' +
-      'human instead of retrying.',
-    inputSchema: {
-      type: 'object',
-      properties: { confirm: confirmParam, id: idParam },
-      required: ['confirm', 'id'],
-      additionalProperties: false,
-    },
-    annotations: {
-      title: 'Resume Email Campaign',
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -966,8 +838,6 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
           source_type: opt(args, 'source_type') as never,
         }),
       );
-    case 'get_email_list_validation':
-      return textResult(await client.getEmailListValidation(s(args, 'id')));
     case 'list_email_suppressions':
       return textResult(
         await client.listEmailSuppressions({
@@ -997,10 +867,6 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       );
     case 'unschedule_email_campaign':
       return textResult(await client.unscheduleEmailCampaign(s(args, 'id')));
-    case 'pause_email_campaign':
-      return textResult(await client.pauseEmailCampaign(s(args, 'id')));
-    case 'resume_email_campaign':
-      return textResult(await client.resumeEmailCampaign(s(args, 'id')));
     case 'list_email_templates':
       return textResult(
         await client.listEmailTemplates({
@@ -1011,18 +877,6 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       );
     case 'get_email_template':
       return textResult(await client.getEmailTemplate(s(args, 'id')));
-    case 'get_email_template_draft':
-      return textResult(await client.getEmailTemplateDraft(s(args, 'id')));
-    case 'get_email_list_import':
-      return textResult(await client.getEmailListImport(s(args, 'id')));
-    case 'create_email_template_draft':
-      return textResult(
-        await client.requestEmailTemplateDraft({
-          prompt: s(args, 'prompt'),
-          image_media_ids: args.image_media_ids as string[] | undefined,
-          brand_colors: args.brand_colors as EmailDraftBrandColors | undefined,
-        }),
-      );
     case 'start_email_list_import':
       return textResult(
         await client.startEmailListImport({
@@ -1046,7 +900,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.6.0' },
+    { name: 'political-comms', version: '0.7.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 
