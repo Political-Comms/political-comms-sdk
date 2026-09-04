@@ -1128,6 +1128,22 @@ export interface CreateEmailDomainRequest {
   domain: string;
 }
 
+/** Status of this address in Google's Gmail Verified Sender Program, submitted through Campaign Verify. Read-only. */
+export interface GmailVerifiedSender {
+  status:
+    | 'not_eligible'
+    | 'eligible'
+    | 'ready_to_submit'
+    | 'submitted'
+    | 'verified'
+    | 'suspended'
+    | 'rejected'
+    | 'expired';
+  submitted_at: string | null;
+  /** Set when status is verified, else null. */
+  verified_at: string | null;
+}
+
 export interface EmailSenderIdentity {
   id: string;
   email_domain_id: string;
@@ -1140,6 +1156,7 @@ export interface EmailSenderIdentity {
   disclaimer?: string | null;
   disclaimer_required?: boolean;
   authorized_by_candidate?: boolean;
+  gmail_verified_sender?: GmailVerifiedSender | null;
   created_at?: string;
   updated_at?: string;
   [key: string]: unknown;
@@ -1296,13 +1313,23 @@ export interface EmailValidationJob {
   [key: string]: unknown;
 }
 
-/** The verdict classes a list export may be narrowed to, plus every address. */
+/**
+ * The verdict classes a list export may be narrowed to, plus every address,
+ * plus three presets. `max_deliverability` is deliverable addresses only.
+ * `max_reach` is deliverable, risky, and unknown addresses, minus disposable
+ * and role mailboxes. `only_bad` is undeliverable addresses plus disposable
+ * and role mailboxes. The presets exclude addresses that have never been
+ * validated; `all` is the only filter that includes them.
+ */
 export type EmailListExportState =
   | 'all'
   | 'deliverable'
   | 'undeliverable'
   | 'risky'
-  | 'unknown';
+  | 'unknown'
+  | 'max_deliverability'
+  | 'max_reach'
+  | 'only_bad';
 
 export interface EmailListExport {
   file_id: string;
@@ -1395,6 +1422,13 @@ export interface EmailCampaignCounts {
 
 export type EmailCampaignApprovalStatus = 'not_required' | 'pending' | 'approved' | 'rejected';
 
+/**
+ * `max_reach` (default) sends to every subscribed contact. `max_deliverability`
+ * sends only to contacts whose current validation verdict is deliverable;
+ * never-validated contacts are skipped.
+ */
+export type EmailCampaignRecipientPolicy = 'max_reach' | 'max_deliverability';
+
 export interface EmailCampaign {
   id: string;
   name: string;
@@ -1420,6 +1454,13 @@ export interface EmailCampaign {
   /** Returned by the single-campaign read: why this campaign will not schedule yet. */
   blocked?: Array<{ code: string; message: string }>;
   require_approval?: boolean;
+  /**
+   * Which subscribed contacts on the campaign's lists actually receive it.
+   * `max_reach` (default) sends to every subscribed contact.
+   * `max_deliverability` sends only to contacts whose current validation
+   * verdict is deliverable; never-validated contacts are skipped.
+   */
+  recipient_policy?: EmailCampaignRecipientPolicy;
   approval_status?: EmailCampaignApprovalStatus;
   /** ISO 8601 date-time of the last accepted test send, or null. */
   last_tested_at?: string | null;
@@ -1458,6 +1499,13 @@ export interface CreateEmailCampaignRequest {
    */
   tracking_domain_id?: string | null;
   require_approval?: boolean;
+  /**
+   * Which subscribed contacts on the campaign's lists actually receive it.
+   * `max_reach` (default) sends to every subscribed contact.
+   * `max_deliverability` sends only to contacts whose current validation
+   * verdict is deliverable; never-validated contacts are skipped.
+   */
+  recipient_policy?: EmailCampaignRecipientPolicy;
 }
 
 /** At least one field is required. Drafts only. */

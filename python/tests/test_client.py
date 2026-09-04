@@ -787,6 +787,17 @@ class TestEmailListValidationExport:
             client.export_email_list("lst_1", state="undeliverable")
         assert seen["body"] == {"state": "undeliverable"}
 
+    def test_sends_a_preset_verdict_class(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(202, json={"success": True, "data": {"file_id": "f"}})
+
+        with make_client(handler) as client:
+            client.export_email_list("lst_1", state="max_deliverability")
+        assert seen["body"] == {"state": "max_deliverability"}
+
     def test_download_reads_the_file_by_id(self):
         seen = {}
 
@@ -816,6 +827,39 @@ class TestEmailListValidationExport:
             with pytest.raises(PoliticalCommsError) as excinfo:
                 client.get_email_list_export_download("lst_1", "file_1")
         assert excinfo.value.code == "EXPORT_NOT_READY"
+
+
+class TestEmailCampaigns:
+    def test_recipient_policy_is_passed_through_on_create(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(
+                201,
+                json={"success": True, "data": {"id": "camp_1", "recipient_policy": "max_deliverability"}},
+            )
+
+        with make_client(handler) as client:
+            result = client.create_email_campaign(
+                "August appeal",
+                "sender_1",
+                ["list_1"],
+                recipient_policy="max_deliverability",
+            )
+        assert seen["body"]["recipient_policy"] == "max_deliverability"
+        assert result["data"]["recipient_policy"] == "max_deliverability"
+
+    def test_recipient_policy_is_omitted_when_not_set(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(201, json={"success": True, "data": {"id": "camp_1"}})
+
+        with make_client(handler) as client:
+            client.create_email_campaign("August appeal", "sender_1", ["list_1"])
+        assert "recipient_policy" not in seen["body"]
 
 
 class TestMediaUsage:

@@ -1,6 +1,6 @@
 {
   "name": "@political-comms/sdk",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "TypeScript SDK for the Political Comms REST API. Zero dependencies, native fetch, built-in retries and rate limit handling.",
   "license": "MIT",
   "homepage": "https://politicalcomms.com/",

@@ -865,10 +865,15 @@ class PoliticalCommsClient:
         with a ``file_id``; poll :meth:`get_email_list_export_download`, which
         answers 409 EXPORT_NOT_READY until the worker has finished the file.
 
-        ``state`` narrows the export to one verdict class: "all", "deliverable",
-        "undeliverable", "risky", or "unknown". Verdict columns are blank when an
-        address has no cached verdict (never validated, or the 90-day cache
-        expired), which is not the same as false.
+        ``state`` narrows the export to one verdict class ("all", "deliverable",
+        "undeliverable", "risky", "unknown") or one of three presets:
+        "max_deliverability" (deliverable only), "max_reach" (deliverable, risky,
+        and unknown, minus disposable and role mailboxes), or "only_bad"
+        (undeliverable plus disposable and role mailboxes). The presets exclude
+        addresses that have never been validated; "all" is the only filter that
+        includes them. Verdict columns are blank when an address has no cached
+        verdict (never validated, or the 90-day cache expired), which is not the
+        same as false.
         """
         return self._request(
             "POST",
@@ -1003,6 +1008,7 @@ class PoliticalCommsClient:
         is_repermission: Optional[bool] = None,
         tracking_domain_id: Optional[str] = None,
         require_approval: Optional[bool] = None,
+        recipient_policy: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /email/campaigns. Early access: 403 EMAIL_EARLY_ACCESS until GA.
@@ -1013,6 +1019,13 @@ class PoliticalCommsClient:
         host on an existing draft, pass ``{"tracking_domain_id": None}`` to
         :meth:`update_email_campaign`: an omitted argument here means "default",
         not "null".
+
+        ``recipient_policy`` decides which subscribed contacts on the campaign's
+        lists actually receive it: "max_reach" (default) sends to every
+        subscribed contact, and "max_deliverability" sends only to contacts
+        whose current validation verdict is deliverable, skipping contacts that
+        have never been validated. Writable on create and update, and readable
+        on every campaign response.
         """
         return self._request(
             "POST",
@@ -1033,6 +1046,7 @@ class PoliticalCommsClient:
                     "is_repermission": is_repermission,
                     "tracking_domain_id": tracking_domain_id,
                     "require_approval": require_approval,
+                    "recipient_policy": recipient_policy,
                 }
             ),
             idempotency_key=idempotency_key,
