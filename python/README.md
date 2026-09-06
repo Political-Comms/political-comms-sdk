@@ -73,7 +73,7 @@ client.schedule_project(project_id, "2026-11-03T09:00:00", "America/New_York")
 # )
 ```
 
-One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `list_tracking_domains`, `list_phone_numbers`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `delete_contact_list`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `test_project`, `schedule_project`, `unschedule_project`, `copy_project`, `archive_project`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
+One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `list_tracking_domains`, `list_phone_numbers`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `delete_contact_list`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `test_project`, `schedule_project`, `unschedule_project`, `copy_project`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
 
 Every method returns the parsed JSON response, a dict of the form `{"success": True, "data": ...}`.
 
@@ -116,8 +116,12 @@ else:
 
 Templates save the HTML a campaign sends. Create also returns `lint`: the save
 succeeds either way, but a campaign will not schedule while `lint["errors"]` is
-non-empty, so check it at save time rather than at send time.
-`content["editor"]` is always `"html"`; the designer document is not exposed.
+non-empty, so check it at save time rather than at send time. This endpoint
+only accepts HTML content; `content["editor"]` is `"html"` for a template
+created here, or `"document"` for one built in the dashboard's document
+editor, readable over the API as rendered HTML only. Updating the `content`
+of a `"document"` template returns `409 CONFLICT` with `details["reason"]`
+set to `"TEMPLATE_IS_DOCUMENT"`.
 
 ### List imports
 

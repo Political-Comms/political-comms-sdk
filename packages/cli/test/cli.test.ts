@@ -25,7 +25,6 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     scheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'scheduled', scheduled_at: '2026-11-03T09:00:00' })),
     unscheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'draft' })),
     copyProject: vi.fn(() => ok({ project_id: 'proj_2', name: 'GOTV_v2', status: 'draft' })),
-    archiveProject: vi.fn(() => ok({ project_id: 'proj_1', status: 'archived', archived_at: '2026-07-29T00:00:00Z' })),
     listContactLists: vi.fn(() => ok([{ id: 'cl_1', list_name: 'Voters', contact_count: 1200, status: 'ready' }])),
     getContactList: vi.fn(() => ok({ id: 'cl_1', list_name: 'Voters' })),
     deleteContactList: vi.fn(() => ok({ list_id: 'cl_1', name: 'Voters', deleted: true })),
@@ -73,7 +72,7 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
       ok({
         id: 'imp_1',
         status: 'completed',
-        email_list_id: 'lst_1',
+        name: 'August donors',
         file_name: 'donors.csv',
         headers: ['Email', 'First Name'],
         recognized_provider: 'mailchimp',
@@ -279,15 +278,6 @@ describe('commands', () => {
     expect(code).toBe(0);
     expect(client.copyProject).toHaveBeenCalledWith('proj_1');
     expect(out[0]).toBe('Copied project proj_1 to proj_2 (name: GOTV_v2, status: draft).');
-  });
-
-  it('projects archive calls archiveProject and reports the status', async () => {
-    const client = makeClient();
-    const { io, out } = makeIO();
-    const code = await main(['projects', 'archive', 'proj_1'], deps(client, io));
-    expect(code).toBe(0);
-    expect(client.archiveProject).toHaveBeenCalledWith('proj_1');
-    expect(out[0]).toBe('Archived project proj_1 (status: archived).');
   });
 
   it('exits 2 when projects copy is missing the id', async () => {

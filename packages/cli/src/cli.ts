@@ -14,7 +14,6 @@ export type CliClient = Pick<
   | 'scheduleProject'
   | 'unscheduleProject'
   | 'copyProject'
-  | 'archiveProject'
   | 'listContactLists'
   | 'getContactList'
   | 'deleteContactList'
@@ -62,7 +61,6 @@ Commands:
                                    [--daily-cap-bypass])
   projects unschedule <id>         Remove a schedule
   projects copy <id>               Copy a project (drops lists, schedule, stats)
-  projects archive <id>            Archive a completed project
   contact-lists list               List contact lists
   contact-lists get <id>           Show one contact list
   contact-lists delete <id>        Delete an unused contact list
@@ -560,7 +558,7 @@ async function projectsCommand(
   flags: Flags,
   io: CliIO,
 ): Promise<number> {
-  requireSub(sub, ['list', 'get', 'create', 'test', 'schedule', 'unschedule', 'copy', 'archive'], 'projects');
+  requireSub(sub, ['list', 'get', 'create', 'test', 'schedule', 'unschedule', 'copy'], 'projects');
 
   switch (sub) {
     case 'list': {
@@ -675,14 +673,6 @@ async function projectsCommand(
         `Copied project ${id} to ${str(result.data?.project_id)} ` +
           `(name: ${str(result.data?.name)}, status: ${str(result.data?.status)}).`,
       );
-      return 0;
-    }
-
-    case 'archive': {
-      const id = requireArg(arg, 'projects archive <id>');
-      const result = await client.archiveProject(id);
-      if (flags.json) return printJson(io, result);
-      io.out(`Archived project ${id} (status: ${str(result.data?.status)}).`);
       return 0;
     }
 

@@ -77,7 +77,7 @@ await client.scheduleProject(projectId, {
 });
 ```
 
-One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `listTrackingDomains`, `listPhoneNumbers`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `deleteContactList`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `testProject`, `scheduleProject`, `unscheduleProject`, `copyProject`, `archiveProject`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
+One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `listTrackingDomains`, `listPhoneNumbers`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `deleteContactList`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `testProject`, `scheduleProject`, `unscheduleProject`, `copyProject`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
 
 ## Email (early access)
 
@@ -117,8 +117,12 @@ if (campaign?.blocked?.length) {
 
 Templates save the HTML a campaign sends. Create also returns `lint`: the save
 succeeds either way, but a campaign will not schedule while `lint.errors` is
-non-empty, so check it at save time rather than at send time. `content.editor`
-is always `'html'`; the designer document is not exposed.
+non-empty, so check it at save time rather than at send time. This endpoint
+only accepts HTML content; `content.editor` is `'html'` for a template
+created here, or `'document'` for one built in the dashboard's document
+editor, readable over the API as rendered HTML only. Updating the `content`
+of a `'document'` template returns `409 CONFLICT` with `details.reason` set
+to `'TEMPLATE_IS_DOCUMENT'`.
 
 ### List imports
 
@@ -132,7 +136,7 @@ import's progress is shown on the list in the dashboard.
 ```ts
 const { data: started } = await client.startEmailListImport({
   source_url: 'https://example.com/donors.csv',
-  email_list_id: 'lst_1',
+  name: 'August donors',
   consent: { source: 'donation_form', note: 'ActBlue donors, 2026 cycle' },
 });
 console.log(started.id);

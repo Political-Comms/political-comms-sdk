@@ -489,7 +489,7 @@ export interface DeleteMediaResult {
 export type ProjectChannel = '10dlc' | 'toll-free';
 export type ProjectProtocol = 'sms' | 'mms';
 export type ProjectType = 'broadcast' | 'survey';
-export type ProjectStatsStatusFilter = 'draft' | 'active' | 'completed' | 'archived' | 'paused' | 'all';
+export type ProjectStatsStatusFilter = 'draft' | 'active' | 'completed' | 'paused' | 'all';
 
 /** List item returned by GET /projects. */
 export interface Project {
@@ -590,11 +590,6 @@ export interface ListProjectsQuery {
   brand_id?: string;
   campaign_id?: string;
   type?: ProjectType;
-  /**
-   * true returns only archived projects; false excludes archived projects;
-   * omitted returns everything except deleted projects.
-   */
-  archived?: boolean;
 }
 
 export interface CreateProjectRequest {
@@ -926,17 +921,6 @@ export interface CopyProjectResult {
   [key: string]: unknown;
 }
 
-/**
- * 200 OK for POST /projects/{id}/archive. Only projects in completed status
- * can be archived; otherwise the API returns 409 INVALID_STATE_TRANSITION.
- */
-export interface ArchiveProjectResult {
-  project_id?: string;
-  status?: string;
-  archived_at?: string;
-  [key: string]: unknown;
-}
-
 // ---------------------------------------------------------------------------
 // Analytics and billing
 // ---------------------------------------------------------------------------
@@ -1185,7 +1169,8 @@ export interface EmailList {
   description?: string | null;
   source_type: EmailListSourceType;
   status: 'processing' | 'ready' | 'failed' | 'archived';
-  sender_identity_id?: string | null;
+  /** null = organization-wide; set = only campaigns on that sending domain may use the list. */
+  email_domain_id?: string | null;
   /** Provenance for a list you did not collect yourself. Acquired lists must be validated before the first send. */
   acquired?: string | null;
   sunset_enabled?: boolean;
@@ -1212,7 +1197,8 @@ export interface CreateEmailListRequest {
   name: string;
   consent_attestation: EmailConsentAttestation;
   description?: string;
-  sender_identity_id?: string;
+  /** Scope the list to one sending domain. Omit for an organization-wide list. */
+  email_domain_id?: string;
   acquired?: string;
   sunset_enabled?: boolean;
 }
@@ -1265,7 +1251,7 @@ export interface RemoveEmailContactsResult {
   [key: string]: unknown;
 }
 
-export type EmailSuppressionScope = 'org' | 'identity' | 'list';
+export type EmailSuppressionScope = 'org' | 'identity' | 'domain';
 
 export interface EmailSuppression {
   email: string;
@@ -1273,7 +1259,7 @@ export interface EmailSuppression {
   reason?: string | null;
   source?: string | null;
   sender_identity_id?: string | null;
-  suppression_list_id?: string | null;
+  email_domain_id?: string | null;
   suppressed_at?: string;
   [key: string]: unknown;
 }
@@ -1289,8 +1275,8 @@ export interface AddEmailSuppressionsRequest {
   reason?: string;
   /** Required when scope is 'identity'. */
   sender_identity_id?: string;
-  /** Required when scope is 'list'. */
-  suppression_list_id?: string;
+  /** Required when scope is 'domain'. */
+  email_domain_id?: string;
 }
 
 export interface RemoveEmailSuppressionsRequest {
@@ -1298,7 +1284,7 @@ export interface RemoveEmailSuppressionsRequest {
   /** 1-5000 addresses. */
   emails: string[];
   sender_identity_id?: string;
-  suppression_list_id?: string;
+  email_domain_id?: string;
 }
 
 export interface AddEmailSuppressionsResult {
@@ -1324,7 +1310,6 @@ export type EmailCampaignStatus =
   | 'sending'
   | 'paused'
   | 'completed'
-  | 'archived'
   | 'deleted';
 
 export interface EmailCampaignCounts {
@@ -1462,16 +1447,19 @@ export interface DeletedResult {
 }
 
 /**
- * Template body. `editor` is always 'html' on this surface: the API neither
- * accepts nor returns the visual designer's document, so a template edited in
- * the dashboard designer is readable here as its rendered HTML only.
+ * Template body. `editor` is `'html'` for a template imported or hand-written
+ * as HTML, or `'document'` for one built in the dashboard's document editor;
+ * both are readable here as rendered HTML only. This surface only accepts
+ * HTML content on create. Updating the `content` of a `'document'` template
+ * returns `409 CONFLICT` with `details.reason` set to `'TEMPLATE_IS_DOCUMENT'`:
+ * edit it in the dashboard, or convert it to an HTML template first.
  */
 export interface EmailTemplateContent {
   subject: string | null;
   preheader: string | null;
   html: string | null;
   text: string | null;
-  editor: 'html';
+  editor: 'html' | 'document';
 }
 
 export interface EmailTemplate {
@@ -1574,7 +1562,16 @@ export interface EmailListImport {
 export interface StartEmailListImportRequest {
   /** HTTPS URL of the CSV. The server fetches it; there is no file upload on this surface. */
   source_url: string;
-  email_list_id: string;
+  /**
+   * Name for the list this file becomes. Defaults to the file name. The
+   * uploaded file IS the list: an import creates one rather than adding to an
+   * existing list.
+   */
+  name?: string;
+  /** Scope the new list to one sending domain. Omit for organization-wide. */
+  email_domain_id?: string;
+  /** The addresses were purchased or rented; the list must pass validation before a send. */
+  acquired?: boolean;
   consent: {
     source: EmailListImportConsentSource;
     note?: string;

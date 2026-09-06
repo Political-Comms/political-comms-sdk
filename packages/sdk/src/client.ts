@@ -2,7 +2,6 @@ import { PoliticalCommsError } from './error';
 import type {
   AllProjectStats,
   ApiResponse,
-  ArchiveProjectResult,
   Brand,
   Campaign,
   ContactList,
@@ -356,7 +355,6 @@ export class PoliticalCommsClient {
         brand_id: query.brand_id,
         campaign_id: query.campaign_id,
         type: query.type,
-        archived: query.archived !== undefined ? String(query.archived) : undefined,
       },
       undefined,
       options,
@@ -456,17 +454,6 @@ export class PoliticalCommsClient {
     return this.request(
       'POST',
       `/projects/${encodeURIComponent(id)}/copy`,
-      undefined,
-      undefined,
-      options,
-    );
-  }
-
-  /** POST /projects/{id}/archive */
-  archiveProject(id: string, options?: RequestOptions): Promise<ApiResponse<ArchiveProjectResult>> {
-    return this.request(
-      'POST',
-      `/projects/${encodeURIComponent(id)}/archive`,
       undefined,
       undefined,
       options,

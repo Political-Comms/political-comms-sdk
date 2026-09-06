@@ -68,7 +68,6 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, and
 | `schedule_project` | Commit a bulk send at a specific date and time. |
 | `unschedule_project` | Remove a project's schedule. |
 | `copy_project` | Copy a project into a new draft (drops lists, schedule, and stats). |
-| `archive_project` | Archive a completed project. |
 | `schedule_email_campaign` | Commit an email send. Requires `confirm: true`. |
 | `unschedule_email_campaign` | Return a scheduled campaign to a draft state. |
 | `start_email_list_import` | Import a CSV of contacts into an email list. Requires `confirm: true`. |

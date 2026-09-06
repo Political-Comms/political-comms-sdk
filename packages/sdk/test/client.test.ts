@@ -488,7 +488,7 @@ describe('deletes', () => {
   });
 });
 
-describe('project copy and archive', () => {
+describe('project copy', () => {
   it('copyProject POSTs with no body and unwraps the draft copy', async () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse(201, {
@@ -518,38 +518,9 @@ describe('project copy and archive', () => {
     expect(res.data.status).toBe('draft');
     expect(res.data.completeness?.has_list).toBe(false);
   });
-
-  it('archiveProject POSTs with no body and unwraps the archived state', async () => {
-    const fetchMock = vi.fn(async () =>
-      okResponse({ project_id: 'proj_1', status: 'archived', archived_at: '2026-07-29T00:00:00.000Z' }),
-    );
-    const client = makeClient(fetchMock as unknown as typeof fetch);
-    const res = await client.archiveProject('proj_1');
-
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('https://api.politicalcomms.com/v1/projects/proj_1/archive');
-    expect(init.method).toBe('POST');
-    expect(init.body).toBeUndefined();
-    expect(res.data.status).toBe('archived');
-    expect(res.data.archived_at).toBe('2026-07-29T00:00:00.000Z');
-  });
 });
 
 describe('projects list and create options', () => {
-  it('serializes archived as the strings true and false', async () => {
-    const fetchMock = vi.fn(async () => okResponse([]));
-    const client = makeClient(fetchMock as unknown as typeof fetch);
-
-    await client.listProjects({ archived: true });
-    await client.listProjects({ archived: false });
-    await client.listProjects({});
-
-    const urls = fetchMock.mock.calls.map((call) => new URL((call as unknown as [string])[0]));
-    expect(urls[0]!.searchParams.get('archived')).toBe('true');
-    expect(urls[1]!.searchParams.get('archived')).toBe('false');
-    expect(urls[2]!.searchParams.has('archived')).toBe(false);
-  });
-
   it('serializes the type filter and omits it when not set', async () => {
     const fetchMock = vi.fn(async () => okResponse([]));
     const client = makeClient(fetchMock as unknown as typeof fetch);

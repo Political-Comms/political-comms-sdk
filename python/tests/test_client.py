@@ -362,7 +362,7 @@ class TestDeletes:
         assert err.body["details"]["projects"][0]["id"] == "proj_1"
 
 
-class TestProjectCopyArchive:
+class TestProjectCopy:
     def test_copy_project_posts_without_body(self):
         seen = {}
 
@@ -388,38 +388,8 @@ class TestProjectCopyArchive:
         assert result["data"]["name"] == "GOTV_v2"
         assert result["data"]["status"] == "draft"
 
-    def test_archive_project(self):
-        seen = {}
-
-        def handler(request):
-            seen["method"] = request.method
-            seen["path"] = request.url.path
-            return ok_response(
-                {"project_id": "proj_1", "status": "archived", "archived_at": "2026-07-29T00:00:00Z"}
-            )
-
-        with make_client(handler) as client:
-            result = client.archive_project("proj_1")
-        assert seen == {"method": "POST", "path": "/v1/projects/proj_1/archive"}
-        assert result["data"]["status"] == "archived"
-
 
 class TestProjectListAndCreateOptions:
-    @pytest.mark.parametrize(
-        ("archived", "expected"),
-        [(True, {"archived": "true"}), (False, {"archived": "false"}), (None, {})],
-    )
-    def test_list_projects_archived_serialization(self, archived, expected):
-        seen = {}
-
-        def handler(request):
-            seen["params"] = dict(request.url.params)
-            return ok_response([])
-
-        with make_client(handler) as client:
-            client.list_projects(archived=archived)
-        assert seen["params"] == expected
-
     @pytest.mark.parametrize(
         ("type", "expected"),
         [("survey", {"type": "survey"}), ("broadcast", {"type": "broadcast"}), (None, {})],

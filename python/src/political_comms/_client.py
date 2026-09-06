@@ -277,14 +277,10 @@ class PoliticalCommsClient:
         brand_id: Optional[str] = None,
         campaign_id: Optional[str] = None,
         type: Optional[str] = None,
-        archived: Optional[bool] = None,
     ) -> JsonDict:
         """GET /projects
 
         ``type`` filters to "broadcast" or "survey" projects.
-        ``archived=True`` returns only archived projects, ``archived=False``
-        excludes them, and ``None`` (default) returns everything except
-        deleted projects.
         """
         return self._request(
             "GET",
@@ -294,7 +290,6 @@ class PoliticalCommsClient:
                 "brand_id": brand_id,
                 "campaign_id": campaign_id,
                 "type": type,
-                "archived": None if archived is None else ("true" if archived else "false"),
             },
         )
 
@@ -522,14 +517,6 @@ class PoliticalCommsClient:
         """
         return self._request("POST", f"/projects/{id}/copy", idempotency_key=idempotency_key)
 
-    def archive_project(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
-        """POST /projects/{id}/archive
-
-        Only projects in completed status can be archived; otherwise the API
-        returns 409 INVALID_STATE_TRANSITION.
-        """
-        return self._request("POST", f"/projects/{id}/archive", idempotency_key=idempotency_key)
-
     # -- analytics and billing -------------------------------------------------------
 
     def get_message_stats(
@@ -657,7 +644,7 @@ class PoliticalCommsClient:
         consent_attestation: JsonDict,
         *,
         description: Optional[str] = None,
-        sender_identity_id: Optional[str] = None,
+        email_domain_id: Optional[str] = None,
         acquired: Optional[str] = None,
         sunset_enabled: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
@@ -667,7 +654,8 @@ class PoliticalCommsClient:
         consent_attestation is {"source": str, "note": str | None}: the record of how
         the people on this list agreed to hear from you. Set `acquired` when the list
         came from anywhere other than your own sign-up flow; acquired lists must be
-        validated before their first send.
+        validated before their first send. email_domain_id scopes the list to one
+        sending domain; omit it for a list any campaign may use.
         """
         return self._request(
             "POST",
@@ -677,7 +665,7 @@ class PoliticalCommsClient:
                     "name": name,
                     "consent_attestation": consent_attestation,
                     "description": description,
-                    "sender_identity_id": sender_identity_id,
+                    "email_domain_id": email_domain_id,
                     "acquired": acquired,
                     "sunset_enabled": sunset_enabled,
                 }
@@ -746,7 +734,7 @@ class PoliticalCommsClient:
         *,
         reason: Optional[str] = None,
         sender_identity_id: Optional[str] = None,
-        suppression_list_id: Optional[str] = None,
+        email_domain_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /email/suppressions. Early access: 403 EMAIL_EARLY_ACCESS until GA.
@@ -763,7 +751,7 @@ class PoliticalCommsClient:
                     "emails": emails,
                     "reason": reason,
                     "sender_identity_id": sender_identity_id,
-                    "suppression_list_id": suppression_list_id,
+                    "email_domain_id": email_domain_id,
                 }
             ),
             idempotency_key=idempotency_key,
@@ -775,7 +763,7 @@ class PoliticalCommsClient:
         emails: list[str],
         *,
         sender_identity_id: Optional[str] = None,
-        suppression_list_id: Optional[str] = None,
+        email_domain_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """DELETE /email/suppressions. Early access: 403 EMAIL_EARLY_ACCESS until GA.
@@ -790,7 +778,7 @@ class PoliticalCommsClient:
                     "scope": scope,
                     "emails": emails,
                     "sender_identity_id": sender_identity_id,
-                    "suppression_list_id": suppression_list_id,
+                    "email_domain_id": email_domain_id,
                 }
             ),
             idempotency_key=idempotency_key,
@@ -947,8 +935,10 @@ class PoliticalCommsClient:
         """POST /email/templates. Early access: 403 EMAIL_EARLY_ACCESS until GA.
 
         content is {"subject": str, "html": str, "preheader": str | None,
-        "text": str | None}. The API never accepts or returns the visual designer
-        document, so a saved template reports editor "html".
+        "text": str | None}. This endpoint only accepts HTML content; a saved
+        template reports editor "html" (a template built in the dashboard's
+        document editor reports "document" and is readable here as rendered
+        HTML only).
 
         The response carries "lint" alongside the template. The save succeeds
         either way, but a campaign will not schedule while lint["errors"] is
@@ -966,18 +956,22 @@ class PoliticalCommsClient:
     def start_email_list_import(
         self,
         source_url: str,
-        email_list_id: str,
         consent: JsonDict,
         *,
+        name: Optional[str] = None,
+        email_domain_id: Optional[str] = None,
+        acquired: Optional[bool] = None,
         mapping: Optional[dict[str, str]] = None,
         options: Optional[JsonDict] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /email/lists/import. Early access: 403 EMAIL_EARLY_ACCESS until GA.
 
-        Fetches your CSV over https (50 MB cap, SSRF-guarded) and commits it in one
-        call. consent is {"source": str, "note": str | None}, where source is one of
-        donation_form, petition, signup_form, event, purchased, rented, or other.
+        Fetches your CSV over https (50 MB cap, SSRF-guarded) and commits it as a NEW
+        list in one call: the file is the list. name defaults to the file name, and
+        email_domain_id scopes the new list to one sending domain. consent is
+        {"source": str, "note": str | None}, where source is one of donation_form,
+        petition, signup_form, event, purchased, rented, or other.
 
         Omit mapping to let the server recognize a common ESP export; when neither
         your mapping nor the recognizer finds an email column the call is a 400
@@ -991,7 +985,9 @@ class PoliticalCommsClient:
             body=_compact(
                 {
                     "source_url": source_url,
-                    "email_list_id": email_list_id,
+                    "name": name,
+                    "email_domain_id": email_domain_id,
+                    "acquired": acquired,
                     "consent": consent,
                     "mapping": mapping,
                     "options": options,

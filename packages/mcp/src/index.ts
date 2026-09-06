@@ -377,25 +377,6 @@ const TOOLS: Tool[] = [
       idempotentHint: false,
     },
   },
-  {
-    name: 'archive_project',
-    description:
-      'Archive a completed project so it no longer appears in default project listings. Only ' +
-      'projects in completed status can be archived; other statuses are rejected with ' +
-      'INVALID_STATE_TRANSITION.',
-    inputSchema: {
-      type: 'object',
-      properties: { project_id: { type: 'string', description: 'ID of the project to archive' } },
-      required: ['project_id'],
-      additionalProperties: false,
-    },
-    annotations: {
-      title: 'Archive Project',
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: false,
-    },
-  },
   // -------------------------------------------------------------------------
   // Email (early access). Every tool below returns 403 EMAIL_EARLY_ACCESS
   // until the email product reaches general availability.
@@ -501,7 +482,6 @@ const TOOLS: Tool[] = [
             'sending',
             'paused',
             'completed',
-            'archived',
             'deleted',
           ],
         },
@@ -599,8 +579,9 @@ const TOOLS: Tool[] = [
     name: 'get_email_template',
     description:
       'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
-      'Get one email template including its full HTML body, which can be large. The API never ' +
-      'returns the visual designer document, so "editor" is always "html".',
+      'Get one email template including its full HTML body, which can be large. "editor" is ' +
+      '"html" for a template imported or hand-written as HTML, or "document" for one built in ' +
+      'the dashboard\'s document editor; both are returned as rendered HTML here.',
     inputSchema: {
       type: 'object',
       properties: { id: idParam },
@@ -624,7 +605,16 @@ const TOOLS: Tool[] = [
       properties: {
         confirm: confirmParam,
         source_url: { type: 'string', description: 'https URL of the CSV file.' },
-        email_list_id: { type: 'string', description: 'The list to import into.' },
+        name: {
+          type: 'string',
+          description:
+            'Name for the list this file becomes. Defaults to the file name. The file IS the list: an import creates one rather than adding to an existing list.',
+        },
+        email_domain_id: {
+          type: 'string',
+          description:
+            'Scope the new list to one sending domain. Omit for an organization-wide list any campaign can use.',
+        },
         consent_source: {
           type: 'string',
           description: 'How the people in this file consented to hear from you.',
@@ -649,7 +639,7 @@ const TOOLS: Tool[] = [
           description: 'Accept role addresses (info@, sales@) instead of rejecting them.',
         },
       },
-      required: ['confirm', 'source_url', 'email_list_id', 'consent_source'],
+      required: ['confirm', 'source_url', 'consent_source'],
       additionalProperties: false,
     },
     annotations: {
@@ -813,8 +803,6 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       return textResult(await client.unscheduleProject(s(args, 'id')));
     case 'copy_project':
       return textResult(await client.copyProject(s(args, 'project_id')));
-    case 'archive_project':
-      return textResult(await client.archiveProject(s(args, 'project_id')));
 
     // Email (early access): all of these return 403 EMAIL_EARLY_ACCESS until GA.
     case 'list_email_domains':
@@ -881,7 +869,10 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       return textResult(
         await client.startEmailListImport({
           source_url: s(args, 'source_url'),
-          email_list_id: s(args, 'email_list_id'),
+          ...(args.name === undefined ? {} : { name: s(args, 'name') }),
+          ...(args.email_domain_id === undefined
+            ? {}
+            : { email_domain_id: s(args, 'email_domain_id') }),
           consent: {
             source: s(args, 'consent_source') as EmailListImportConsentSource,
             ...(args.consent_note === undefined ? {} : { note: s(args, 'consent_note') }),
@@ -900,7 +891,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.7.0' },
+    { name: 'political-comms', version: '0.9.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

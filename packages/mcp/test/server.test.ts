@@ -21,7 +21,6 @@ const EXPECTED_TOOLS = [
   'schedule_project',
   'unschedule_project',
   'copy_project',
-  'archive_project',
   // Email (early access). Reads, the campaign lifecycle, and the two writes that
   // spend money or add contacts; no delete_* tools, so the surface stays
   // non-destructive.
