@@ -34,6 +34,11 @@ projects copy <id>               Copy a project (drops lists, schedule, stats)
 contact-lists list               List contact lists
 contact-lists get <id>           Show one contact list
 contact-lists delete <id>        Delete an unused contact list
+conversations list               List conversations with an inbound message
+                                  (--project, --since, --include-test)
+conversations get <id>           Show one conversation
+conversations messages <id>      List messages in a conversation
+conversations reply <id>         Send a real reply (--text, required)
 media list                       List media files
 media get <id>                   Show one media file
 media delete <id>                Delete an unused media file
@@ -92,6 +97,12 @@ npx @political-comms/cli projects schedule proj_123 \
 
 # Message stats for June
 npx @political-comms/cli stats messages --from 2026-06-01 --to 2026-06-30 --json
+
+# Recover inbound messages missed while a webhook endpoint was down
+npx @political-comms/cli conversations list --since 2026-09-01T00:00:00Z
+
+# Reply to a conversation (sends a real SMS)
+npx @political-comms/cli conversations reply conv_123 --text "Thanks for reaching out!"
 ```
 
 ## Global options

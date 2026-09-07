@@ -318,6 +318,12 @@ class PoliticalCommsClient:
     ) -> JsonDict:
         """POST /projects
 
+        Returns ``403 ONBOARDING_INCOMPLETE`` if the organization's 14-day
+        setup grace window has passed and the business profile or funding
+        step is still incomplete; the error's ``body["details"]`` carries
+        ``missingSteps`` (``"profile"`` and/or ``"funding"``) and
+        ``onboardingUrl``.
+
         ``contact_list_ids`` is optional: omitting it creates the project in
         draft status, and it cannot be tested or scheduled until a list is
         attached via ``update_project``. An explicitly empty list is rejected.
@@ -513,9 +519,101 @@ class PoliticalCommsClient:
         """POST /projects/{id}/copy
 
         The copy drops contact lists, schedule, and stats, starts in draft
-        status, and gets a versioned name (X becomes X_v2).
+        status, and gets a versioned name (X becomes X_v2). Returns
+        ``403 ONBOARDING_INCOMPLETE`` if the organization's 14-day setup
+        grace window has passed and the business profile or funding step is
+        still incomplete; see ``create_project``.
         """
         return self._request("POST", f"/projects/{id}/copy", idempotency_key=idempotency_key)
+
+    # -- conversations ----------------------------------------------------------
+    #
+    # A conversation is one thread between one of the organization's sending
+    # numbers and one contact, created by a project send. The API never
+    # creates a conversation; it replies inside an existing one, from the
+    # same number, on the same project. Lists are keyset paginated: the
+    # payload is {"data": [...], "has_more": bool, "next_cursor": str | None}.
+    # Page until next_cursor is None, and never parse a cursor.
+
+    def list_conversations(
+        self,
+        *,
+        project_id: Optional[str] = None,
+        updated_since: Optional[str] = None,
+        include_test: Optional[bool] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> JsonDict:
+        """GET /conversations
+
+        Lists conversations that have at least one inbound message, across
+        every organization the key can access, sorted by ``last_inbound_at``
+        descending. ``updated_since`` is an ISO 8601 date-time filtering on
+        ``last_inbound_at`` (defaults to now minus 7 days; more than 90 days
+        back is a 400). ``include_test`` defaults to False. There is no
+        status filter; filter the results client side.
+
+        Recommended for recovering inbound messages missed when a
+        ``message.replied`` webhook endpoint was down: poll no more than once
+        a minute, advancing ``updated_since`` to the newest ``last_inbound_at``
+        seen.
+        """
+        return self._request(
+            "GET",
+            "/conversations",
+            query={
+                "project_id": project_id,
+                "updated_since": updated_since,
+                "include_test": include_test,
+                "limit": limit,
+                "cursor": cursor,
+            },
+        )
+
+    def get_conversation(self, id: str) -> JsonDict:
+        """GET /conversations/{id}"""
+        return self._request("GET", f"/conversations/{id}")
+
+    def list_conversation_messages(
+        self,
+        id: str,
+        *,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> JsonDict:
+        """GET /conversations/{id}/messages
+
+        Newest first. Reading never marks the thread read in the dashboard.
+        """
+        return self._request(
+            "GET",
+            f"/conversations/{id}/messages",
+            query={"limit": limit, "cursor": cursor},
+        )
+
+    def reply_to_conversation(
+        self,
+        id: str,
+        text: str,
+        *,
+        idempotency_key: Optional[str] = None,
+    ) -> JsonDict:
+        """POST /conversations/{id}/messages
+
+        Replies inside an existing conversation from the same sending number,
+        on the same project. ``text`` is 1-1600 characters, SMS only (no
+        media). Returns 202 Accepted; final delivery state arrives on the
+        existing ``message.sent`` / ``message.delivered`` / ``message.failed``
+        webhooks (no new webhook event). Quiet hours do not apply. On a
+        ``503 SEND_ENQUEUE_FAILED`` nothing was sent or charged, so it is
+        safe to retry the same call.
+        """
+        return self._request(
+            "POST",
+            f"/conversations/{id}/messages",
+            body={"text": text},
+            idempotency_key=idempotency_key,
+        )
 
     # -- analytics and billing -------------------------------------------------------
 
@@ -833,6 +931,10 @@ class PoliticalCommsClient:
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /email/campaigns. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+
+        Once GA, also returns ``403 ONBOARDING_INCOMPLETE`` if the
+        organization's 14-day setup grace window has passed and the business
+        profile or funding step is still incomplete; see ``create_project``.
 
         ``tracking_domain_id`` brands this campaign's tracked links, open pixel
         and unsubscribe page with your own ``links.`` host. Leave it unset to

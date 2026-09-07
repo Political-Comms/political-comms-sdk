@@ -19,10 +19,11 @@ const SERVER_INSTRUCTIONS =
   'organizations, projects, contact lists, analytics, and billing, and to create, test, and ' +
   'schedule compliant political SMS and MMS sends. An API key is required via the ' +
   'POLITICAL_COMMS_API_KEY environment variable (created in the dashboard under Admin > API). ' +
-  'The write tools create_project, test_project, schedule_project, schedule_email_campaign, ' +
-  'resume_email_campaign, create_email_template_draft, and start_email_list_import send real ' +
-  'messages, spend money, or write contacts, and require confirm: true. Rate limits per ' +
-  'key (60-second sliding window): 100 requests/minute for reads, 60/minute for writes. ' +
+  'The write tools create_project, test_project, schedule_project, reply_to_conversation, ' +
+  'schedule_email_campaign, resume_email_campaign, create_email_template_draft, and ' +
+  'start_email_list_import send real messages, spend money, or write contacts, and require ' +
+  'confirm: true. Rate limits per key (60-second sliding window): 100 requests/minute for reads, ' +
+  '60/minute for writes. ' +
   'The email tools (list_email_*, get_email_*, and the email campaign lifecycle) are EARLY ACCESS: ' +
   'every one returns 403 EMAIL_EARLY_ACCESS until the email product reaches general availability. ' +
   'There is no inbound email or inbox surface.';
@@ -378,6 +379,98 @@ const TOOLS: Tool[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // Conversations. A conversation is one thread between one of the
+  // organization's sending numbers and one contact, created by a project
+  // send. The API never creates a conversation; it replies inside an
+  // existing one, from the same number, on the same project.
+  // -------------------------------------------------------------------------
+  {
+    name: 'list_conversations',
+    description:
+      'List conversations that have at least one inbound message, across every organization the ' +
+      'key can access, sorted by last inbound message descending. Use this to recover inbound ' +
+      'messages missed when a message.replied webhook endpoint was down: poll no more than once a ' +
+      'minute, advancing updated_since to the newest last_inbound_at seen. There is no status ' +
+      'filter; filter the results client side.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'string', description: 'Filter to one project' },
+        updated_since: {
+          type: 'string',
+          description:
+            'ISO 8601 date-time. Filters on last_inbound_at. Defaults to now minus 7 days; more ' +
+            'than 90 days back is rejected.',
+        },
+        include_test: { type: 'boolean', description: 'Include test conversations. Defaults to false.' },
+        limit: { type: 'number', description: '1-200. Defaults to 50.' },
+        cursor: {
+          type: 'string',
+          description: 'Opaque cursor from the previous page next_cursor. Never parse a cursor.',
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: { title: 'List Conversations', readOnlyHint: true },
+  },
+  {
+    name: 'get_conversation',
+    description:
+      'Get one conversation by ID: its status (active, inactive, or opted_out), the contact, message ' +
+      'counts, and the last inbound/outbound timestamps.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: { title: 'Get Conversation', readOnlyHint: true },
+  },
+  {
+    name: 'list_conversation_messages',
+    description:
+      'List the messages in one conversation, newest first. Reading never marks the thread read in ' +
+      'the dashboard.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: idParam,
+        limit: { type: 'number', description: '1-200. Defaults to 50.' },
+        cursor: {
+          type: 'string',
+          description: 'Opaque cursor from the previous page next_cursor. Never parse a cursor.',
+        },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: { title: 'List Conversation Messages', readOnlyHint: true },
+  },
+  {
+    name: 'reply_to_conversation',
+    description:
+      'Send a real SMS reply inside an existing conversation, from the same sending number, on the ' +
+      'same project. This delivers an actual text message to the contact and incurs cost. Text is ' +
+      '1-1600 characters, SMS only (no media). Final delivery state arrives on the existing ' +
+      'message.sent / message.delivered / message.failed webhooks.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        confirm: confirmParam,
+        id: idParam,
+        text: { type: 'string', minLength: 1, maxLength: 1600, description: 'The reply text to send' },
+      },
+      required: ['confirm', 'id', 'text'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Reply To Conversation',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    },
+  },
+  // -------------------------------------------------------------------------
   // Email (early access). Every tool below returns 403 EMAIL_EARLY_ACCESS
   // until the email product reaches general availability.
   // -------------------------------------------------------------------------
@@ -655,6 +748,8 @@ const CONFIRM_REQUIRED = new Set([
   'create_project',
   'test_project',
   'schedule_project',
+  // Sends a real SMS and spends money.
+  'reply_to_conversation',
   'schedule_email_campaign',
   'resume_email_campaign',
   // Spends $3.00 per finished draft.
@@ -684,6 +779,13 @@ function recoveryHint(err: PoliticalCommsError): string {
       'The API key is missing or invalid. A human must create a key in the Political Comms ' +
       'dashboard (Admin > API) and set it as the POLITICAL_COMMS_API_KEY environment variable ' +
       'for this MCP server.'
+    );
+  }
+  if (err.code === 'ONBOARDING_INCOMPLETE') {
+    return (
+      'The organization has not finished required account setup (business profile or funding) ' +
+      'within its 14-day grace window, so this create is blocked. A human must finish setup at ' +
+      'the dashboard onboardingUrl in the error details before retrying.'
     );
   }
   if (err.statusCode === 403) {
@@ -804,6 +906,28 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
     case 'copy_project':
       return textResult(await client.copyProject(s(args, 'project_id')));
 
+    case 'list_conversations':
+      return textResult(
+        await client.listConversations({
+          project_id: opt(args, 'project_id'),
+          updated_since: opt(args, 'updated_since'),
+          include_test: args.include_test as boolean | undefined,
+          limit: optNum(args, 'limit'),
+          cursor: opt(args, 'cursor'),
+        }),
+      );
+    case 'get_conversation':
+      return textResult(await client.getConversation(s(args, 'id')));
+    case 'list_conversation_messages':
+      return textResult(
+        await client.listConversationMessages(s(args, 'id'), {
+          limit: optNum(args, 'limit'),
+          cursor: opt(args, 'cursor'),
+        }),
+      );
+    case 'reply_to_conversation':
+      return textResult(await client.replyToConversation(s(args, 'id'), { text: s(args, 'text') }));
+
     // Email (early access): all of these return 403 EMAIL_EARLY_ACCESS until GA.
     case 'list_email_domains':
       return textResult(
@@ -891,7 +1015,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.9.0' },
+    { name: 'political-comms', version: '0.10.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

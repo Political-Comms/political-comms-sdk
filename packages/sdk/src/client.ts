@@ -8,6 +8,8 @@ import type {
   ContactListAnalysisResult,
   ContactListDetail,
   ContactListImportResult,
+  Conversation,
+  ConversationMessage,
   CopyProjectResult,
   CreateProjectRequest,
   CreateProjectResult,
@@ -26,6 +28,8 @@ import type {
   ListBrandsQuery,
   ListCampaignsQuery,
   ListContactListsQuery,
+  ListConversationMessagesQuery,
+  ListConversationsQuery,
   ListMediaQuery,
   ListPhoneNumbersQuery,
   ListProjectsQuery,
@@ -42,6 +46,8 @@ import type {
   ProjectDetail,
   ProjectStats,
   RateLimitState,
+  ReplyToConversationRequest,
+  ReplyToConversationResult,
   RequestOptions,
   ScheduleProjectRequest,
   ScheduleProjectResult,
@@ -361,7 +367,12 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** POST /projects */
+  /**
+   * POST /projects. Returns `403 ONBOARDING_INCOMPLETE` if the organization's
+   * 14-day setup grace window has passed and the business profile or funding
+   * step is still incomplete; `error.body.details` carries `missingSteps`
+   * (`'profile' | 'funding'`) and `onboardingUrl`.
+   */
   createProject(
     body: CreateProjectRequest,
     options?: RequestOptions,
@@ -449,13 +460,93 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** POST /projects/{id}/copy */
+  /**
+   * POST /projects/{id}/copy. Returns `403 ONBOARDING_INCOMPLETE` if the
+   * organization's 14-day setup grace window has passed and the business
+   * profile or funding step is still incomplete; see {@link createProject}.
+   */
   copyProject(id: string, options?: RequestOptions): Promise<ApiResponse<CopyProjectResult>> {
     return this.request(
       'POST',
       `/projects/${encodeURIComponent(id)}/copy`,
       undefined,
       undefined,
+      options,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Conversations
+  //
+  // A conversation is one thread between one of the organization's sending
+  // numbers and one contact, created by a project send. The API never
+  // creates a conversation; it replies inside an existing one, from the
+  // same number, on the same project. Lists are keyset paginated: page
+  // until next_cursor is null, and never parse a cursor.
+  // -------------------------------------------------------------------------
+
+  /**
+   * GET /conversations. Lists conversations that have at least one inbound
+   * message, across every organization the key can access. Sorted by
+   * last_inbound_at descending. There is no status filter; filter client side.
+   */
+  listConversations(
+    query: ListConversationsQuery = {},
+    options?: RequestOptions,
+  ): Promise<ApiResponse<CursorPage<Conversation>>> {
+    return this.request(
+      'GET',
+      '/conversations',
+      {
+        project_id: query.project_id,
+        updated_since: query.updated_since,
+        include_test: query.include_test !== undefined ? String(query.include_test) : undefined,
+        limit: query.limit,
+        cursor: query.cursor,
+      },
+      undefined,
+      options,
+    );
+  }
+
+  /** GET /conversations/{id} */
+  getConversation(id: string, options?: RequestOptions): Promise<ApiResponse<Conversation>> {
+    return this.request('GET', `/conversations/${encodeURIComponent(id)}`, undefined, undefined, options);
+  }
+
+  /** GET /conversations/{id}/messages. Newest first. Reading never marks the thread read in the dashboard. */
+  listConversationMessages(
+    id: string,
+    query: ListConversationMessagesQuery = {},
+    options?: RequestOptions,
+  ): Promise<ApiResponse<CursorPage<ConversationMessage>>> {
+    return this.request(
+      'GET',
+      `/conversations/${encodeURIComponent(id)}/messages`,
+      { limit: query.limit, cursor: query.cursor },
+      undefined,
+      options,
+    );
+  }
+
+  /**
+   * POST /conversations/{id}/messages. Replies inside an existing conversation
+   * from the same sending number, on the same project. 202 Accepted; final
+   * delivery state arrives on the existing message.sent / message.delivered /
+   * message.failed webhooks (no new webhook event). Quiet hours do not apply.
+   * SMS only, no media. On a 503 SEND_ENQUEUE_FAILED nothing was sent or
+   * charged, so it is safe to retry the same call.
+   */
+  replyToConversation(
+    id: string,
+    body: ReplyToConversationRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<ReplyToConversationResult>> {
+    return this.request(
+      'POST',
+      `/conversations/${encodeURIComponent(id)}/messages`,
+      undefined,
+      body,
       options,
     );
   }
@@ -726,7 +817,12 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** POST /email/campaigns. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /**
+   * POST /email/campaigns. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * Once GA, also returns `403 ONBOARDING_INCOMPLETE` if the organization's
+   * 14-day setup grace window has passed and the business profile or funding
+   * step is still incomplete; see {@link createProject}.
+   */
   createEmailCampaign(
     body: CreateEmailCampaignRequest,
     options?: RequestOptions,

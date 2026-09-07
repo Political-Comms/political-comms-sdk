@@ -28,6 +28,42 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     listContactLists: vi.fn(() => ok([{ id: 'cl_1', list_name: 'Voters', contact_count: 1200, status: 'ready' }])),
     getContactList: vi.fn(() => ok({ id: 'cl_1', list_name: 'Voters' })),
     deleteContactList: vi.fn(() => ok({ list_id: 'cl_1', name: 'Voters', deleted: true })),
+    listConversations: vi.fn(() =>
+      ok({
+        data: [
+          {
+            conversation_id: 'conv_1',
+            status: 'active',
+            from: '+15559876543',
+            to: '+15551234567',
+            last_inbound_at: '2026-09-06T00:00:00Z',
+          },
+        ],
+        has_more: false,
+        next_cursor: null,
+      }),
+    ),
+    getConversation: vi.fn(() =>
+      ok({ conversation_id: 'conv_1', status: 'active', from: '+15559876543', to: '+15551234567' }),
+    ),
+    listConversationMessages: vi.fn(() =>
+      ok({
+        data: [{ message_id: 'msg_1', direction: 'inbound', status: 'received', text: 'Who is this?' }],
+        has_more: false,
+        next_cursor: null,
+      }),
+    ),
+    replyToConversation: vi.fn(() =>
+      ok({
+        message_id: 'msg_2',
+        conversation_id: 'conv_1',
+        project_id: 'proj_1',
+        from: '+15559876543',
+        to: '+15551234567',
+        text: 'Thanks for reaching out',
+        created_at: '2026-09-07T10:00:00.000Z',
+      }),
+    ),
     listMedia: vi.fn(() => ok([{ id: 'media_1', name: 'rally-photo.jpg', status: 'ready', org_name: 'Civic Action Fund' }])),
     getMedia: vi.fn(() => ok({ media_id: 'media_1', name: 'rally-photo.jpg', status: 'ready' })),
     deleteMedia: vi.fn(() => ok({ media_id: 'media_1', name: 'rally-photo.jpg', deleted: true })),
@@ -333,6 +369,74 @@ describe('commands', () => {
     const code = await main(['media', 'frobnicate'], deps(makeClient(), io));
     expect(code).toBe(2);
     expect(err.join('\n')).toContain('media <list|get|delete>');
+  });
+
+  it('conversations list forwards filters and renders a table', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(
+      ['conversations', 'list', '--project', 'proj_1', '--since', '2026-09-01T00:00:00Z', '--include-test'],
+      deps(client, io),
+    );
+    expect(code).toBe(0);
+    expect(client.listConversations).toHaveBeenCalledWith({
+      project_id: 'proj_1',
+      updated_since: '2026-09-01T00:00:00Z',
+      include_test: true,
+      limit: undefined,
+      cursor: undefined,
+    });
+    const text = out.join('\n');
+    expect(text).toContain('conv_1');
+    expect(text).toContain('active');
+  });
+
+  it('conversations get prints key-value details', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['conversations', 'get', 'conv_1'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.getConversation).toHaveBeenCalledWith('conv_1');
+    expect(out.join('\n')).toContain('conv_1');
+  });
+
+  it('conversations messages lists messages in a thread', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['conversations', 'messages', 'conv_1', '--limit', '10'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.listConversationMessages).toHaveBeenCalledWith('conv_1', { limit: 10, cursor: undefined });
+    expect(out.join('\n')).toContain('Who is this?');
+  });
+
+  it('conversations reply sends the text and confirms', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(
+      ['conversations', 'reply', 'conv_1', '--text', 'Thanks for reaching out'],
+      deps(client, io),
+    );
+    expect(code).toBe(0);
+    expect(client.replyToConversation).toHaveBeenCalledWith('conv_1', { text: 'Thanks for reaching out' });
+    expect(out[0]).toBe('Sent reply msg_2 in conversation conv_1.');
+  });
+
+  it('exits 2 when conversations reply is missing --text', async () => {
+    const client = makeClient();
+    const { io, err } = makeIO();
+    const code = await main(['conversations', 'reply', 'conv_1'], deps(client, io));
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('--text');
+    expect(client.replyToConversation).not.toHaveBeenCalled();
+  });
+
+  it('exits 2 when conversations reply is missing the id', async () => {
+    const client = makeClient();
+    const { io, err } = makeIO();
+    const code = await main(['conversations', 'reply'], deps(client, io));
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('conversations reply <id>');
+    expect(client.replyToConversation).not.toHaveBeenCalled();
   });
 
   it('stats messages passes --from and --to as startDate and endDate', async () => {

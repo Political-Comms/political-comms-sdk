@@ -25,7 +25,9 @@ export interface ErrorResponse {
   correlationId?: string;
   /**
    * An array of field-level issues for VALIDATION_ERROR; an object for other
-   * codes (e.g. insufficient-balance shortfall).
+   * codes (e.g. insufficient-balance shortfall, or, for
+   * `ONBOARDING_INCOMPLETE`, `{ missingSteps: ('profile' | 'funding')[],
+   * onboardingUrl: string }`).
    */
   details?: unknown;
   [key: string]: unknown;
@@ -179,7 +181,7 @@ export interface ListTrackingDomainsQuery {
 }
 
 export type PhoneNumberChannel = '10dlc' | 'toll-free' | 'short-code' | 'rcs';
-export type PhoneNumberOwnerType = 'campaign' | 'toll_free_registration' | 'unassigned';
+export type PhoneNumberOwnerType = 'campaign' | 'toll_free_registration' | 'short_code' | 'unassigned';
 
 export interface PhoneNumber {
   id?: string;
@@ -198,6 +200,10 @@ export interface PhoneNumber {
   org_name?: string;
   status?: string;
   created_at?: string;
+  /** True when an ancestor organization shared this number with `org_id` under `nickname`. Owner names and `brand_id` are null on shared rows. */
+  shared?: boolean;
+  /** The sharing organization's nickname for the number; null on owned rows. */
+  nickname?: string | null;
   [key: string]: unknown;
 }
 
@@ -918,6 +924,109 @@ export interface CopyProjectResult {
     ready_to_test?: boolean;
     [key: string]: unknown;
   };
+  [key: string]: unknown;
+}
+
+// ---------------------------------------------------------------------------
+// Conversations
+//
+// A conversation is one thread between one of the organization's sending
+// numbers and one contact, created by a project send. The API never creates a
+// conversation; it replies inside an existing one, from the same number, on
+// the same project. Lists and single reads only ever surface conversations
+// that have at least one inbound message.
+// ---------------------------------------------------------------------------
+
+export type ConversationStatus = 'active' | 'inactive' | 'opted_out';
+
+export interface ConversationContact {
+  phone_number?: string;
+  [key: string]: unknown;
+}
+
+/** GET /conversations/{id} response. */
+export interface Conversation {
+  conversation_id?: string;
+  project_id?: string;
+  from?: string;
+  to?: string;
+  /**
+   * 'active': can still receive a reply. 'inactive': no recent activity but
+   * not opted out. 'opted_out': the contact replied STOP; replies to this
+   * conversation are refused with 409 CONTACT_OPTED_OUT.
+   */
+  status?: ConversationStatus;
+  opted_out?: boolean;
+  is_test?: boolean;
+  contact?: ConversationContact;
+  inbound_messages?: number;
+  outbound_messages?: number;
+  first_message_at?: string | null;
+  last_inbound_at?: string | null;
+  last_outbound_at?: string | null;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export type MessageDirection = 'inbound' | 'outbound';
+
+/** Item returned by GET /conversations/{id}/messages. */
+export interface ConversationMessage {
+  message_id?: string;
+  direction?: MessageDirection;
+  text?: string;
+  media_urls?: string[];
+  status?:
+    | 'unsent'
+    | 'queued'
+    | 'sending'
+    | 'sent'
+    | 'delivered'
+    | 'failed'
+    | 'received'
+    | 'on_hold';
+  sent_at?: string | null;
+  delivered_at?: string | null;
+  /** Set only on inbound messages; always null on outbound. */
+  received_at?: string | null;
+  error_code?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ListConversationsQuery {
+  project_id?: string;
+  /**
+   * ISO 8601. Filters on last_inbound_at. Defaults to now minus 7 days on the
+   * API; more than 90 days back is a 400.
+   */
+  updated_since?: string;
+  /** Defaults to false on the API. */
+  include_test?: boolean;
+  /** 1-200, default 50. */
+  limit?: number;
+  cursor?: string;
+}
+
+export interface ListConversationMessagesQuery {
+  /** 1-200, default 50. */
+  limit?: number;
+  cursor?: string;
+}
+
+export interface ReplyToConversationRequest {
+  /** 1-1600 chars. Normalized for GSM before sending (curly quotes etc.). */
+  text: string;
+}
+
+/** 202 Accepted for POST /conversations/{id}/messages. */
+export interface ReplyToConversationResult {
+  message_id?: string;
+  conversation_id?: string;
+  project_id?: string;
+  from?: string;
+  to?: string;
+  text?: string;
+  created_at?: string;
   [key: string]: unknown;
 }
 

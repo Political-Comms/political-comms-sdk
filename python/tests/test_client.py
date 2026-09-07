@@ -529,6 +529,99 @@ class TestProjectListAndCreateOptions:
         assert seen["body"]["contact_list_ids"] == []
 
 
+class TestConversations:
+    def test_list_serializes_query_and_omits_unset(self):
+        seen = {}
+
+        def handler(request):
+            seen["url"] = request.url
+            return ok_response({"data": [], "has_more": False, "next_cursor": None})
+
+        with make_client(handler) as client:
+            client.list_conversations(project_id="proj_1", updated_since="2026-08-25T00:00:00Z", include_test=True)
+        assert seen["url"].path == "/v1/conversations"
+        assert seen["url"].params["project_id"] == "proj_1"
+        assert seen["url"].params["updated_since"] == "2026-08-25T00:00:00Z"
+        assert seen["url"].params["include_test"] == "true"
+        assert "limit" not in seen["url"].params
+        assert "cursor" not in seen["url"].params
+
+    def test_get_conversation(self):
+        seen = {}
+
+        def handler(request):
+            seen["path"] = request.url.path
+            return ok_response({"conversation_id": "conv_1", "status": "active"})
+
+        with make_client(handler) as client:
+            result = client.get_conversation("conv_1")
+        assert seen["path"] == "/v1/conversations/conv_1"
+        assert result["data"]["status"] == "active"
+
+    def test_list_conversation_messages(self):
+        seen = {}
+
+        def handler(request):
+            seen["path"] = request.url.path
+            seen["params"] = dict(request.url.params)
+            return ok_response(
+                {
+                    "data": [{"message_id": "msg_1", "direction": "inbound", "received_at": "2026-09-01T00:00:00Z"}],
+                    "has_more": False,
+                    "next_cursor": None,
+                }
+            )
+
+        with make_client(handler) as client:
+            result = client.list_conversation_messages("conv_1", limit=25, cursor="cursor_1")
+        assert seen["path"] == "/v1/conversations/conv_1/messages"
+        assert seen["params"] == {"limit": "25", "cursor": "cursor_1"}
+        assert result["data"]["data"][0]["direction"] == "inbound"
+
+    def test_reply_to_conversation_posts_text_and_auto_generates_idempotency_key(self):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["path"] = request.url.path
+            seen["body"] = json.loads(request.content)
+            seen["idem"] = request.headers.get("Idempotency-Key")
+            return httpx.Response(
+                202,
+                json={
+                    "success": True,
+                    "data": {
+                        "message_id": "msg_2",
+                        "conversation_id": "conv_1",
+                        "project_id": "proj_1",
+                        "from": "+15559876543",
+                        "to": "+15551234567",
+                        "text": "Thanks for reaching out",
+                        "created_at": "2026-09-07T10:00:00.000Z",
+                    },
+                },
+            )
+
+        with make_client(handler) as client:
+            result = client.reply_to_conversation("conv_1", "Thanks for reaching out")
+        assert seen["method"] == "POST"
+        assert seen["path"] == "/v1/conversations/conv_1/messages"
+        assert seen["body"] == {"text": "Thanks for reaching out"}
+        assert UUID_RE.match(seen["idem"])
+        assert result["data"]["message_id"] == "msg_2"
+
+    def test_reply_to_conversation_uses_caller_supplied_idempotency_key(self):
+        seen = {}
+
+        def handler(request):
+            seen["idem"] = request.headers.get("Idempotency-Key")
+            return ok_response({"message_id": "msg_3"})
+
+        with make_client(handler) as client:
+            client.reply_to_conversation("conv_1", "Hi", idempotency_key="reply-key-1")
+        assert seen["idem"] == "reply-key-1"
+
+
 class TestEmailTemplates:
     def test_list_serializes_query_and_omits_unset(self):
         seen = {}

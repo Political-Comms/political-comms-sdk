@@ -648,6 +648,112 @@ describe('email templates', () => {
 
 });
 
+describe('conversations', () => {
+  it('serializes the list query and unwraps the cursor page', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({
+        data: [{ conversation_id: 'conv_1', status: 'active', last_inbound_at: '2026-09-01T00:00:00Z' }],
+        has_more: true,
+        next_cursor: 'cursor_2',
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.listConversations({
+      project_id: 'proj_1',
+      updated_since: '2026-08-25T00:00:00Z',
+      include_test: true,
+      limit: 100,
+      cursor: 'cursor_1',
+    });
+
+    const parsed = new URL((fetchMock.mock.calls[0] as unknown as [string])[0]);
+    expect(parsed.pathname).toBe('/v1/conversations');
+    expect(parsed.searchParams.get('project_id')).toBe('proj_1');
+    expect(parsed.searchParams.get('updated_since')).toBe('2026-08-25T00:00:00Z');
+    expect(parsed.searchParams.get('include_test')).toBe('true');
+    expect(parsed.searchParams.get('limit')).toBe('100');
+    expect(parsed.searchParams.get('cursor')).toBe('cursor_1');
+    expect(res.data.data[0]!.conversation_id).toBe('conv_1');
+    expect(res.data.next_cursor).toBe('cursor_2');
+  });
+
+  it('omits unset list query params', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ data: [], has_more: false, next_cursor: null }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.listConversations();
+
+    const parsed = new URL((fetchMock.mock.calls[0] as unknown as [string])[0]);
+    expect(parsed.searchParams.has('project_id')).toBe(false);
+    expect(parsed.searchParams.has('updated_since')).toBe(false);
+    expect(parsed.searchParams.has('include_test')).toBe(false);
+    expect(parsed.searchParams.has('limit')).toBe(false);
+    expect(parsed.searchParams.has('cursor')).toBe(false);
+  });
+
+  it('encodes the id on getConversation', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ conversation_id: 'conv/1', status: 'active' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.getConversation('conv/1');
+
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
+      'https://api.politicalcomms.com/v1/conversations/conv%2F1',
+    );
+  });
+
+  it('serializes limit and cursor for listConversationMessages', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({
+        data: [{ message_id: 'msg_1', direction: 'inbound', text: 'Hi', received_at: '2026-09-01T00:00:00Z' }],
+        has_more: false,
+        next_cursor: null,
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.listConversationMessages('conv_1', { limit: 25, cursor: 'cursor_1' });
+
+    const parsed = new URL((fetchMock.mock.calls[0] as unknown as [string])[0]);
+    expect(parsed.pathname).toBe('/v1/conversations/conv_1/messages');
+    expect(parsed.searchParams.get('limit')).toBe('25');
+    expect(parsed.searchParams.get('cursor')).toBe('cursor_1');
+    expect(res.data.data[0]!.direction).toBe('inbound');
+  });
+
+  it('replyToConversation POSTs the text body and auto-generates an Idempotency-Key', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(202, {
+        success: true,
+        data: {
+          message_id: 'msg_2',
+          conversation_id: 'conv_1',
+          project_id: 'proj_1',
+          from: '+15559876543',
+          to: '+15551234567',
+          text: 'Thanks for reaching out',
+          created_at: '2026-09-07T10:00:00.000Z',
+        },
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.replyToConversation('conv_1', { text: 'Thanks for reaching out' });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/conversations/conv_1/messages');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ text: 'Thanks for reaching out' });
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toMatch(UUID_RE);
+    expect(res.data.message_id).toBe('msg_2');
+  });
+
+  it('replyToConversation uses the caller-provided idempotency key', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ message_id: 'msg_3' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.replyToConversation('conv_1', { text: 'Hi' }, { idempotencyKey: 'reply-key-1' });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('reply-key-1');
+  });
+});
+
 describe('media usage', () => {
   it('sends usage: email_asset for an image an email template will reference', async () => {
     const fetchMock = vi.fn(async () => okResponse({ media_id: 'media_1', status: 'optimizing' }));

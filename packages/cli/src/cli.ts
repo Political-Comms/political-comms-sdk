@@ -17,6 +17,10 @@ export type CliClient = Pick<
   | 'listContactLists'
   | 'getContactList'
   | 'deleteContactList'
+  | 'listConversations'
+  | 'getConversation'
+  | 'listConversationMessages'
+  | 'replyToConversation'
   | 'listMedia'
   | 'getMedia'
   | 'deleteMedia'
@@ -64,6 +68,14 @@ Commands:
   contact-lists list               List contact lists
   contact-lists get <id>           Show one contact list
   contact-lists delete <id>        Delete an unused contact list
+  conversations list               List conversations with an inbound message
+                                   (--project, --since, --include-test,
+                                   --limit, --cursor)
+  conversations get <id>           Show one conversation
+  conversations messages <id>      List messages in a conversation
+                                   (--limit, --cursor)
+  conversations reply <id>         Send a real reply in a conversation
+                                   (--text, required)
   media list                       List media files
   media get <id>                   Show one media file
   media delete <id>                Delete an unused media file
@@ -132,6 +144,11 @@ const PARSE_OPTIONS = {
   status: { type: 'string' },
   limit: { type: 'string' },
   search: { type: 'string' },
+  project: { type: 'string' },
+  since: { type: 'string' },
+  'include-test': { type: 'boolean', default: false },
+  cursor: { type: 'string' },
+  text: { type: 'string' },
 } as const;
 
 class UsageError extends Error {}
@@ -268,6 +285,9 @@ async function dispatch(client: CliClient, positionals: string[], flags: Flags, 
       io.out(kv(result.data));
       return 0;
     }
+
+    case 'conversations':
+      return conversationsCommand(client, sub, arg, flags, io);
 
     case 'media': {
       requireSub(sub, ['list', 'get', 'delete'], 'media');
@@ -430,7 +450,7 @@ async function emailCommand(
       requireSub(arg, ['list'], 'email suppressions');
       const result = await client.listEmailSuppressions({
         limit,
-        scope: flags.scope as 'org' | 'identity' | 'list' | undefined,
+        scope: flags.scope as 'org' | 'identity' | 'domain' | undefined,
       });
       if (flags.json) return printJson(io, result);
       io.out(
@@ -678,6 +698,83 @@ async function projectsCommand(
 
     default:
       throw new UsageError(`Unknown projects subcommand: ${sub}`);
+  }
+}
+
+/**
+ * Conversations. A conversation is one thread between one of your sending
+ * numbers and one contact, created by a project send. `reply` sends a real
+ * SMS and incurs cost; the rest are reads.
+ */
+async function conversationsCommand(
+  client: CliClient,
+  sub: string | undefined,
+  arg: string | undefined,
+  flags: Flags,
+  io: CliIO,
+): Promise<number> {
+  requireSub(sub, ['list', 'get', 'messages', 'reply'], 'conversations');
+  const limit = flags.limit === undefined ? undefined : Number(flags.limit);
+  if (limit !== undefined && !Number.isInteger(limit)) {
+    throw new UsageError('--limit must be an integer');
+  }
+
+  switch (sub) {
+    case 'list': {
+      const result = await client.listConversations({
+        project_id: flags.project,
+        updated_since: flags.since,
+        include_test: flags['include-test'],
+        limit,
+        cursor: flags.cursor,
+      });
+      if (flags.json) return printJson(io, result);
+      io.out(
+        table(result.data?.data ?? [], [
+          { key: 'conversation_id', header: 'ID' },
+          { key: 'status', header: 'STATUS' },
+          { key: 'from', header: 'FROM' },
+          { key: 'to', header: 'TO' },
+          { key: 'last_inbound_at', header: 'LAST INBOUND' },
+        ]),
+      );
+      return 0;
+    }
+
+    case 'get': {
+      const id = requireArg(arg, 'conversations get <id>');
+      const result = await client.getConversation(id);
+      if (flags.json) return printJson(io, result);
+      io.out(kv(result.data));
+      return 0;
+    }
+
+    case 'messages': {
+      const id = requireArg(arg, 'conversations messages <id>');
+      const result = await client.listConversationMessages(id, { limit, cursor: flags.cursor });
+      if (flags.json) return printJson(io, result);
+      io.out(
+        table(result.data?.data ?? [], [
+          { key: 'message_id', header: 'ID' },
+          { key: 'direction', header: 'DIRECTION' },
+          { key: 'status', header: 'STATUS' },
+          { key: 'text', header: 'TEXT' },
+        ]),
+      );
+      return 0;
+    }
+
+    case 'reply': {
+      const id = requireArg(arg, 'conversations reply <id>');
+      if (!flags.text) throw new UsageError('conversations reply requires --text "<text>"');
+      const result = await client.replyToConversation(id, { text: flags.text });
+      if (flags.json) return printJson(io, result);
+      io.out(`Sent reply ${str(result.data?.message_id)} in conversation ${id}.`);
+      return 0;
+    }
+
+    default:
+      throw new UsageError(`Unknown conversations subcommand: ${sub}`);
   }
 }
 

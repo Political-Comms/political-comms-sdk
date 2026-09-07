@@ -77,7 +77,26 @@ await client.scheduleProject(projectId, {
 });
 ```
 
-One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `listTrackingDomains`, `listPhoneNumbers`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `deleteContactList`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `testProject`, `scheduleProject`, `unscheduleProject`, `copyProject`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
+One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `listTrackingDomains`, `listPhoneNumbers`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `deleteContactList`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `testProject`, `scheduleProject`, `unscheduleProject`, `copyProject`, `listConversations`, `getConversation`, `listConversationMessages`, `replyToConversation`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
+
+## Conversations
+
+A conversation is one thread between one of your sending numbers and one
+contact, created by a project send. The API never creates a conversation; it
+replies inside an existing one, from the same number, on the same project.
+`listConversations` and `listConversationMessages` are keyset paginated like
+the email lists.
+
+```ts
+// Reply to an inbound message.message.replied webhook.
+await client.replyToConversation(conversationId, { text: 'Thanks for reaching out!' }, {
+  idempotencyKey: 'reply-' + messageId,
+});
+
+// Recover inbound messages missed while a webhook endpoint was down.
+const { data: page } = await client.listConversations({ updated_since: lastSeenAt });
+for (const conversation of page.data) console.log(conversation.conversation_id, conversation.status);
+```
 
 ## Email (early access)
 

@@ -73,9 +73,29 @@ client.schedule_project(project_id, "2026-11-03T09:00:00", "America/New_York")
 # )
 ```
 
-One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `list_tracking_domains`, `list_phone_numbers`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `delete_contact_list`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `test_project`, `schedule_project`, `unschedule_project`, `copy_project`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
+One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `list_tracking_domains`, `list_phone_numbers`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `delete_contact_list`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `test_project`, `schedule_project`, `unschedule_project`, `copy_project`, `list_conversations`, `get_conversation`, `list_conversation_messages`, `reply_to_conversation`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
 
 Every method returns the parsed JSON response, a dict of the form `{"success": True, "data": ...}`.
+
+## Conversations
+
+A conversation is one thread between one of your sending numbers and one
+contact, created by a project send. The API never creates a conversation; it
+replies inside an existing one, from the same number, on the same project.
+`list_conversations` and `list_conversation_messages` are keyset paginated
+like the email lists.
+
+```python
+# Reply to an inbound message.replied webhook.
+client.reply_to_conversation(
+    conversation_id, "Thanks for reaching out!", idempotency_key=f"reply-{message_id}"
+)
+
+# Recover inbound messages missed while a webhook endpoint was down.
+page = client.list_conversations(updated_since=last_seen_at)["data"]
+for conversation in page["data"]:
+    print(conversation["conversation_id"], conversation["status"])
+```
 
 ## Email (early access)
 

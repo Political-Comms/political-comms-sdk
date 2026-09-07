@@ -47,6 +47,9 @@ Read only:
 | `get_contact_list` | One contact list with import progress and analysis. |
 | `get_message_stats` | Aggregate message stats for a date range. |
 | `get_ledger_usage` | Billing usage for a date range. |
+| `list_conversations` | Conversations with at least one inbound message, sorted by last inbound message. |
+| `get_conversation` | One conversation: status, contact, message counts, last activity. |
+| `list_conversation_messages` | Messages in one conversation, newest first. |
 | `list_email_domains` | Email sending domains and their DNS verification status. |
 | `get_email_domain` | One sending domain, including the DNS records to publish. |
 | `list_email_senders` | Email sender identities (From addresses). |
@@ -59,7 +62,7 @@ Read only:
 | `list_email_templates` | Saved email templates with subject and last-updated time. |
 | `get_email_template` | One template including its full HTML body. |
 
-Write (each is annotated as non read-only; `create_project`, `test_project`, and `schedule_project` additionally require `confirm: true` because they stage or send real messages):
+Write (each is annotated as non read-only; `create_project`, `test_project`, `schedule_project`, and `reply_to_conversation` additionally require `confirm: true` because they stage or send real messages):
 
 | Tool | Description |
 |------|-------------|
@@ -68,6 +71,7 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, and
 | `schedule_project` | Commit a bulk send at a specific date and time. |
 | `unschedule_project` | Remove a project's schedule. |
 | `copy_project` | Copy a project into a new draft (drops lists, schedule, and stats). |
+| `reply_to_conversation` | Send a real SMS reply inside an existing conversation. Requires `confirm: true`. |
 | `schedule_email_campaign` | Commit an email send. Requires `confirm: true`. |
 | `unschedule_email_campaign` | Return a scheduled campaign to a draft state. |
 | `start_email_list_import` | Import a CSV of contacts into an email list. Requires `confirm: true`. |
