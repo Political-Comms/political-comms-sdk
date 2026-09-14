@@ -788,6 +788,19 @@ function recoveryHint(err: PoliticalCommsError): string {
       'the dashboard onboardingUrl in the error details before retrying.'
     );
   }
+  if (err.code === 'ENTITLEMENT_REQUIRED') {
+    return (
+      'The organization is not entitled to this feature (see the entitlement key in the error ' +
+      'details). This requires enablement by Political Comms; a human must contact support before ' +
+      'retrying.'
+    );
+  }
+  if (err.code === 'SENDING_PAUSED') {
+    return (
+      'Sending is paused for this organization or platform-wide (see scope in the error details), ' +
+      'set by Political Comms. A human must confirm sending is resumed before retrying.'
+    );
+  }
   if (err.statusCode === 403) {
     return 'The API key does not have access to this resource or organization.';
   }
@@ -1015,7 +1028,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.10.0' },
+    { name: 'political-comms', version: '0.11.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

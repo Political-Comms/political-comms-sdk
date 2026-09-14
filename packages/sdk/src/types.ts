@@ -27,7 +27,10 @@ export interface ErrorResponse {
    * An array of field-level issues for VALIDATION_ERROR; an object for other
    * codes (e.g. insufficient-balance shortfall, or, for
    * `ONBOARDING_INCOMPLETE`, `{ missingSteps: ('profile' | 'funding')[],
-   * onboardingUrl: string }`).
+   * onboardingUrl: string }`). For `ENTITLEMENT_REQUIRED`,
+   * `{ entitlement: string }` naming the missing entitlement key (e.g.
+   * `'email'`). For `SENDING_PAUSED`,
+   * `{ scope: 'organization' | 'platform' }`.
    */
   details?: unknown;
   [key: string]: unknown;

@@ -371,7 +371,9 @@ export class PoliticalCommsClient {
    * POST /projects. Returns `403 ONBOARDING_INCOMPLETE` if the organization's
    * 14-day setup grace window has passed and the business profile or funding
    * step is still incomplete; `error.body.details` carries `missingSteps`
-   * (`'profile' | 'funding'`) and `onboardingUrl`.
+   * (`'profile' | 'funding'`) and `onboardingUrl`. Returns
+   * `409 SENDING_PAUSED` if sending is paused for the organization or
+   * platform-wide; `error.body.details.scope` is `'organization' | 'platform'`.
    */
   createProject(
     body: CreateProjectRequest,
@@ -437,7 +439,11 @@ export class PoliticalCommsClient {
     return this.request('POST', `/projects/${encodeURIComponent(id)}/test`, undefined, body, options);
   }
 
-  /** POST /projects/{id}/schedule */
+  /**
+   * POST /projects/{id}/schedule. Returns `409 SENDING_PAUSED` if sending is
+   * paused for the organization or platform-wide; `error.body.details.scope`
+   * is `'organization' | 'platform'`.
+   */
   scheduleProject(
     id: string,
     body: ScheduleProjectRequest,
@@ -535,7 +541,9 @@ export class PoliticalCommsClient {
    * delivery state arrives on the existing message.sent / message.delivered /
    * message.failed webhooks (no new webhook event). Quiet hours do not apply.
    * SMS only, no media. On a 503 SEND_ENQUEUE_FAILED nothing was sent or
-   * charged, so it is safe to retry the same call.
+   * charged, so it is safe to retry the same call. Returns
+   * `409 SENDING_PAUSED` if sending is paused for the organization or
+   * platform-wide; `error.body.details.scope` is `'organization' | 'platform'`.
    */
   replyToConversation(
     id: string,
@@ -700,6 +708,8 @@ export class PoliticalCommsClient {
   /**
    * POST /email/lists. Early access: 403 EMAIL_EARLY_ACCESS until GA.
    * `consent_attestation` records how these people agreed to hear from you.
+   * Once GA, also returns `403 ENTITLEMENT_REQUIRED` if the organization is
+   * not entitled to email; `error.body.details.entitlement` is `'email'`.
    */
   createEmailList(
     body: CreateEmailListRequest,
@@ -732,7 +742,9 @@ export class PoliticalCommsClient {
    * POST /email/lists/{id}/contacts. Early access: 403 EMAIL_EARLY_ACCESS until GA.
    *
    * Upserts up to 1000 contacts. Invalid rows do not fail the call: read
-   * `results` and resend only the rows that came back 'rejected'.
+   * `results` and resend only the rows that came back 'rejected'. Once GA,
+   * also returns `403 ENTITLEMENT_REQUIRED` if the organization is not
+   * entitled to email; `error.body.details.entitlement` is `'email'`.
    */
   addEmailListContacts(
     id: string,
@@ -764,7 +776,10 @@ export class PoliticalCommsClient {
 
   /**
    * POST /email/suppressions. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   * Up to 5000 addresses. Malformed ones come back in `invalid`, not as an error.
+   * Up to 5000 addresses. Malformed ones come back in `invalid`, not as an
+   * error. Once GA, also returns `403 ENTITLEMENT_REQUIRED` if the
+   * organization is not entitled to email; `error.body.details.entitlement`
+   * is `'email'`.
    */
   addEmailSuppressions(
     body: AddEmailSuppressionsRequest,
@@ -775,7 +790,9 @@ export class PoliticalCommsClient {
 
   /**
    * DELETE /email/suppressions. Early access: 403 EMAIL_EARLY_ACCESS until GA.
-   * Removing an address that was not suppressed is not an error.
+   * Removing an address that was not suppressed is not an error. Once GA,
+   * also returns `403 ENTITLEMENT_REQUIRED` if the organization is not
+   * entitled to email; `error.body.details.entitlement` is `'email'`.
    */
   removeEmailSuppressions(
     body: RemoveEmailSuppressionsRequest,
@@ -821,7 +838,9 @@ export class PoliticalCommsClient {
    * POST /email/campaigns. Early access: 403 EMAIL_EARLY_ACCESS until GA.
    * Once GA, also returns `403 ONBOARDING_INCOMPLETE` if the organization's
    * 14-day setup grace window has passed and the business profile or funding
-   * step is still incomplete; see {@link createProject}.
+   * step is still incomplete (see {@link createProject}), or
+   * `403 ENTITLEMENT_REQUIRED` if the organization is not entitled to email;
+   * `error.body.details.entitlement` is `'email'`.
    */
   createEmailCampaign(
     body: CreateEmailCampaignRequest,
@@ -833,6 +852,10 @@ export class PoliticalCommsClient {
   /**
    * POST /email/campaigns/{id}/schedule. Early access: 403 EMAIL_EARLY_ACCESS until GA.
    * Omit `scheduled_at` to send now. If this refuses, read `blocked` on the campaign.
+   * Once GA, also returns `403 ENTITLEMENT_REQUIRED` if the organization is
+   * not entitled to email (`error.body.details.entitlement` is `'email'`), or
+   * `409 SENDING_PAUSED` if sending is paused for the organization or
+   * platform-wide (`error.body.details.scope` is `'organization' | 'platform'`).
    */
   scheduleEmailCampaign(
     id: string,
@@ -848,7 +871,11 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** POST /email/campaigns/{id}/unschedule. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /**
+   * POST /email/campaigns/{id}/unschedule. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * Once GA, also returns `403 ENTITLEMENT_REQUIRED` if the organization is
+   * not entitled to email; `error.body.details.entitlement` is `'email'`.
+   */
   unscheduleEmailCampaign(
     id: string,
     options?: RequestOptions,
@@ -906,7 +933,9 @@ export class PoliticalCommsClient {
    *
    * The response carries `lint` alongside the saved template. The save
    * succeeds either way, but a campaign will not schedule while `lint.errors`
-   * is non-empty, so read it here rather than at send time.
+   * is non-empty, so read it here rather than at send time. Once GA, also
+   * returns `403 ENTITLEMENT_REQUIRED` if the organization is not entitled
+   * to email; `error.body.details.entitlement` is `'email'`.
    */
   createEmailTemplate(
     body: CreateEmailTemplateRequest,
@@ -923,7 +952,9 @@ export class PoliticalCommsClient {
    * when neither your mapping nor the recognizer finds an email column the
    * call is a 400 VALIDATION_ERROR whose `details.headers` lists the headers
    * that were read, so retry with a mapping instead of guessing. Returns 202;
-   * the import's progress is shown on the list in the dashboard.
+   * the import's progress is shown on the list in the dashboard. Once GA,
+   * also returns `403 ENTITLEMENT_REQUIRED` if the organization is not
+   * entitled to email; `error.body.details.entitlement` is `'email'`.
    */
   startEmailListImport(
     body: StartEmailListImportRequest,

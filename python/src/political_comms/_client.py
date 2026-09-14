@@ -322,7 +322,9 @@ class PoliticalCommsClient:
         setup grace window has passed and the business profile or funding
         step is still incomplete; the error's ``body["details"]`` carries
         ``missingSteps`` (``"profile"`` and/or ``"funding"``) and
-        ``onboardingUrl``.
+        ``onboardingUrl``. Returns ``409 SENDING_PAUSED`` if sending is
+        paused for the organization or platform-wide; the error's
+        ``body["details"]["scope"]`` is ``"organization"`` or ``"platform"``.
 
         ``contact_list_ids`` is optional: omitting it creates the project in
         draft status, and it cannot be tested or scheduled until a list is
@@ -497,6 +499,10 @@ class PoliticalCommsClient:
         may fail and are still billed: carrier is not reliably known before
         sending, so the platform cannot skip only those recipients. Defaults to
         pausing. The response echoes the persisted ``daily_cap_bypass``.
+
+        Returns ``409 SENDING_PAUSED`` if sending is paused for the
+        organization or platform-wide; the error's
+        ``body["details"]["scope"]`` is ``"organization"`` or ``"platform"``.
         """
         body: JsonDict = {
             "scheduled_at": scheduled_at,
@@ -606,7 +612,9 @@ class PoliticalCommsClient:
         existing ``message.sent`` / ``message.delivered`` / ``message.failed``
         webhooks (no new webhook event). Quiet hours do not apply. On a
         ``503 SEND_ENQUEUE_FAILED`` nothing was sent or charged, so it is
-        safe to retry the same call.
+        safe to retry the same call. Returns ``409 SENDING_PAUSED`` if
+        sending is paused for the organization or platform-wide; the error's
+        ``body["details"]["scope"]`` is ``"organization"`` or ``"platform"``.
         """
         return self._request(
             "POST",
@@ -754,6 +762,10 @@ class PoliticalCommsClient:
         came from anywhere other than your own sign-up flow; acquired lists must be
         validated before their first send. email_domain_id scopes the list to one
         sending domain; omit it for a list any campaign may use.
+
+        Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
+        organization is not entitled to email; the error's
+        ``body["details"]["entitlement"]`` is ``"email"``.
         """
         return self._request(
             "POST",
@@ -803,6 +815,10 @@ class PoliticalCommsClient:
 
         Upserts up to 1000 contacts. Invalid rows do not fail the call: read `results`
         and resend only the rows that came back "rejected".
+
+        Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
+        organization is not entitled to email; the error's
+        ``body["details"]["entitlement"]`` is ``"email"``.
         """
         return self._request(
             "POST",
@@ -839,6 +855,10 @@ class PoliticalCommsClient:
 
         Up to 5000 addresses per call. Malformed addresses come back in `invalid`
         rather than failing the batch.
+
+        Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
+        organization is not entitled to email; the error's
+        ``body["details"]["entitlement"]`` is ``"email"``.
         """
         return self._request(
             "POST",
@@ -867,6 +887,10 @@ class PoliticalCommsClient:
         """DELETE /email/suppressions. Early access: 403 EMAIL_EARLY_ACCESS until GA.
 
         Removing an address that was not suppressed is not an error.
+
+        Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
+        organization is not entitled to email; the error's
+        ``body["details"]["entitlement"]`` is ``"email"``.
         """
         return self._request(
             "DELETE",
@@ -934,7 +958,10 @@ class PoliticalCommsClient:
 
         Once GA, also returns ``403 ONBOARDING_INCOMPLETE`` if the
         organization's 14-day setup grace window has passed and the business
-        profile or funding step is still incomplete; see ``create_project``.
+        profile or funding step is still incomplete (see ``create_project``),
+        or ``403 ENTITLEMENT_REQUIRED`` if the organization is not entitled
+        to email; the error's ``body["details"]["entitlement"]`` is
+        ``"email"``.
 
         ``tracking_domain_id`` brands this campaign's tracked links, open pixel
         and unsubscribe page with your own ``links.`` host. Leave it unset to
@@ -983,6 +1010,13 @@ class PoliticalCommsClient:
 
         Omit scheduled_at to send now. A past date returns 400 VALIDATION_ERROR. If this
         refuses, read "blocked" on the campaign to see which gate stopped it.
+
+        Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
+        organization is not entitled to email (the error's
+        ``body["details"]["entitlement"]`` is ``"email"``), or
+        ``409 SENDING_PAUSED`` if sending is paused for the organization or
+        platform-wide (the error's ``body["details"]["scope"]`` is
+        ``"organization"`` or ``"platform"``).
         """
         return self._request(
             "POST",
@@ -994,7 +1028,12 @@ class PoliticalCommsClient:
     def unschedule_email_campaign(
         self, id: str, *, idempotency_key: Optional[str] = None
     ) -> JsonDict:
-        """POST /email/campaigns/{id}/unschedule. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """POST /email/campaigns/{id}/unschedule. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+
+        Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
+        organization is not entitled to email; the error's
+        ``body["details"]["entitlement"]`` is ``"email"``.
+        """
         return self._request(
             "POST",
             f"/email/campaigns/{id}/unschedule",
@@ -1045,6 +1084,10 @@ class PoliticalCommsClient:
         The response carries "lint" alongside the template. The save succeeds
         either way, but a campaign will not schedule while lint["errors"] is
         non-empty, so read it here rather than at send time.
+
+        Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
+        organization is not entitled to email; the error's
+        ``body["details"]["entitlement"]`` is ``"email"``.
         """
         return self._request(
             "POST",
@@ -1080,6 +1123,10 @@ class PoliticalCommsClient:
         VALIDATION_ERROR whose details["headers"] lists the headers that were read,
         so retry with a mapping instead of guessing. Returns 202; the import's
         progress is shown on the list in the dashboard.
+
+        Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
+        organization is not entitled to email; the error's
+        ``body["details"]["entitlement"]`` is ``"email"``.
         """
         return self._request(
             "POST",
