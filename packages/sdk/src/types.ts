@@ -992,6 +992,11 @@ export interface ConversationMessage {
   delivered_at?: string | null;
   /** Set only on inbound messages; always null on outbound. */
   received_at?: string | null;
+  /**
+   * Delivery error code on a failed outbound message, in the same display form the
+   * message.failed webhook and CSV exports use (e.g. "300", "012"). Opaque string;
+   * null when the message did not fail or the failure was not a delivery result.
+   */
   error_code?: string | null;
   [key: string]: unknown;
 }
