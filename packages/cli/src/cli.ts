@@ -81,19 +81,18 @@ Commands:
   media delete <id>                Delete an unused media file
   stats messages                   Message stats (--from, --to; default last 30 days)
   usage                            Billing usage (--from, --to; default last 30 days)
-  email domains list               List email sending domains (early access)
-  email senders list               List email sender identities (early access)
-  email lists list                 List email lists (early access)
-  email suppressions list          List email suppressions (--scope) (early access)
-  email campaigns list             List email campaigns (--status) (early access)
+  email domains list               List email sending domains
+  email senders list               List email sender identities
+  email lists list                 List email lists
+  email suppressions list          List email suppressions (--scope)
+  email campaigns list             List email campaigns (--status)
   email campaigns get <id>         Show one email campaign, including blockers
   email campaigns stats <id>       Show email campaign report tiles
-  email templates list             List email templates (--search) (early access)
+  email templates list             List email templates (--search)
   email templates get <id>         Show one email template (HTML only with --json)
 
-Email commands are early access: every one returns 403 EMAIL_EARLY_ACCESS until
-the email product reaches general availability. Template and draft HTML is
-printed only with --json, so a body never floods the terminal.
+Template and draft HTML is printed only with --json, so a body never floods
+the terminal.
 
 Create flags (projects create):
   --name <name>                    Project name (required)
@@ -373,15 +372,13 @@ async function dispatch(client: CliClient, positionals: string[], flags: Flags, 
 }
 
 /**
- * Email commands (early access).
+ * Email commands.
  *
  * Read-only: the write side of /v1/email (creating domains, importing
  * contacts, scheduling campaigns, saving templates) is multi-step and belongs
  * in a script against the SDK, not in flag-per-field shell invocations. That
  * covers requesting an AI draft and starting a list import too: both cost
  * money or write contacts, and both need a poll loop the SDK already has.
- * Every call here returns 403 EMAIL_EARLY_ACCESS until the product reaches
- * general availability.
  */
 async function emailCommand(
   client: CliClient,

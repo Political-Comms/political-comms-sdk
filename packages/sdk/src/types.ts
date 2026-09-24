@@ -1179,10 +1179,10 @@ export interface GetLedgerUsageByInitiatorQuery {
 }
 
 // ---------------------------------------------------------------------------
-// Email (early access)
+// Email
 //
-// Every /v1/email endpoint returns 403 EMAIL_EARLY_ACCESS until the email
-// product reaches general availability. The contract below is stable.
+// Write endpoints need the email entitlement on the organization and return
+// 403 ENTITLEMENT_REQUIRED without it. Reads are open.
 // ---------------------------------------------------------------------------
 
 /** Keyset-paginated list envelope used by every email list endpoint. */

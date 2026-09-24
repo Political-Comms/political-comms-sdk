@@ -25,7 +25,7 @@ const EXPECTED_TOOLS = [
   'get_conversation',
   'list_conversation_messages',
   'reply_to_conversation',
-  // Email (early access). Reads, the campaign lifecycle, and the two writes that
+  // Email. Reads, the campaign lifecycle, and the two writes that
   // spend money or add contacts; no delete_* tools, so the surface stays
   // non-destructive.
   'list_email_domains',
@@ -90,7 +90,7 @@ describe('political-comms MCP server (stdio)', () => {
         'list_conversations',
         'get_conversation',
         'list_conversation_messages',
-        // Email (early access) reads.
+        // Email reads.
         'list_email_domains',
         'get_email_domain',
         'list_email_senders',

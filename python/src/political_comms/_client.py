@@ -687,10 +687,10 @@ class PoliticalCommsClient:
             },
         )
 
-    # -- email (early access) ------------------------------------------------------------
+    # -- email ------------------------------------------------------------
     #
-    # Every method below returns 403 EMAIL_EARLY_ACCESS until the email product reaches
-    # general availability. Lists are keyset paginated: the payload is
+    # Write methods need the email entitlement on the organization and return
+    # 403 ENTITLEMENT_REQUIRED without it. Lists are keyset paginated: the payload is
     # {"data": [...], "has_more": bool, "next_cursor": str | None}. Page until next_cursor
     # is None, and never parse a cursor.
 
@@ -701,7 +701,7 @@ class PoliticalCommsClient:
         cursor: Optional[str] = None,
         search: Optional[str] = None,
     ) -> JsonDict:
-        """GET /email/domains. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """GET /email/domains."""
         return self._request(
             "GET",
             "/email/domains",
@@ -709,15 +709,15 @@ class PoliticalCommsClient:
         )
 
     def get_email_domain(self, id: str) -> JsonDict:
-        """GET /email/domains/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """GET /email/domains/{id}."""
         return self._request("GET", f"/email/domains/{id}")
 
     def list_email_senders(self) -> JsonDict:
-        """GET /email/senders. Not paginated. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """GET /email/senders. Not paginated."""
         return self._request("GET", "/email/senders")
 
     def get_email_sender(self, id: str) -> JsonDict:
-        """GET /email/senders/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """GET /email/senders/{id}."""
         return self._request("GET", f"/email/senders/{id}")
 
     def list_email_lists(
@@ -728,7 +728,7 @@ class PoliticalCommsClient:
         source_type: Optional[str] = None,
         search: Optional[str] = None,
     ) -> JsonDict:
-        """GET /email/lists. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """GET /email/lists."""
         return self._request(
             "GET",
             "/email/lists",
@@ -741,7 +741,7 @@ class PoliticalCommsClient:
         )
 
     def get_email_list(self, id: str) -> JsonDict:
-        """GET /email/lists/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """GET /email/lists/{id}."""
         return self._request("GET", f"/email/lists/{id}")
 
     def create_email_list(
@@ -755,7 +755,7 @@ class PoliticalCommsClient:
         sunset_enabled: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """POST /email/lists. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+        """POST /email/lists.
 
         consent_attestation is {"source": str, "note": str | None}: the record of how
         the people on this list agreed to hear from you. Set `acquired` when the list
@@ -792,7 +792,7 @@ class PoliticalCommsClient:
         status: Optional[str] = None,
         search: Optional[str] = None,
     ) -> JsonDict:
-        """GET /email/lists/{id}/contacts. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """GET /email/lists/{id}/contacts."""
         return self._request(
             "GET",
             f"/email/lists/{id}/contacts",
@@ -811,7 +811,7 @@ class PoliticalCommsClient:
         *,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """POST /email/lists/{id}/contacts. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+        """POST /email/lists/{id}/contacts.
 
         Upserts up to 1000 contacts. Invalid rows do not fail the call: read `results`
         and resend only the rows that came back "rejected".
@@ -834,7 +834,7 @@ class PoliticalCommsClient:
         cursor: Optional[str] = None,
         scope: Optional[str] = None,
     ) -> JsonDict:
-        """GET /email/suppressions. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """GET /email/suppressions."""
         return self._request(
             "GET",
             "/email/suppressions",
@@ -851,7 +851,7 @@ class PoliticalCommsClient:
         email_domain_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """POST /email/suppressions. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+        """POST /email/suppressions.
 
         Up to 5000 addresses per call. Malformed addresses come back in `invalid`
         rather than failing the batch.
@@ -884,7 +884,7 @@ class PoliticalCommsClient:
         email_domain_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """DELETE /email/suppressions. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+        """DELETE /email/suppressions.
 
         Removing an address that was not suppressed is not an error.
 
@@ -914,7 +914,7 @@ class PoliticalCommsClient:
         status: Optional[str] = None,
         search: Optional[str] = None,
     ) -> JsonDict:
-        """GET /email/campaigns. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """GET /email/campaigns."""
         return self._request(
             "GET",
             "/email/campaigns",
@@ -927,7 +927,7 @@ class PoliticalCommsClient:
         )
 
     def get_email_campaign(self, id: str) -> JsonDict:
-        """GET /email/campaigns/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+        """GET /email/campaigns/{id}.
 
         This read also returns "blocked": the machine-readable list of reasons the
         campaign will not schedule yet. Check it before scheduling.
@@ -954,7 +954,7 @@ class PoliticalCommsClient:
         recipient_policy: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """POST /email/campaigns. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+        """POST /email/campaigns.
 
         Once GA, also returns ``403 ONBOARDING_INCOMPLETE`` if the
         organization's 14-day setup grace window has passed and the business
@@ -1006,7 +1006,7 @@ class PoliticalCommsClient:
         scheduled_at: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """POST /email/campaigns/{id}/schedule. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+        """POST /email/campaigns/{id}/schedule.
 
         Omit scheduled_at to send now. A past date returns 400 VALIDATION_ERROR. If this
         refuses, read "blocked" on the campaign to see which gate stopped it.
@@ -1028,7 +1028,7 @@ class PoliticalCommsClient:
     def unschedule_email_campaign(
         self, id: str, *, idempotency_key: Optional[str] = None
     ) -> JsonDict:
-        """POST /email/campaigns/{id}/unschedule. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+        """POST /email/campaigns/{id}/unschedule.
 
         Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
         organization is not entitled to email; the error's
@@ -1041,7 +1041,7 @@ class PoliticalCommsClient:
         )
 
     def get_email_campaign_stats(self, id: str) -> JsonDict:
-        """GET /email/campaigns/{id}/stats. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+        """GET /email/campaigns/{id}/stats.
 
         Cached for 60 seconds. Test and seed sends are excluded from every figure.
         """
@@ -1054,7 +1054,7 @@ class PoliticalCommsClient:
         cursor: Optional[str] = None,
         search: Optional[str] = None,
     ) -> JsonDict:
-        """GET /email/templates. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """GET /email/templates."""
         return self._request(
             "GET",
             "/email/templates",
@@ -1062,7 +1062,7 @@ class PoliticalCommsClient:
         )
 
     def get_email_template(self, id: str) -> JsonDict:
-        """GET /email/templates/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA."""
+        """GET /email/templates/{id}."""
         return self._request("GET", f"/email/templates/{id}")
 
     def create_email_template(
@@ -1073,7 +1073,7 @@ class PoliticalCommsClient:
         description: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """POST /email/templates. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+        """POST /email/templates.
 
         content is {"subject": str, "html": str, "preheader": str | None,
         "text": str | None}. This endpoint only accepts HTML content; a saved
@@ -1110,7 +1110,7 @@ class PoliticalCommsClient:
         options: Optional[JsonDict] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """POST /email/lists/import. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+        """POST /email/lists/import.
 
         Fetches your CSV over https (50 MB cap, SSRF-guarded) and commits it as a NEW
         list in one call: the file is the list. name defaults to the file name, and

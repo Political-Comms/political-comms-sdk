@@ -78,10 +78,10 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, `sc
 
 The server deliberately exposes no delete operations.
 
-### Email tools are early access
+### Email tools
 
-Every `*_email_*` tool returns `403 EMAIL_EARLY_ACCESS` until the email product
-reaches general availability. Paid and human-driven email workflows (AI
+Email write tools need the email entitlement on the organization and return
+`403 ENTITLEMENT_REQUIRED` without it; reads are open. Paid and human-driven email workflows (AI
 drafting, list validation, result exports) and deliverability triage (pausing
 and resuming a live send) are dashboard features rather than tools: they cost
 money or need a human watching a send. There is no inbound email or inbox

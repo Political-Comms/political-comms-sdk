@@ -98,15 +98,14 @@ const { data: page } = await client.listConversations({ updated_since: lastSeenA
 for (const conversation of page.data) console.log(conversation.conversation_id, conversation.status);
 ```
 
-## Email (early access)
+## Email
 
 The `/v1/email` surface is wrapped in full: sending domains, sender identities,
 lists and contacts, list imports, suppressions, templates, and campaigns. Paid
 and human-driven workflows (AI drafting, list validation, result exports) and
 deliverability triage (pausing a live send) run in the dashboard.
-**Every email method returns `403 EMAIL_EARLY_ACCESS` until the email product
-reaches general availability.**
-The contract is stable, so integrations can be written against it now.
+**Write methods need the email entitlement on the organization and return
+`403 ENTITLEMENT_REQUIRED` without it. Reads are open.**
 
 Email lists are keyset paginated: the payload is
 `{ data, has_more, next_cursor }`. Page until `next_cursor` is null, and never

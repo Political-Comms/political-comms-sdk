@@ -59,7 +59,7 @@ import type {
   UnscheduleProjectResult,
   UpdateProjectRequest,
   UpdateProjectResult,
-  // Email (early access)
+  // Email
   AddEmailSuppressionsRequest,
   AddEmailSuppressionsResult,
   BulkUpsertResult,
@@ -622,14 +622,14 @@ export class PoliticalCommsClient {
   }
 
   // -------------------------------------------------------------------------
-  // Email (early access)
+  // Email
   //
-  // Every method below returns 403 EMAIL_EARLY_ACCESS until the email product
-  // reaches general availability. Lists are keyset paginated: page until
+  // Write methods need the email entitlement on the organization and return
+  // 403 ENTITLEMENT_REQUIRED without it. Lists are keyset paginated: page until
   // `next_cursor` is null, and never parse a cursor.
   // -------------------------------------------------------------------------
 
-  /** GET /email/domains. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/domains. */
   listEmailDomains(
     query: ListEmailDomainsQuery = {},
     options?: RequestOptions,
@@ -643,7 +643,7 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** GET /email/domains/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/domains/{id}. */
   getEmailDomain(id: string, options?: RequestOptions): Promise<ApiResponse<EmailDomain>> {
     return this.request(
       'GET',
@@ -654,14 +654,14 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** GET /email/senders. Not paginated. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/senders. Not paginated. */
   listEmailSenders(
     options?: RequestOptions,
   ): Promise<ApiResponse<CursorPage<EmailSenderIdentity>>> {
     return this.request('GET', '/email/senders', undefined, undefined, options);
   }
 
-  /** GET /email/senders/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/senders/{id}. */
   getEmailSender(
     id: string,
     options?: RequestOptions,
@@ -675,7 +675,7 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** GET /email/lists. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/lists. */
   listEmailLists(
     query: ListEmailListsQuery = {},
     options?: RequestOptions,
@@ -694,7 +694,7 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** GET /email/lists/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/lists/{id}. */
   getEmailList(id: string, options?: RequestOptions): Promise<ApiResponse<EmailList>> {
     return this.request(
       'GET',
@@ -706,7 +706,7 @@ export class PoliticalCommsClient {
   }
 
   /**
-   * POST /email/lists. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * POST /email/lists.
    * `consent_attestation` records how these people agreed to hear from you.
    * Once GA, also returns `403 ENTITLEMENT_REQUIRED` if the organization is
    * not entitled to email; `error.body.details.entitlement` is `'email'`.
@@ -718,7 +718,7 @@ export class PoliticalCommsClient {
     return this.request('POST', '/email/lists', undefined, body, options);
   }
 
-  /** GET /email/lists/{id}/contacts. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/lists/{id}/contacts. */
   listEmailListContacts(
     id: string,
     query: ListEmailContactsQuery = {},
@@ -739,7 +739,7 @@ export class PoliticalCommsClient {
   }
 
   /**
-   * POST /email/lists/{id}/contacts. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * POST /email/lists/{id}/contacts.
    *
    * Upserts up to 1000 contacts. Invalid rows do not fail the call: read
    * `results` and resend only the rows that came back 'rejected'. Once GA,
@@ -760,7 +760,7 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** GET /email/suppressions. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/suppressions. */
   listEmailSuppressions(
     query: ListEmailSuppressionsQuery = {},
     options?: RequestOptions,
@@ -775,7 +775,7 @@ export class PoliticalCommsClient {
   }
 
   /**
-   * POST /email/suppressions. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * POST /email/suppressions.
    * Up to 5000 addresses. Malformed ones come back in `invalid`, not as an
    * error. Once GA, also returns `403 ENTITLEMENT_REQUIRED` if the
    * organization is not entitled to email; `error.body.details.entitlement`
@@ -789,7 +789,7 @@ export class PoliticalCommsClient {
   }
 
   /**
-   * DELETE /email/suppressions. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * DELETE /email/suppressions.
    * Removing an address that was not suppressed is not an error. Once GA,
    * also returns `403 ENTITLEMENT_REQUIRED` if the organization is not
    * entitled to email; `error.body.details.entitlement` is `'email'`.
@@ -801,7 +801,7 @@ export class PoliticalCommsClient {
     return this.request('DELETE', '/email/suppressions', undefined, body, options);
   }
 
-  /** GET /email/campaigns. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/campaigns. */
   listEmailCampaigns(
     query: ListEmailCampaignsQuery = {},
     options?: RequestOptions,
@@ -821,7 +821,7 @@ export class PoliticalCommsClient {
   }
 
   /**
-   * GET /email/campaigns/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * GET /email/campaigns/{id}.
    * Additionally returns `blocked`: why this campaign will not schedule yet.
    */
   getEmailCampaign(id: string, options?: RequestOptions): Promise<ApiResponse<EmailCampaign>> {
@@ -835,7 +835,7 @@ export class PoliticalCommsClient {
   }
 
   /**
-   * POST /email/campaigns. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * POST /email/campaigns.
    * Once GA, also returns `403 ONBOARDING_INCOMPLETE` if the organization's
    * 14-day setup grace window has passed and the business profile or funding
    * step is still incomplete (see {@link createProject}), or
@@ -850,7 +850,7 @@ export class PoliticalCommsClient {
   }
 
   /**
-   * POST /email/campaigns/{id}/schedule. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * POST /email/campaigns/{id}/schedule.
    * Omit `scheduled_at` to send now. If this refuses, read `blocked` on the campaign.
    * Once GA, also returns `403 ENTITLEMENT_REQUIRED` if the organization is
    * not entitled to email (`error.body.details.entitlement` is `'email'`), or
@@ -872,7 +872,7 @@ export class PoliticalCommsClient {
   }
 
   /**
-   * POST /email/campaigns/{id}/unschedule. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * POST /email/campaigns/{id}/unschedule.
    * Once GA, also returns `403 ENTITLEMENT_REQUIRED` if the organization is
    * not entitled to email; `error.body.details.entitlement` is `'email'`.
    */
@@ -889,7 +889,7 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** GET /email/campaigns/{id}/stats. Cached 60s. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/campaigns/{id}/stats. Cached 60s. */
   getEmailCampaignStats(
     id: string,
     options?: RequestOptions,
@@ -903,7 +903,7 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** GET /email/templates. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/templates. */
   listEmailTemplates(
     query: ListEmailTemplatesQuery = {},
     options?: RequestOptions,
@@ -917,7 +917,7 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** GET /email/templates/{id}. Early access: 403 EMAIL_EARLY_ACCESS until GA. */
+  /** GET /email/templates/{id}. */
   getEmailTemplate(id: string, options?: RequestOptions): Promise<ApiResponse<EmailTemplate>> {
     return this.request(
       'GET',
@@ -929,7 +929,7 @@ export class PoliticalCommsClient {
   }
 
   /**
-   * POST /email/templates. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * POST /email/templates.
    *
    * The response carries `lint` alongside the saved template. The save
    * succeeds either way, but a campaign will not schedule while `lint.errors`
@@ -945,7 +945,7 @@ export class PoliticalCommsClient {
   }
 
   /**
-   * POST /email/lists/import. Early access: 403 EMAIL_EARLY_ACCESS until GA.
+   * POST /email/lists/import.
    *
    * Fetches your CSV over https (50 MB cap, SSRF-guarded) and commits it in
    * one call. Omit `mapping` to let the server recognize a common ESP export;

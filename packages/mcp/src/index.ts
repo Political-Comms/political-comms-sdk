@@ -24,8 +24,8 @@ const SERVER_INSTRUCTIONS =
   'start_email_list_import send real messages, spend money, or write contacts, and require ' +
   'confirm: true. Rate limits per key (60-second sliding window): 100 requests/minute for reads, ' +
   '60/minute for writes. ' +
-  'The email tools (list_email_*, get_email_*, and the email campaign lifecycle) are EARLY ACCESS: ' +
-  'every one returns 403 EMAIL_EARLY_ACCESS until the email product reaches general availability. ' +
+  'The email write tools need the email entitlement on the organization and return ' +
+  '403 ENTITLEMENT_REQUIRED without it; email reads are open. ' +
   'There is no inbound email or inbox surface.';
 
 // JSON Schema fragments reused across tools.
@@ -471,13 +471,12 @@ const TOOLS: Tool[] = [
     },
   },
   // -------------------------------------------------------------------------
-  // Email (early access). Every tool below returns 403 EMAIL_EARLY_ACCESS
-  // until the email product reaches general availability.
+  // Email. Write tools need the email entitlement on the organization
+  // (403 ENTITLEMENT_REQUIRED without it); reads are open.
   // -------------------------------------------------------------------------
   {
     name: 'list_email_domains',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'List email sending domains and their DNS verification status. A domain is usable ' +
       'for sending only once status is "active".',
     inputSchema: {
@@ -490,7 +489,6 @@ const TOOLS: Tool[] = [
   {
     name: 'get_email_domain',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'Get one email sending domain, including the DNS records the customer must publish. ' +
       'DNS is manual: the platform never writes records.',
     inputSchema: {
@@ -504,7 +502,6 @@ const TOOLS: Tool[] = [
   {
     name: 'list_email_senders',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'List email sender identities (From addresses). An identity missing a required physical ' +
       'address or disclaimer is paused rather than allowed to send.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -513,7 +510,6 @@ const TOOLS: Tool[] = [
   {
     name: 'list_email_lists',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'List email lists with their contact counts and status.',
     inputSchema: {
       type: 'object',
@@ -534,7 +530,6 @@ const TOOLS: Tool[] = [
   {
     name: 'list_email_suppressions',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'List suppressed email addresses at organization, sender identity, or list scope.',
     inputSchema: {
       type: 'object',
@@ -554,7 +549,6 @@ const TOOLS: Tool[] = [
   {
     name: 'list_email_campaigns',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'List email campaigns with their status and audience counts.',
     inputSchema: {
       type: 'object',
@@ -586,7 +580,6 @@ const TOOLS: Tool[] = [
   {
     name: 'get_email_campaign',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'Get one email campaign. This read also returns "blocked": the machine-readable list of ' +
       'reasons the campaign will not schedule yet. Check it before scheduling.',
     inputSchema: {
@@ -600,7 +593,6 @@ const TOOLS: Tool[] = [
   {
     name: 'get_email_campaign_stats',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'Get report tiles and per-link click stats for an email campaign. ' +
       'Cached for 60 seconds. Test and seed sends are excluded from every figure.',
     inputSchema: {
@@ -614,7 +606,6 @@ const TOOLS: Tool[] = [
   {
     name: 'schedule_email_campaign',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'Schedule an email campaign, or omit scheduled_at to send now. This commits a real send to ' +
       'every recipient on the campaign lists. If it is refused, read "blocked" on the campaign.',
     inputSchema: {
@@ -640,7 +631,6 @@ const TOOLS: Tool[] = [
   {
     name: 'unschedule_email_campaign',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'Remove the schedule from an email campaign, returning it to a draft state.',
     inputSchema: {
       type: 'object',
@@ -658,7 +648,6 @@ const TOOLS: Tool[] = [
   {
     name: 'list_email_templates',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'List saved email templates with their subject line and last-updated time. The HTML body ' +
       'is returned by get_email_template, not by this list.',
     inputSchema: {
@@ -671,7 +660,6 @@ const TOOLS: Tool[] = [
   {
     name: 'get_email_template',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'Get one email template including its full HTML body, which can be large. "editor" is ' +
       '"html" for a template imported or hand-written as HTML, or "document" for one built in ' +
       'the dashboard\'s document editor; both are returned as rendered HTML here.',
@@ -686,7 +674,6 @@ const TOOLS: Tool[] = [
   {
     name: 'start_email_list_import',
     description:
-      'EARLY ACCESS (returns 403 EMAIL_EARLY_ACCESS until general availability). ' +
       'Import a CSV of contacts into an email list. The server fetches source_url over https ' +
       '(50 MB cap) and writes the contacts in one call, so this changes who a campaign will ' +
       'reach. Omit mapping to let the server recognize a common ESP export; if no email column ' +
@@ -941,7 +928,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
     case 'reply_to_conversation':
       return textResult(await client.replyToConversation(s(args, 'id'), { text: s(args, 'text') }));
 
-    // Email (early access): all of these return 403 EMAIL_EARLY_ACCESS until GA.
+    // Email.
     case 'list_email_domains':
       return textResult(
         await client.listEmailDomains({
