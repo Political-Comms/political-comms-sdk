@@ -128,6 +128,8 @@ export interface Brand {
   tcr_brand_id?: string | null;
   status?: string;
   identity_status?: string | null;
+  /** Short internal note set in the dashboard or bulk CSV import; null when unset. */
+  notes?: string | null;
   created_at?: string;
   [key: string]: unknown;
 }
@@ -144,6 +146,8 @@ export interface Campaign {
   org_id?: string;
   org_name?: string;
   campaign_status?: string;
+  /** Short internal note set in the dashboard; null when unset. */
+  notes?: string | null;
   created_at?: string;
   [key: string]: unknown;
 }
@@ -162,6 +166,8 @@ export interface OwnedTrackingDomain {
   status?: string;
   verified_at?: string | null;
   created_at?: string;
+  /** Short internal note set on the Domains page; null when unset. Owned rows only. */
+  notes?: string | null;
   [key: string]: unknown;
 }
 
