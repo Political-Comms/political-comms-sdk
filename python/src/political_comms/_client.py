@@ -462,7 +462,13 @@ class PoliticalCommsClient:
     ) -> JsonDict:
         """POST /projects/{id}/test
 
-        ``test_contacts`` is a list of ``{"phone": "+1..."}`` dicts (1 to 50).
+        ``test_contacts`` is a list of ``{"phone": "+1..."}`` dicts (1 to 50). Each dict may
+        also include ``merge_values``: a dict of str to str, keyed by merge-tag name. When a
+        contact supplies ``merge_values``, no contact is sampled from the project's lists for
+        that test send and every tag renders from the supplied values, using the normal
+        fallback chain (inline fallback, then org default, then standard default, then empty)
+        for any tag not present. Omitting ``merge_values`` keeps the old behavior of sampling
+        a contact from the project's lists.
         """
         return self._request(
             "POST",

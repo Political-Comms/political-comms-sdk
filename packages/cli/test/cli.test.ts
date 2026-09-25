@@ -254,6 +254,53 @@ describe('commands', () => {
     });
   });
 
+  it('projects test maps --set flags to merge_values on every --phone contact', async () => {
+    const client = makeClient();
+    const { io } = makeIO();
+    const code = await main(
+      [
+        'projects', 'test', 'proj_1',
+        '--phone', '+15555550100',
+        '--phone', '+15555550101',
+        '--set', 'first_name=Alex',
+        '--set', 'donation_url=https://example.com/give?a=1',
+      ],
+      deps(client, io),
+    );
+    expect(code).toBe(0);
+    expect(client.testProject).toHaveBeenCalledWith('proj_1', {
+      test_contacts: [
+        { phone: '+15555550100', merge_values: { first_name: 'Alex', donation_url: 'https://example.com/give?a=1' } },
+        { phone: '+15555550101', merge_values: { first_name: 'Alex', donation_url: 'https://example.com/give?a=1' } },
+      ],
+    });
+  });
+
+  it('projects test keeps the last value when --set repeats a tag', async () => {
+    const client = makeClient();
+    const { io } = makeIO();
+    const code = await main(
+      ['projects', 'test', 'proj_1', '--phone', '+15555550100', '--set', 'first_name=Alex', '--set', 'first_name=Sam'],
+      deps(client, io),
+    );
+    expect(code).toBe(0);
+    expect(client.testProject).toHaveBeenCalledWith('proj_1', {
+      test_contacts: [{ phone: '+15555550100', merge_values: { first_name: 'Sam' } }],
+    });
+  });
+
+  it('projects test exits 2 on a malformed --set with no =', async () => {
+    const client = makeClient();
+    const { io, err } = makeIO();
+    const code = await main(
+      ['projects', 'test', 'proj_1', '--phone', '+15555550100', '--set', 'first_name'],
+      deps(client, io),
+    );
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('--set must be tag=value');
+    expect(client.testProject).not.toHaveBeenCalled();
+  });
+
   it('projects schedule maps --send-at and --timezone', async () => {
     const client = makeClient();
     const { io } = makeIO();

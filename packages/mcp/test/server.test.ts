@@ -105,6 +105,20 @@ describe('political-comms MCP server (stdio)', () => {
     );
   });
 
+  it('advertises merge_values as an optional string map on test_project, not required', async () => {
+    const result = await client.listTools();
+    const testProject = result.tools.find((tool) => tool.name === 'test_project');
+    expect(testProject).toBeTruthy();
+    const schema = testProject!.inputSchema as {
+      properties: Record<string, { type?: string; additionalProperties?: unknown }>;
+      required: string[];
+    };
+    expect(schema.properties.merge_values).toEqual(
+      expect.objectContaining({ type: 'object', additionalProperties: { type: 'string' } }),
+    );
+    expect(schema.required).not.toContain('merge_values');
+  });
+
   it('refuses write tools without confirm: true', async () => {
     const result = await client.callTool({
       name: 'schedule_project',

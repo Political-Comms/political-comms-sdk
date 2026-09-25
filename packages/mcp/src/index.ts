@@ -282,6 +282,15 @@ const TOOLS: Tool[] = [
           maxItems: 50,
           description: 'Recipient phone numbers for the test send',
         },
+        merge_values: {
+          type: 'object',
+          additionalProperties: { type: 'string' },
+          description:
+            'Optional merge-tag values, keyed by tag name, applied to every phone in this test send. ' +
+            "When supplied, no contact is sampled from the project's lists; every tag renders from these " +
+            'values with the normal fallback chain (inline fallback, then org default, then standard ' +
+            'default, then empty) for any tag not present here. Omit to sample from the lists as usual.',
+        },
       },
       required: ['confirm', 'id', 'phones'],
       additionalProperties: false,
@@ -885,9 +894,10 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       );
     case 'test_project': {
       const phones = (args.phones as string[]) ?? [];
+      const mergeValues = args.merge_values as Record<string, string> | undefined;
       return textResult(
         await client.testProject(s(args, 'id'), {
-          test_contacts: phones.map((phone) => ({ phone })),
+          test_contacts: phones.map((phone) => (mergeValues ? { phone, merge_values: mergeValues } : { phone })),
         }),
       );
     }
@@ -1015,7 +1025,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.11.0' },
+    { name: 'political-comms', version: '0.12.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

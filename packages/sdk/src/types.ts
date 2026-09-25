@@ -840,6 +840,13 @@ export interface GetAllProjectStatsQuery {
 export interface TestContact {
   /** US/Canada number in E.164 format, e.g. +15555550100. */
   phone: string;
+  /**
+   * Merge-tag values for this contact, keyed by tag name. When supplied, no contact is
+   * sampled from the project's lists for this test send and every tag renders from these
+   * values, using the normal fallback chain (inline fallback, then org default, then
+   * standard default, then empty) for any tag not present here.
+   */
+  merge_values?: Record<string, string>;
 }
 
 export interface TestProjectRequest {

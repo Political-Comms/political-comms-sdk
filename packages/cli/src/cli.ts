@@ -60,7 +60,8 @@ Commands:
   projects list                    List projects
   projects get <id>                Show one project
   projects create                  Create a project (see create flags)
-  projects test <id>               Send a test message (--phone, repeatable)
+  projects test <id>               Send a test message (--phone, repeatable;
+                                   --set tag=value, repeatable)
   projects schedule <id>           Schedule a send (--send-at, --timezone,
                                    [--daily-cap-bypass])
   projects unschedule <id>         Remove a schedule
@@ -108,6 +109,15 @@ Create flags (projects create):
   --suppression-list-id <id>       Suppression list, repeatable
   --media-id <id>                  Media file for MMS, repeatable
 
+Test flags (projects test):
+  --phone <e164>                   Test recipient, repeatable
+  --set <tag=value>                Merge-tag value for every --phone in this
+                                   command, repeatable. When given, no contact
+                                   is sampled from the project's lists; tags
+                                   render from --set values with the normal
+                                   fallback chain. Repeating the same tag keeps
+                                   the last value.
+
 Global options:
   --api-key <key>                  API key (default: POLITICAL_COMMS_API_KEY)
   --json                           Print the raw JSON response
@@ -134,6 +144,7 @@ const PARSE_OPTIONS = {
   'media-id': { type: 'string', multiple: true },
   body: { type: 'string' },
   phone: { type: 'string', multiple: true },
+  set: { type: 'string', multiple: true },
   'send-at': { type: 'string' },
   timezone: { type: 'string' },
   'daily-cap-bypass': { type: 'boolean', default: false },
@@ -645,7 +656,10 @@ async function projectsCommand(
       const id = requireArg(arg, 'projects test <id>');
       const phones = flags.phone ?? [];
       if (phones.length === 0) throw new UsageError('projects test requires at least one --phone');
-      const result = await client.testProject(id, { test_contacts: phones.map((phone) => ({ phone })) });
+      const mergeValues = parseMergeValues(flags.set);
+      const result = await client.testProject(id, {
+        test_contacts: phones.map((phone) => (mergeValues ? { phone, merge_values: mergeValues } : { phone })),
+      });
       if (flags.json) return printJson(io, result);
       io.out(`Queued ${str(result.data?.tests_sent) || phones.length} test message(s) for project ${id}.`);
       return 0;
@@ -808,6 +822,24 @@ function parseTimezone(value: string): ScheduleTimezone {
 function requireArg(arg: string | undefined, usage: string): string {
   if (!arg) throw new UsageError(`Usage: political-comms ${usage}`);
   return arg;
+}
+
+/**
+ * Builds a merge_values object from repeated `--set tag=value` flags. Splits each entry on
+ * the first `=` only; a repeated tag keeps the last value. Returns undefined when no --set
+ * flags were given, so callers can omit merge_values entirely.
+ */
+function parseMergeValues(entries: string[] | undefined): Record<string, string> | undefined {
+  if (!entries || entries.length === 0) return undefined;
+  const values: Record<string, string> = {};
+  for (const entry of entries) {
+    const index = entry.indexOf('=');
+    if (index === -1) throw new UsageError(`--set must be tag=value, got: ${entry}`);
+    const tag = entry.slice(0, index);
+    const value = entry.slice(index + 1);
+    values[tag] = value;
+  }
+  return values;
 }
 
 function printJson(io: CliIO, value: unknown): number {

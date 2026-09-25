@@ -430,7 +430,10 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** POST /projects/{id}/test */
+  /**
+   * POST /projects/{id}/test. A contact's `merge_values` overrides sampling from the
+   * project's lists for that contact; its tags render from the supplied values instead.
+   */
   testProject(
     id: string,
     body: TestProjectRequest,
