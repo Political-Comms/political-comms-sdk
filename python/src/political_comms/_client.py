@@ -113,6 +113,21 @@ class PoliticalCommsClient:
             query={"organization_id": organization_id, "brand_id": brand_id},
         )
 
+    def get_campaign_throughput(self, id: str) -> JsonDict:
+        """GET /campaigns/{id}/throughput
+
+        The brand's T-Mobile daily cap (``t_mobile``: ``daily_cap``,
+        ``used_today``, ``remaining_today``, ``pacific_day``) and AT&T
+        per-minute rates (``att``: ``sms_tpm``, ``mms_tpm``). The lanes are
+        independent: ``t_mobile`` is None until a daily cap has synced (so
+        ``daily_cap`` is always an integer when present), and ``att`` is None
+        unless the brand is Aegis-vetted and a tier is known.
+        ``carrier_metered`` is True if either applies; political brands return
+        False with both None. ``used_today`` / ``remaining_today`` are None
+        when usage is temporarily unavailable (never zero).
+        """
+        return self._request("GET", f"/campaigns/{id}/throughput")
+
     def list_tracking_domains(self, *, organization_id: Optional[str] = None) -> JsonDict:
         """GET /tracking-domains"""
         return self._request("GET", "/tracking-domains", query={"organization_id": organization_id})
@@ -453,6 +468,23 @@ class PoliticalCommsClient:
         """
         return self._request("GET", f"/projects/{id}/stats")
 
+    def get_project_throughput(self, id: str) -> JsonDict:
+        """GET /projects/{id}/throughput
+
+        Pre-flight estimate of carrier limits for the project:
+        ``t_mobile.will_pause`` and ``estimated_send_days``,
+        ``att.estimated_minutes``, ``recipients`` and ``carrier_coverage``
+        (0 to 1; low coverage means the estimates use the platform-wide carrier
+        split). Political brands return ``carrier_metered: False``. With
+        ``daily_cap_bypass`` on, ``will_pause`` is False and
+        ``estimated_send_days`` is 1. ``used_today`` / ``remaining_today`` are
+        None (not 0) when usage is temporarily unavailable, and ``will_pause``
+        is then False. Results are cached up to 60 seconds. A timed-out
+        estimate raises an error with status 503 and code
+        ``CARRIER_ESTIMATE_TIMEOUT``; retry later.
+        """
+        return self._request("GET", f"/projects/{id}/throughput")
+
     def test_project(
         self,
         id: str,
@@ -504,7 +536,9 @@ class PoliticalCommsClient:
         Setting it accepts that messages to T-Mobile recipients over the limit
         may fail and are still billed: carrier is not reliably known before
         sending, so the platform cannot skip only those recipients. Defaults to
-        pausing. The response echoes the persisted ``daily_cap_bypass``.
+        pausing. It holds only until the next schedule or resume call rewrites
+        it, so send it on every such call; this call also resumes a paused
+        project. The response echoes the persisted ``daily_cap_bypass``.
 
         Returns ``409 SENDING_PAUSED`` if sending is paused for the
         organization or platform-wide; the error's

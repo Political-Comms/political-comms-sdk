@@ -43,6 +43,8 @@ Read only:
 | `list_projects` | List messaging projects, filterable by organization, brand, or campaign. |
 | `get_project` | Full configuration of one project. |
 | `get_project_stats` | Delivery and engagement stats for one project. |
+| `get_project_throughput` | Carrier-limit estimate for one project: will it pause at the T-Mobile daily cap, and how long it takes. |
+| `get_campaign_throughput` | A campaign's T-Mobile daily cap, use today, and AT&T per-minute rates. |
 | `list_contact_lists` | Contact lists with counts and status. |
 | `get_contact_list` | One contact list with import progress and analysis. |
 | `get_message_stats` | Aggregate message stats for a date range. |

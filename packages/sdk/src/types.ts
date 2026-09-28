@@ -152,6 +152,35 @@ export interface Campaign {
   [key: string]: unknown;
 }
 
+/**
+ * GET /campaigns/{id}/throughput response. The two carrier lanes are
+ * independent. `t_mobile` is null whenever no T-Mobile daily cap has synced
+ * for the campaign; `att` is null unless the brand is Aegis-vetted
+ * (non-political) and an AT&T tier is known. A null inside means not known
+ * right now, never zero.
+ */
+export interface CampaignThroughput {
+  campaign_id: string;
+  brand_id: string;
+  /** True if either lane applies. False (both lanes null) for political (Campaign Verify) brands. */
+  carrier_metered: boolean;
+  /** Null until a T-Mobile daily cap has synced; when present `daily_cap` is always an integer. */
+  t_mobile: {
+    daily_cap: number;
+    /** Null when today's usage is temporarily unavailable. */
+    used_today: number | null;
+    /** Null when `used_today` is null. */
+    remaining_today: number | null;
+    /** The current Pacific day (YYYY-MM-DD); the cap resets at midnight Pacific. */
+    pacific_day: string;
+  } | null;
+  /** Null unless the brand is Aegis-vetted and an AT&T tier is known; `sms_tpm` and `mms_tpm` can each be null. */
+  att: {
+    sms_tpm: number | null;
+    mms_tpm: number | null;
+  } | null;
+}
+
 export interface ListCampaignsQuery {
   organization_id?: string;
   brand_id?: string;
@@ -592,6 +621,23 @@ export interface ProjectDetail {
   estimated_cost_cents?: number;
   scheduled_at?: string | null;
   scheduled_timezone?: string | null;
+  /**
+   * Why a paused project stopped; null when not paused. Known values:
+   * `brand_daily_cap` (T-Mobile daily cap; resume with `scheduleProject` after
+   * midnight Pacific, or with `daily_cap_bypass`), `quiet_hours` (paused at
+   * 10 PM recipients' local time; restart manually the next morning),
+   * `carrier_block_rate`, `unregistered_campaign`, `provider_error`,
+   * `insufficient_funds_auto_recharge_failed`, `insufficient_funds_ancestor`,
+   * `shared_phone_revoked`, `phone_released`, `organization_deleted`, and
+   * `manual` or a short free-text reason (up to 100 characters) set by a user
+   * who paused it. Other values may appear. Every auto-pause needs a manual
+   * restart via `scheduleProject`.
+   */
+  pause_reason?: string | null;
+  /** True when the platform paused the project itself, for example at the daily cap. */
+  auto_paused?: boolean;
+  /** Whether the project runs through the T-Mobile daily cap; set by the last schedule or resume call. */
+  daily_cap_bypass?: boolean;
   created_via_api?: boolean;
   created_at?: string;
   updated_at?: string;
@@ -767,6 +813,40 @@ export interface ProjectStats {
   [key: string]: unknown;
 }
 
+/**
+ * GET /projects/{id}/throughput response: how carrier limits will affect the
+ * project. `recipients` and `carrier_coverage` are present only when
+ * `carrier_metered` is true. When coverage is low the per-carrier estimates
+ * use the platform-wide carrier split. With `daily_cap_bypass` on,
+ * `will_pause` is false and `estimated_send_days` is 1. Results are cached up
+ * to 60 seconds. A timed-out estimate throws a 503 `CARRIER_ESTIMATE_TIMEOUT`
+ * error; retry later.
+ */
+export interface ProjectThroughput {
+  project_id: string;
+  carrier_metered: boolean;
+  t_mobile: {
+    daily_cap: number | null;
+    /** Null (not 0) when usage is temporarily unavailable. */
+    used_today: number | null;
+    /** Null when `used_today` is null. */
+    remaining_today: number | null;
+    estimated_recipients: number;
+    /** True when the project will use up the remaining cap and auto-pause (`pause_reason` `brand_daily_cap`). Always false with `daily_cap_bypass` on or when `used_today` is null. */
+    will_pause: boolean;
+    /** Always 1 with `daily_cap_bypass` on. */
+    estimated_send_days: number;
+  } | null;
+  att: {
+    tpm: number;
+    estimated_recipients: number;
+    estimated_minutes: number;
+  } | null;
+  recipients?: number;
+  /** Share of recipients whose carrier is known, 0 to 1. */
+  carrier_coverage?: number;
+}
+
 export interface ProjectStatsRow {
   id?: string;
   name?: string;
@@ -897,7 +977,9 @@ export interface ScheduleProjectRequest {
    * Setting this accepts that messages to T-Mobile recipients over the limit
    * may fail and are still billed - carrier is not reliably known before
    * sending, so the platform cannot skip only those recipients. Defaults to
-   * false (pause), and persists for the life of the project.
+   * false (pause). Holds until the next schedule or resume call rewrites it, so
+   * send it on every schedule or resume call. Scheduling also resumes a paused
+   * project.
    */
   daily_cap_bypass?: boolean;
 }

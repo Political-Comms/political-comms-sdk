@@ -107,6 +107,41 @@ const TOOLS: Tool[] = [
     annotations: { title: 'Get Project', readOnlyHint: true },
   },
   {
+    name: 'get_project_throughput',
+    description:
+      'Estimate how carrier limits will affect one project before or during a send: recipients on ' +
+      'T-Mobile and AT&T, whether it will pause at the brand T-Mobile daily cap (`will_pause`, ' +
+      '`estimated_send_days`), and AT&T minutes. Political brands return `carrier_metered: false`. ' +
+      'Nulls mean not known right now, never zero (if `used_today` is null, `will_pause` is false). ' +
+      'With `daily_cap_bypass` on, `will_pause` is false and `estimated_send_days` is 1. Results are ' +
+      'cached up to 60 seconds; a timed-out estimate returns 503 `CARRIER_ESTIMATE_TIMEOUT` (retry later). ' +
+      'A project paused with `pause_reason` `brand_daily_cap` resumes with `schedule_project` after ' +
+      'midnight Pacific; `quiet_hours` pauses (10 PM recipients local time) need a manual restart the next morning.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: { title: 'Get Project Throughput', readOnlyHint: true },
+  },
+  {
+    name: 'get_campaign_throughput',
+    description:
+      'Get a 10DLC campaign brand carrier limits: the T-Mobile daily cap, how much is used today ' +
+      '(Pacific day), and the AT&T per-minute SMS and MMS rates. The lanes are independent: `t_mobile` ' +
+      'is null until a daily cap has synced, `att` is null unless the brand is Aegis-vetted with a known ' +
+      'tier, and `carrier_metered` is true if either applies. Political brands return ' +
+      '`carrier_metered: false` with both null. Nulls inside mean not known right now, never zero.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: { title: 'Get Campaign Throughput', readOnlyHint: true },
+  },
+  {
     name: 'get_project_stats',
     description:
       'Get delivery and engagement stats for one project: sent, delivered, undeliverable, replies, ' +
@@ -839,6 +874,10 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       );
     case 'get_project':
       return textResult(await client.getProject(s(args, 'id')));
+    case 'get_project_throughput':
+      return textResult(await client.getProjectThroughput(s(args, 'id')));
+    case 'get_campaign_throughput':
+      return textResult(await client.getCampaignThroughput(s(args, 'id')));
     case 'get_project_stats':
       return textResult(await client.getProjectStats(s(args, 'id')));
     case 'list_contact_lists':
@@ -1024,7 +1063,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.12.0' },
+    { name: 'political-comms', version: '0.13.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

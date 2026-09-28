@@ -9,6 +9,7 @@ export type CliClient = Pick<
   | 'getHierarchy'
   | 'listProjects'
   | 'getProject'
+  | 'getProjectThroughput'
   | 'createProject'
   | 'testProject'
   | 'scheduleProject'
@@ -59,6 +60,8 @@ Commands:
   hierarchy                        Show the organization hierarchy
   projects list                    List projects
   projects get <id>                Show one project
+  projects throughput <id>         Carrier-limit estimate: will it pause at the
+                                   daily cap, and how long it takes
   projects create                  Create a project (see create flags)
   projects test <id>               Send a test message (--phone, repeatable;
                                    --set tag=value, repeatable)
@@ -586,7 +589,7 @@ async function projectsCommand(
   flags: Flags,
   io: CliIO,
 ): Promise<number> {
-  requireSub(sub, ['list', 'get', 'create', 'test', 'schedule', 'unschedule', 'copy'], 'projects');
+  requireSub(sub, ['list', 'get', 'throughput', 'create', 'test', 'schedule', 'unschedule', 'copy'], 'projects');
 
   switch (sub) {
     case 'list': {
@@ -610,6 +613,14 @@ async function projectsCommand(
     case 'get': {
       const id = requireArg(arg, 'projects get <id>');
       const result = await client.getProject(id);
+      if (flags.json) return printJson(io, result);
+      io.out(kv(result.data));
+      return 0;
+    }
+
+    case 'throughput': {
+      const id = requireArg(arg, 'projects throughput <id>');
+      const result = await client.getProjectThroughput(id);
       if (flags.json) return printJson(io, result);
       io.out(kv(result.data));
       return 0;

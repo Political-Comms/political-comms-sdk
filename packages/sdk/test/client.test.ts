@@ -307,6 +307,17 @@ describe('endpoint serialization', () => {
     expect(parsed.searchParams.has('campaignId')).toBe(false);
   });
 
+  it('encodes ids and hits the throughput paths', async () => {
+    const fetchMock = vi.fn(async () => okResponse({}));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.getCampaignThroughput('camp/1');
+    await client.getProjectThroughput('proj/1');
+    const urls = fetchMock.mock.calls.map((c) => (c as unknown as [string])[0]);
+    expect(urls[0]).toBe('https://api.politicalcomms.com/v1/campaigns/camp%2F1/throughput');
+    expect(urls[1]).toBe('https://api.politicalcomms.com/v1/projects/proj%2F1/throughput');
+    expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].method).toBe('GET');
+  });
+
   it('uses spec query names for listPhoneNumbers (snake_case)', async () => {
     const fetchMock = vi.fn(async () => okResponse([]));
     const client = makeClient(fetchMock as unknown as typeof fetch);

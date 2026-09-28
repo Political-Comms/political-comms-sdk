@@ -388,6 +388,24 @@ class TestDeletes:
         assert err.body["details"]["projects"][0]["id"] == "proj_1"
 
 
+class TestThroughput:
+    def test_throughput_paths(self):
+        seen = []
+
+        def handler(request):
+            seen.append((request.method, request.url.path))
+            return ok_response({"carrier_metered": False, "t_mobile": None, "att": None})
+
+        with make_client(handler) as client:
+            campaign = client.get_campaign_throughput("camp_1")
+            client.get_project_throughput("proj_1")
+        assert seen == [
+            ("GET", "/v1/campaigns/camp_1/throughput"),
+            ("GET", "/v1/projects/proj_1/throughput"),
+        ]
+        assert campaign["data"]["carrier_metered"] is False
+
+
 class TestProjectCopy:
     def test_copy_project_posts_without_body(self):
         seen = {}

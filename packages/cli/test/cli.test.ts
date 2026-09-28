@@ -20,6 +20,7 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     ),
     listProjects: vi.fn(() => ok([{ id: 'proj_1', name: 'GOTV', campaign_name: 'Fall', org_name: 'Civic Action Fund' }])),
     getProject: vi.fn(() => ok({ id: 'proj_1', name: 'GOTV', status: 'draft' })),
+    getProjectThroughput: vi.fn(() => ok({ project_id: 'proj_1', carrier_metered: false })),
     createProject: vi.fn(() => ok({ id: 'proj_9', status: 'draft' })),
     testProject: vi.fn(() => ok({ project_id: 'proj_1', tests_sent: 1 })),
     scheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'scheduled', scheduled_at: '2026-11-03T09:00:00' })),
@@ -313,6 +314,15 @@ describe('commands', () => {
       scheduled_at: '2026-11-03T09:00:00',
       scheduled_timezone: 'America/New_York',
     });
+  });
+
+  it('projects throughput calls getProjectThroughput', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['projects', 'throughput', 'proj_1'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.getProjectThroughput).toHaveBeenCalledWith('proj_1');
+    expect(out.join('\n')).toContain('carrier_metered');
   });
 
   it('projects schedule omits daily_cap_bypass unless the flag is passed', async () => {

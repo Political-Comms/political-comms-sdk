@@ -4,6 +4,7 @@ import type {
   ApiResponse,
   Brand,
   Campaign,
+  CampaignThroughput,
   ContactList,
   ContactListAnalysisResult,
   ContactListDetail,
@@ -45,6 +46,7 @@ import type {
   Project,
   ProjectDetail,
   ProjectStats,
+  ProjectThroughput,
   RateLimitState,
   ReplyToConversationRequest,
   ReplyToConversationResult,
@@ -184,6 +186,20 @@ export class PoliticalCommsClient {
       'GET',
       '/campaigns',
       { organization_id: query.organization_id, brand_id: query.brand_id },
+      undefined,
+      options,
+    );
+  }
+
+  /** GET /campaigns/{id}/throughput. T-Mobile daily cap and today's use, AT&T per-minute rates. */
+  getCampaignThroughput(
+    id: string,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<CampaignThroughput>> {
+    return this.request(
+      'GET',
+      `/campaigns/${encodeURIComponent(id)}/throughput`,
+      undefined,
       undefined,
       options,
     );
@@ -424,6 +440,20 @@ export class PoliticalCommsClient {
     return this.request(
       'GET',
       `/projects/${encodeURIComponent(id)}/stats`,
+      undefined,
+      undefined,
+      options,
+    );
+  }
+
+  /** GET /projects/{id}/throughput. Will the project pause at the daily cap, and how long it takes. */
+  getProjectThroughput(
+    id: string,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<ProjectThroughput>> {
+    return this.request(
+      'GET',
+      `/projects/${encodeURIComponent(id)}/throughput`,
       undefined,
       undefined,
       options,
