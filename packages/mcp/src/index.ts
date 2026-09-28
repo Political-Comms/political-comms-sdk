@@ -22,7 +22,7 @@ const SERVER_INSTRUCTIONS =
   'The write tools create_project, test_project, schedule_project, reply_to_conversation, ' +
   'schedule_email_campaign, resume_email_campaign, create_email_template_draft, and ' +
   'start_email_list_import send real messages, spend money, or write contacts, and require ' +
-  'confirm: true. Rate limit per key: 600 requests/minute over a 60-second sliding window. ' +
+  'confirm: true. Rate limit per key: 600 requests/minute, bursts up to 600, refilling 10 per second. ' +
   'The email write tools need the email entitlement on the organization and return ' +
   '403 ENTITLEMENT_REQUIRED without it; email reads are open. ' +
   'There is no inbound email or inbox surface.';
@@ -764,7 +764,7 @@ function errorResult(text: string): CallToolResult {
 function recoveryHint(err: PoliticalCommsError): string {
   if (err.statusCode === 429) {
     return (
-      'The API allows 600 requests per minute per key over a 60-second sliding window. ' +
+      'The API allows 600 requests per minute per key (bursts up to 600, refilling 10 per second). ' +
       'Wait until the time in the X-RateLimit-Reset header (Unix seconds) before retrying; ' +
       'the SDK already waited through its retry budget.'
     );
