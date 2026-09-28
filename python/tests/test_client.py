@@ -238,6 +238,32 @@ class TestRateLimiting:
         assert 25 <= sleeps[0] <= 31
         assert client.last_rate_limit == RateLimitState(limit=100, remaining=99, reset=reset_at + 3600)
 
+    def test_429_prefers_retry_after_over_reset(self, monkeypatch):
+        sleeps = []
+        monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
+        reset_at = int(time.time()) + 30  # a skewed or stale Reset
+        responses = [
+            error_response(
+                429,
+                "RATE_LIMIT_EXCEEDED",
+                headers={
+                    "Retry-After": "3",
+                    "X-RateLimit-Limit": "600",
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": str(reset_at),
+                },
+            ),
+            ok_response([], headers={"X-RateLimit-Limit": "600", "X-RateLimit-Remaining": "599"}),
+        ]
+
+        def handler(request):
+            return responses.pop(0)
+
+        with make_client(handler) as client:
+            result = client.list_organizations()
+        assert result["success"] is True
+        assert sleeps == [3.0]
+
     def test_last_rate_limit_updates_per_response(self):
         def handler(request):
             return ok_response(

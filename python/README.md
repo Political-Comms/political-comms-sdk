@@ -199,7 +199,7 @@ client.create_project(..., idempotency_key="send-2026-11-03-wave-1")
 
 ## Rate limits
 
-The API allows, per key over a 60-second sliding window, 100 requests/minute for reads, 60/minute for writes, and 30/minute for deletes. The client exposes the most recent rate limit headers:
+The API allows 600 requests per minute per key over a 60-second sliding window, the same for every scope. The client exposes the most recent rate limit headers:
 
 ```python
 client.list_organizations()

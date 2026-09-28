@@ -1060,8 +1060,15 @@ export class PoliticalCommsClient {
     }
   }
 
-  /** For 429s, wait until the X-RateLimit-Reset timestamp; fall back to backoff. */
+  /**
+   * For 429s: Retry-After (relative seconds, immune to clock skew) wins, then
+   * the X-RateLimit-Reset timestamp, then exponential backoff.
+   */
   private rateLimitDelayMs(response: Response, attempt: number): number {
+    const retryAfter = Number(response.headers.get('Retry-After'));
+    if (response.headers.get('Retry-After') !== null && Number.isFinite(retryAfter) && retryAfter > 0) {
+      return retryAfter * 1_000;
+    }
     const reset = Number(response.headers.get('X-RateLimit-Reset'));
     if (Number.isFinite(reset) && reset > 0) {
       const waitMs = reset * 1_000 - Date.now();

@@ -204,6 +204,32 @@ describe('rate limiting', () => {
     expect(client.lastRateLimit).toEqual({ limit: 100, remaining: 99, reset: resetAt + 3_600 });
   });
 
+  it('prefers Retry-After over X-RateLimit-Reset on a 429', async () => {
+    const resetAt = Math.floor(Date.now() / 1_000) + 30; // a skewed or stale Reset
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        errorResponse(429, 'RATE_LIMIT_EXCEEDED', {
+          'Retry-After': '3',
+          'X-RateLimit-Limit': '600',
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(resetAt),
+        }),
+      )
+      .mockResolvedValueOnce(okResponse([], { 'X-RateLimit-Limit': '600', 'X-RateLimit-Remaining': '599' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+
+    const settled = client.listOrganizations().then((r) => r);
+
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await settled;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.success).toBe(true);
+  });
+
   it('exposes rate limit headers on lastRateLimit after every response', async () => {
     const fetchMock = vi.fn(async () =>
       okResponse([], {

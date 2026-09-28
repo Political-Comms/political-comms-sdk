@@ -1231,7 +1231,16 @@ class PoliticalCommsClient:
             pass
 
     def _rate_limit_delay(self, response: httpx.Response, attempt: int) -> float:
-        """For 429s, wait until the X-RateLimit-Reset timestamp; fall back to backoff."""
+        """For 429s: Retry-After (relative seconds, immune to clock skew) wins,
+        then the X-RateLimit-Reset timestamp, then exponential backoff."""
+        retry_after = response.headers.get("Retry-After")
+        if retry_after is not None:
+            try:
+                seconds = float(retry_after)
+                if seconds > 0:
+                    return seconds
+            except ValueError:
+                pass
         reset = response.headers.get("X-RateLimit-Reset")
         if reset is not None:
             try:
