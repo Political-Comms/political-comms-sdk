@@ -244,7 +244,9 @@ const TOOLS: Tool[] = [
       'Create a new messaging project (a draft send). Requires the owning organization, a name, ' +
       'protocol (sms or mms), sending phone number IDs, contact list IDs, and the message text. ' +
       'For channel=10dlc also pass brand_id and campaign_id; for channel=toll-free pass ' +
-      'toll_free_verification_id. Creating a project does not send messages by itself.',
+      'toll_free_verification_id. Creating a project does not send messages by itself. A 409 ' +
+      '`LIST_ANALYSIS_IN_PROGRESS` means a contact list is still being analyzed; wait until ' +
+      '`get_contact_list` shows `analysis.status` `complete`, then retry.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -363,7 +365,9 @@ const TOOLS: Tool[] = [
     name: 'schedule_project',
     description:
       'Schedule a project to send to its full contact lists at a specific date and time. This ' +
-      'commits a real bulk send to every contact on the lists once the scheduled time arrives.',
+      'commits a real bulk send to every contact on the lists once the scheduled time arrives. A 409 ' +
+      '`LIST_ANALYSIS_IN_PROGRESS` means a contact list is still being analyzed; wait until ' +
+      '`get_contact_list` shows `analysis.status` `complete`, then retry.',
     inputSchema: {
       type: 'object',
       properties: {

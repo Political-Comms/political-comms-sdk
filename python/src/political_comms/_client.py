@@ -370,6 +370,9 @@ class PoliticalCommsClient:
         draft status, and it cannot be tested or scheduled until a list is
         attached via ``update_project``. An explicitly empty list is rejected.
 
+        Raises a 409 ``LIST_ANALYSIS_IN_PROGRESS`` while a contact list on the
+        project is being analyzed; wait for ``analysis.status`` ``complete``.
+
         ``opt_out_footer_enabled`` controls the automatic "STOP=END" footer
         (default ``True``). ``link_tracking_destination_url`` may embed the
         selected ``link_tracking_param_field`` anywhere via a placeholder named
@@ -457,6 +460,9 @@ class PoliticalCommsClient:
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """PATCH /projects/{id}
+
+        Raises a 409 ``LIST_ANALYSIS_IN_PROGRESS`` while a contact list on the
+        project is being analyzed; wait for ``analysis.status`` ``complete``.
 
         ``opt_out_footer_enabled`` toggles the automatic "STOP=END" footer.
         ``link_tracking_fallback_url`` is required whenever
@@ -564,6 +570,9 @@ class PoliticalCommsClient:
         pausing. It holds only until the next schedule or resume call rewrites
         it, so send it on every such call; this call also resumes a paused
         project. The response echoes the persisted ``daily_cap_bypass``.
+
+        Raises a 409 ``LIST_ANALYSIS_IN_PROGRESS`` while a contact list on the
+        project is being analyzed; wait for ``analysis.status`` ``complete``.
 
         To resume a project paused with ``pause_reason`` ``brand_daily_cap``,
         schedule it for the next day during sending hours (8 AM to 10 PM

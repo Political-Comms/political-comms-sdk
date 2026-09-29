@@ -427,6 +427,8 @@ export class PoliticalCommsClient {
    * (`'profile' | 'funding'`) and `onboardingUrl`. Returns
    * `409 SENDING_PAUSED` if sending is paused for the organization or
    * platform-wide; `error.body.details.scope` is `'organization' | 'platform'`.
+   * Throws a 409 `LIST_ANALYSIS_IN_PROGRESS` while a contact list on the
+   * project is being analyzed; wait for `analysis.status` `complete`.
    */
   createProject(
     body: CreateProjectRequest,
@@ -463,7 +465,11 @@ export class PoliticalCommsClient {
     return this.request('GET', `/projects/${encodeURIComponent(id)}`, undefined, undefined, options);
   }
 
-  /** PATCH /projects/{id} */
+  /**
+   * PATCH /projects/{id}. Throws a 409 `LIST_ANALYSIS_IN_PROGRESS` while a
+   * contact list on the project is being analyzed; wait for `analysis.status`
+   * `complete`.
+   */
   updateProject(
     id: string,
     body: UpdateProjectRequest,
@@ -516,6 +522,8 @@ export class PoliticalCommsClient {
    * `brand_daily_cap` pause, pass a morning `scheduled_at` inside the next
    * day's sending hours (8 AM to 10 PM recipients' local time), or resume now
    * with `daily_cap_bypass: true` (over-cap T-Mobile may fail, still billed).
+   * Throws a 409 `LIST_ANALYSIS_IN_PROGRESS` while a contact list on the
+   * project is being analyzed; wait for `analysis.status` `complete`.
    */
   scheduleProject(
     id: string,

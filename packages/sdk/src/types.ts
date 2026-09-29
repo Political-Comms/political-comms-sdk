@@ -1111,6 +1111,14 @@ export interface ConversationMessage {
    * null when the message did not fail or the failure was not a delivery result.
    */
   error_code?: string | null;
+  /**
+   * The contact's mobile carrier: the recipient's on outbound messages, the sender's on
+   * inbound ones. Exactly "AT&T", "Verizon", or "T-Mobile" for the national networks
+   * (brands and subsidiaries are reported under the network they run on); any other
+   * carrier is its own registered name, an opaque string. null when unknown, and on
+   * inbound messages received before this field was introduced.
+   */
+  carrier?: string | null;
   [key: string]: unknown;
 }
 
