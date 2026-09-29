@@ -8,6 +8,7 @@ import type {
   ContactList,
   ContactListAnalysisResult,
   ContactListDetail,
+  ContactListDownloadType,
   ContactListImportResult,
   Conversation,
   ConversationMessage,
@@ -302,7 +303,18 @@ export class PoliticalCommsClient {
     return this.request('POST', '/contact-lists/import', undefined, body, options);
   }
 
-  /** POST /contact-lists/{id}/analyze */
+  /**
+   * POST /contact-lists/{id}/analyze
+   *
+   * Billable per lookup, charged to the list's organization. Returns 202 with
+   * `cost_cents` and `numbers_queued`, or 200 with `analysis.status`
+   * `complete` (cost 0) when nothing is left to analyze; a run already in
+   * progress returns 202 with cost 0. An insufficient balance throws a 402
+   * `INSUFFICIENT_BALANCE` with nothing queued. The client sends an
+   * Idempotency-Key automatically, so a retry is not charged twice. Poll
+   * `getContactList` until `analysis.status` is `complete`, or subscribe to
+   * the `contact_list.analyzed` webhook.
+   */
   analyzeContactList(
     id: string,
     options?: RequestOptions,
@@ -314,6 +326,31 @@ export class PoliticalCommsClient {
       undefined,
       options,
     );
+  }
+
+  /**
+   * GET /contact-lists/{id}/download?type=original|analyzed
+   *
+   * Resolves to the CSV text. `original` has the phone number, original row,
+   * and custom fields; `analyzed` adds phone type, carrier, mobile flag,
+   * opt-out flag, city, and state. Requesting `analyzed` before
+   * `analysis.status` is `complete` throws a 409 `ANALYSIS_NOT_COMPLETE`.
+   * The `downloads` URLs on `getContactList` point at this same endpoint.
+   */
+  async downloadContactList(
+    id: string,
+    type: ContactListDownloadType,
+    options?: RequestOptions,
+  ): Promise<string> {
+    const response = await this.send(
+      'GET',
+      `/contact-lists/${encodeURIComponent(id)}/download`,
+      { type },
+      undefined,
+      options ?? {},
+      'text/csv',
+    );
+    return response.text();
   }
 
   /** DELETE /contact-lists/{id} */
@@ -475,7 +512,10 @@ export class PoliticalCommsClient {
   /**
    * POST /projects/{id}/schedule. Returns `409 SENDING_PAUSED` if sending is
    * paused for the organization or platform-wide; `error.body.details.scope`
-   * is `'organization' | 'platform'`.
+   * is `'organization' | 'platform'`. Also resumes a `paused` project: for a
+   * `brand_daily_cap` pause, pass a morning `scheduled_at` inside the next
+   * day's sending hours (8 AM to 10 PM recipients' local time), or resume now
+   * with `daily_cap_bypass: true` (over-cap T-Mobile may fail, still billed).
    */
   scheduleProject(
     id: string,
@@ -1007,6 +1047,19 @@ export class PoliticalCommsClient {
     body?: unknown,
     options: RequestOptions = {},
   ): Promise<ApiResponse<T>> {
+    const response = await this.send(method, path, query, body, options, 'application/json');
+    return (await response.json()) as ApiResponse<T>;
+  }
+
+  /** Sends a request with retries and returns the successful Response; throws PoliticalCommsError otherwise. */
+  private async send(
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    path: string,
+    query: Record<string, QueryValue> | undefined,
+    body: unknown,
+    options: RequestOptions,
+    accept: string,
+  ): Promise<Response> {
     const url = new URL(this.baseUrl + path);
     if (query) {
       for (const [key, value] of Object.entries(query)) {
@@ -1016,7 +1069,7 @@ export class PoliticalCommsClient {
 
     const headers: Record<string, string> = {
       'X-API-Key': this.apiKey,
-      Accept: 'application/json',
+      Accept: accept,
     };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (method === 'POST' || method === 'PATCH') {
@@ -1046,7 +1099,7 @@ export class PoliticalCommsClient {
       this.captureRateLimit(response);
 
       if (response.ok) {
-        return (await response.json()) as ApiResponse<T>;
+        return response;
       }
 
       const rawBody = await response.text();

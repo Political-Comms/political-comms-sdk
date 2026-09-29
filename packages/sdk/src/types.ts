@@ -348,6 +348,17 @@ export interface ContactListDetail {
   created_at?: string;
   import?: ContactListImportSection;
   analysis?: ContactListAnalysisSection;
+  /** API URLs (send your X-API-Key; they do not expire). */
+  downloads?: ContactListDownloads;
+  [key: string]: unknown;
+}
+
+export type ContactListDownloadType = 'original' | 'analyzed';
+
+export interface ContactListDownloads {
+  original_url?: string;
+  /** Null until `analysis.status` is `complete`. */
+  analyzed_url?: string | null;
   [key: string]: unknown;
 }
 
@@ -393,15 +404,21 @@ export interface ContactListImportResult {
   [key: string]: unknown;
 }
 
-/** 202 Accepted. Poll GET /contact-lists/{id} for results. */
+/**
+ * 202 Accepted (queued or already running), or 200 when nothing was left to
+ * analyze (`analysis.status` `complete`, `cost_cents` 0). Poll
+ * GET /contact-lists/{id} or subscribe to the `contact_list.analyzed` webhook.
+ */
 export interface ContactListAnalysisResult {
   list_id?: string;
   analysis?: {
-    status?: 'processing';
+    status?: 'processing' | 'complete';
     numbers_queued?: number;
     estimated_completion_seconds?: number;
     [key: string]: unknown;
   };
+  /** Charged to the list's organization by this call; 0 when nothing was queued. */
+  cost_cents?: number;
   [key: string]: unknown;
 }
 
@@ -623,8 +640,9 @@ export interface ProjectDetail {
   scheduled_timezone?: string | null;
   /**
    * Why a paused project stopped; null when not paused. Known values:
-   * `brand_daily_cap` (T-Mobile daily cap; resume with `scheduleProject` after
-   * midnight Pacific, or with `daily_cap_bypass`), `quiet_hours` (paused at
+   * `brand_daily_cap` (T-Mobile daily cap; `scheduleProject` resumes it: pass a
+   * morning `scheduled_at` inside the next day's sending hours, or resume now
+   * with `daily_cap_bypass: true`), `quiet_hours` (paused at
    * 10 PM recipients' local time; restart manually the next morning),
    * `carrier_block_rate`, `unregistered_campaign`, `provider_error`,
    * `insufficient_funds_auto_recharge_failed`, `insufficient_funds_ancestor`,

@@ -217,8 +217,33 @@ class PoliticalCommsClient:
         return self._request("POST", "/contact-lists/import", body=body, idempotency_key=idempotency_key)
 
     def analyze_contact_list(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
-        """POST /contact-lists/{id}/analyze"""
+        """POST /contact-lists/{id}/analyze
+
+        Billable per lookup, charged to the list's organization. Returns 202
+        with `cost_cents` and `numbers_queued`, or 200 with `analysis.status`
+        `complete` (cost 0) when nothing is left to analyze; a run already in
+        progress returns 202 with cost 0. An insufficient balance raises a 402
+        `INSUFFICIENT_BALANCE` with nothing queued. The client sends an
+        Idempotency-Key automatically, so a retry is not charged twice. Poll
+        `get_contact_list` until `analysis.status` is `complete`, or subscribe
+        to the `contact_list.analyzed` webhook.
+        """
         return self._request("POST", f"/contact-lists/{id}/analyze", idempotency_key=idempotency_key)
+
+    def download_contact_list(self, id: str, type: str) -> str:
+        """GET /contact-lists/{id}/download?type=original|analyzed
+
+        Returns the CSV text. `original` has the phone number, original row,
+        and custom fields; `analyzed` adds phone type, carrier, mobile flag,
+        opt-out flag, city, and state. Requesting `analyzed` before
+        `analysis.status` is `complete` raises a 409 `ANALYSIS_NOT_COMPLETE`.
+        """
+        return self._send(
+            "GET",
+            f"/contact-lists/{id}/download",
+            query={"type": type},
+            accept="text/csv",
+        ).text
 
     def delete_contact_list(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
         """DELETE /contact-lists/{id}
@@ -539,6 +564,12 @@ class PoliticalCommsClient:
         pausing. It holds only until the next schedule or resume call rewrites
         it, so send it on every such call; this call also resumes a paused
         project. The response echoes the persisted ``daily_cap_bypass``.
+
+        To resume a project paused with ``pause_reason`` ``brand_daily_cap``,
+        schedule it for the next day during sending hours (8 AM to 10 PM
+        recipients' local time) with a morning ``scheduled_at``, or resume now
+        with ``daily_cap_bypass=True`` (over-cap T-Mobile messages may fail and
+        are still billed).
 
         Returns ``409 SENDING_PAUSED`` if sending is paused for the
         organization or platform-wide; the error's
@@ -1194,8 +1225,25 @@ class PoliticalCommsClient:
         body: Optional[JsonDict] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
+        return self._send(
+            method, path, query=query, body=body, idempotency_key=idempotency_key
+        ).json()
+
+    def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        query: Optional[dict[str, Optional[Union[str, int]]]] = None,
+        body: Optional[JsonDict] = None,
+        idempotency_key: Optional[str] = None,
+        accept: Optional[str] = None,
+    ) -> httpx.Response:
+        """Send with retries; return the successful response or raise PoliticalCommsError."""
         params = {k: v for k, v in (query or {}).items() if v is not None}
         headers: dict[str, str] = {"X-API-Key": self._api_key}
+        if accept is not None:
+            headers["Accept"] = accept
         content: Optional[bytes] = None
         if body is not None:
             headers["Content-Type"] = "application/json"
@@ -1220,7 +1268,7 @@ class PoliticalCommsClient:
             self._capture_rate_limit(response)
 
             if response.is_success:
-                return response.json()
+                return response
 
             try:
                 parsed: Any = response.json()

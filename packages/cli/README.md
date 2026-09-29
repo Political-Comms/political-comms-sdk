@@ -33,6 +33,7 @@ projects unschedule <id>         Remove a schedule
 projects copy <id>               Copy a project (drops lists, schedule, stats)
 contact-lists list               List contact lists
 contact-lists get <id>           Show one contact list
+contact-lists download <id>      Print a contact list CSV (--type original|analyzed)
 contact-lists delete <id>        Delete an unused contact list
 conversations list               List conversations with an inbound message
                                   (--project, --since, --include-test)

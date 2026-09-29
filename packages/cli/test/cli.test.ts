@@ -28,6 +28,7 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     copyProject: vi.fn(() => ok({ project_id: 'proj_2', name: 'GOTV_v2', status: 'draft' })),
     listContactLists: vi.fn(() => ok([{ id: 'cl_1', list_name: 'Voters', contact_count: 1200, status: 'ready' }])),
     getContactList: vi.fn(() => ok({ id: 'cl_1', list_name: 'Voters' })),
+    downloadContactList: vi.fn(async () => 'Phone Number,Original Row\n+15555550100,1\n'),
     deleteContactList: vi.fn(() => ok({ list_id: 'cl_1', name: 'Voters', deleted: true })),
     listConversations: vi.fn(() =>
       ok({
@@ -389,6 +390,24 @@ describe('commands', () => {
     expect(code).toBe(0);
     expect(client.deleteContactList).toHaveBeenCalledWith('cl_1');
     expect(out[0]).toBe('Deleted contact list Voters.');
+  });
+
+  it('contact-lists download prints the CSV for the given type', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['contact-lists', 'download', 'cl_1', '--type', 'original'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.downloadContactList).toHaveBeenCalledWith('cl_1', 'original');
+    expect(out.join('\n')).toBe('Phone Number,Original Row\n+15555550100,1');
+  });
+
+  it('contact-lists download exits 2 without a valid --type', async () => {
+    const client = makeClient();
+    const { io, err } = makeIO();
+    const code = await main(['contact-lists', 'download', 'cl_1'], deps(client, io));
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('--type');
+    expect(client.downloadContactList).not.toHaveBeenCalled();
   });
 
   it('media list renders a table', async () => {

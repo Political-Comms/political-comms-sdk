@@ -28,6 +28,9 @@ const SERVER_INSTRUCTIONS =
   'There is no inbound email or inbox surface.';
 
 // JSON Schema fragments reused across tools.
+/** Cap on CSV text returned to the model in one tool result. */
+const DOWNLOAD_MAX_CHARS = 100_000;
+
 const idParam = { type: 'string', description: 'Resource ID' } as const;
 const orgFilter = { type: 'string', description: 'Filter to a specific descendant organization' } as const;
 const brandFilter = { type: 'string', description: 'Filter to a specific brand' } as const;
@@ -115,8 +118,12 @@ const TOOLS: Tool[] = [
       'Nulls mean not known right now, never zero (if `used_today` is null, `will_pause` is false). ' +
       'With `daily_cap_bypass` on, `will_pause` is false and `estimated_send_days` is 1. Results are ' +
       'cached up to 60 seconds; a timed-out estimate returns 503 `CARRIER_ESTIMATE_TIMEOUT` (retry later). ' +
-      'A project paused with `pause_reason` `brand_daily_cap` resumes with `schedule_project` after ' +
-      'midnight Pacific; `quiet_hours` pauses (10 PM recipients local time) need a manual restart the next morning.',
+      'A project paused with `pause_reason` `brand_daily_cap` resumes with `schedule_project` (it accepts ' +
+      'paused projects): schedule it for the next day during sending hours (8 AM to 10 PM recipients local ' +
+      'time) with a morning `scheduled_at`, or resume now with `daily_cap_bypass: true` (over-cap T-Mobile ' +
+      'may fail, still billed). Never resume at midnight. At the cap, known other carriers keep sending and ' +
+      'T-Mobile plus unknown-carrier recipients wait; analyzing the list first means only T-Mobile waits. ' +
+      '`quiet_hours` pauses (10 PM recipients local time) need a manual restart the next morning.',
     inputSchema: {
       type: 'object',
       properties: { id: idParam },
@@ -178,6 +185,22 @@ const TOOLS: Tool[] = [
       additionalProperties: false,
     },
     annotations: { title: 'Get Contact List', readOnlyHint: true },
+  },
+  {
+    name: 'download_contact_list',
+    description:
+      'Download a contact list as CSV text. `type` is `original` (phone number, original row, custom ' +
+      'fields) or `analyzed` (adds phone type, carrier, mobile, opted-out, city, state; a 409 ' +
+      '`ANALYSIS_NOT_COMPLETE` until `get_contact_list` shows `analysis.status` `complete`). Output is ' +
+      `truncated at ${DOWNLOAD_MAX_CHARS.toLocaleString('en-US')} characters with a note; for a full ` +
+      'file use the `downloads` URLs from `get_contact_list` with your API key.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam, type: { type: 'string', enum: ['original', 'analyzed'], description: 'Which file to download.' } },
+      required: ['id', 'type'],
+      additionalProperties: false,
+    },
+    annotations: { title: 'Download Contact List CSV', readOnlyHint: true },
   },
   {
     name: 'get_message_stats',
@@ -889,6 +912,14 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       );
     case 'get_contact_list':
       return textResult(await client.getContactList(s(args, 'id')));
+    case 'download_contact_list': {
+      const csv = await client.downloadContactList(s(args, 'id'), s(args, 'type') as 'original' | 'analyzed');
+      const text =
+        csv.length > DOWNLOAD_MAX_CHARS
+          ? `${csv.slice(0, DOWNLOAD_MAX_CHARS)}\n[truncated: showing the first ${DOWNLOAD_MAX_CHARS} of ${csv.length} characters; fetch the full file from the downloads URL on get_contact_list]`
+          : csv;
+      return { content: [{ type: 'text', text }] };
+    }
     case 'get_message_stats':
       return textResult(
         await client.getMessageStats({
@@ -1063,7 +1094,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.13.0' },
+    { name: 'political-comms', version: '0.14.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

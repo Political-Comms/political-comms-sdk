@@ -17,6 +17,7 @@ export type CliClient = Pick<
   | 'copyProject'
   | 'listContactLists'
   | 'getContactList'
+  | 'downloadContactList'
   | 'deleteContactList'
   | 'listConversations'
   | 'getConversation'
@@ -71,6 +72,7 @@ Commands:
   projects copy <id>               Copy a project (drops lists, schedule, stats)
   contact-lists list               List contact lists
   contact-lists get <id>           Show one contact list
+  contact-lists download <id>      Print a contact list CSV (--type original|analyzed)
   contact-lists delete <id>        Delete an unused contact list
   conversations list               List conversations with an inbound message
                                    (--project, --since, --include-test,
@@ -162,6 +164,7 @@ const PARSE_OPTIONS = {
   'include-test': { type: 'boolean', default: false },
   cursor: { type: 'string' },
   text: { type: 'string' },
+  type: { type: 'string' },
 } as const;
 
 class UsageError extends Error {}
@@ -268,7 +271,7 @@ async function dispatch(client: CliClient, positionals: string[], flags: Flags, 
       return projectsCommand(client, sub, arg, flags, io);
 
     case 'contact-lists': {
-      requireSub(sub, ['list', 'get', 'delete'], 'contact-lists');
+      requireSub(sub, ['list', 'get', 'download', 'delete'], 'contact-lists');
       if (sub === 'list') {
         const result = await client.listContactLists({
           organization_id: flags['organization-id'],
@@ -290,6 +293,16 @@ async function dispatch(client: CliClient, positionals: string[], flags: Flags, 
         const result = await client.deleteContactList(id);
         if (flags.json) return printJson(io, result);
         io.out(`Deleted contact list ${str(result.data?.name) || id}.`);
+        return 0;
+      }
+      if (sub === 'download') {
+        const id = requireArg(arg, 'contact-lists download <id> --type original|analyzed');
+        const type = flags.type;
+        if (type !== 'original' && type !== 'analyzed') {
+          throw new UsageError('contact-lists download requires --type original|analyzed.');
+        }
+        const csv = await client.downloadContactList(id, type);
+        io.out(csv.replace(/\r?\n$/, ''));
         return 0;
       }
       const id = requireArg(arg, 'contact-lists get <id>');

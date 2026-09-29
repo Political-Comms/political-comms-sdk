@@ -68,6 +68,30 @@ describe('auth and headers', () => {
   });
 });
 
+describe('contact list download', () => {
+  it('GETs the download endpoint with the type and returns the CSV text', async () => {
+    const csv = 'Phone Number,Original Row\n+15555550100,1\n';
+    const fetchMock = vi.fn(async () => new Response(csv, { status: 200, headers: { 'Content-Type': 'text/csv' } }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const text = await client.downloadContactList('cl_1', 'original');
+    expect(text).toBe(csv);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/contact-lists/cl_1/download?type=original');
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Accept).toBe('text/csv');
+    expect(headers['Idempotency-Key']).toBeUndefined();
+  });
+
+  it('maps a 409 ANALYSIS_NOT_COMPLETE to PoliticalCommsError', async () => {
+    const fetchMock = vi.fn(async () => errorResponse(409, 'ANALYSIS_NOT_COMPLETE'));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await expect(client.downloadContactList('cl_1', 'analyzed')).rejects.toMatchObject({
+      code: 'ANALYSIS_NOT_COMPLETE',
+      statusCode: 409,
+    });
+  });
+});
+
 describe('idempotency keys', () => {
   it('auto-generates a UUID Idempotency-Key on POST', async () => {
     const fetchMock = vi.fn(async () => okResponse({}));

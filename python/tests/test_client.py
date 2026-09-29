@@ -33,6 +33,31 @@ def make_client(handler, **kwargs):
     )
 
 
+class TestContactListDownload:
+    def test_download_returns_csv_text(self):
+        csv = "Phone Number,Original Row\n+15555550100,1\n"
+        seen = {}
+
+        def handler(request):
+            seen["url"] = str(request.url)
+            seen["accept"] = request.headers.get("Accept")
+            seen["idem"] = request.headers.get("Idempotency-Key")
+            return httpx.Response(200, text=csv, headers={"Content-Type": "text/csv"})
+
+        client = make_client(handler)
+        assert client.download_contact_list("cl_1", "original") == csv
+        assert seen["url"].endswith("/contact-lists/cl_1/download?type=original")
+        assert seen["accept"] == "text/csv"
+        assert seen["idem"] is None
+
+    def test_download_before_analysis_raises(self):
+        client = make_client(lambda request: error_response(409, "ANALYSIS_NOT_COMPLETE"))
+        with pytest.raises(PoliticalCommsError) as exc:
+            client.download_contact_list("cl_1", "analyzed")
+        assert exc.value.code == "ANALYSIS_NOT_COMPLETE"
+        assert exc.value.status_code == 409
+
+
 class TestConstructor:
     def test_missing_key_raises_clear_error(self, monkeypatch):
         monkeypatch.delenv("POLITICAL_COMMS_API_KEY", raising=False)
