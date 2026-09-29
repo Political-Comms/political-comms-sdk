@@ -69,7 +69,7 @@ await client.testProject(projectId, {
 await client.scheduleProject(projectId, {
   scheduled_at: '2026-11-03T09:00:00',
   scheduled_timezone: 'America/New_York',
-  // Optional. Brands T-Mobile meters (Aegis-vetted) pause at their daily
+  // Optional. Brands with a T-Mobile daily limit on file pause at that
   // T-Mobile cap and must be started again each day; set this to run the whole
   // project through instead, accepting that over-limit messages to T-Mobile
   // recipients may fail and are still billed. Defaults to false.

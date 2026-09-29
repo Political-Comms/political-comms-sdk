@@ -154,17 +154,17 @@ export interface Campaign {
 
 /**
  * GET /campaigns/{id}/throughput response. The two carrier lanes are
- * independent. `t_mobile` is null whenever no T-Mobile daily cap has synced
- * for the campaign; `att` is null unless the brand is Aegis-vetted
- * (non-political) and an AT&T tier is known. A null inside means not known
- * right now, never zero.
+ * independent. `t_mobile` is null whenever the brand has no T-Mobile daily
+ * limit on file (political brands have none today); `att` is null only when
+ * the campaign has no AT&T rate on file. A null inside means not known right
+ * now, never zero.
  */
 export interface CampaignThroughput {
   campaign_id: string;
   brand_id: string;
-  /** True if either lane applies. False (both lanes null) for political (Campaign Verify) brands. */
+  /** True if either lane applies. False (both lanes null) when the campaign has neither. */
   carrier_metered: boolean;
-  /** Null until a T-Mobile daily cap has synced; when present `daily_cap` is always an integer. */
+  /** Null when the brand has no T-Mobile daily limit on file; when present `daily_cap` is always an integer. */
   t_mobile: {
     daily_cap: number;
     /** Null when today's usage is temporarily unavailable. */
@@ -174,9 +174,11 @@ export interface CampaignThroughput {
     /** The current Pacific day (YYYY-MM-DD); the cap resets at midnight Pacific. */
     pacific_day: string;
   } | null;
-  /** Null unless the brand is Aegis-vetted and an AT&T tier is known; `sms_tpm` and `mms_tpm` can each be null. */
+  /** Null only when the campaign has no AT&T rate on file; `sms_tpm` and `mms_tpm` can each be null. AT&T counts message parts: a two-part text counts twice. */
   att: {
+    /** SMS message parts per minute. */
     sms_tpm: number | null;
+    /** MMS messages per minute (a picture message counts once). */
     mms_tpm: number | null;
   } | null;
 }
@@ -834,7 +836,8 @@ export interface ProjectStats {
 /**
  * GET /projects/{id}/throughput response: how carrier limits will affect the
  * project. `recipients` and `carrier_coverage` are present only when
- * `carrier_metered` is true. When coverage is low the per-carrier estimates
+ * `carrier_metered` is true. A political brand with an AT&T rate on file
+ * returns `carrier_metered: true`, `t_mobile: null` and a populated `att`. When coverage is low the per-carrier estimates
  * use the platform-wide carrier split. With `daily_cap_bypass` on,
  * `will_pause` is false and `estimated_send_days` is 1. Results are cached up
  * to 60 seconds. A timed-out estimate throws a 503 `CARRIER_ESTIMATE_TIMEOUT`
@@ -856,8 +859,10 @@ export interface ProjectThroughput {
     estimated_send_days: number;
   } | null;
   att: {
+    /** The campaign's AT&T limit in message parts per minute for this project's protocol. */
     tpm: number;
     estimated_recipients: number;
+    /** Accounts for the number of parts in the project's text. */
     estimated_minutes: number;
   } | null;
   recipients?: number;
@@ -987,8 +992,8 @@ export interface ScheduleProjectRequest {
    * Run the whole project past the brand's T-Mobile daily cap instead of
    * pausing at it.
    *
-   * Only meaningful for brands T-Mobile meters (Aegis-vetted, non-political):
-   * those carry a per-brand daily cap, and a project otherwise pauses at it
+   * Only meaningful for brands that have a T-Mobile daily limit on file
+   * (political brands have none today): those carry a per-brand daily cap, and a project otherwise pauses at it
    * each Pacific day and must be started again to continue. Ignored for
    * brands with no cap.
    *

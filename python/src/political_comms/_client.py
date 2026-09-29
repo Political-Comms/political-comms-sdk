@@ -118,12 +118,13 @@ class PoliticalCommsClient:
 
         The brand's T-Mobile daily cap (``t_mobile``: ``daily_cap``,
         ``used_today``, ``remaining_today``, ``pacific_day``) and AT&T
-        per-minute rates (``att``: ``sms_tpm``, ``mms_tpm``). The lanes are
-        independent: ``t_mobile`` is None until a daily cap has synced (so
-        ``daily_cap`` is always an integer when present), and ``att`` is None
-        unless the brand is Aegis-vetted and a tier is known.
-        ``carrier_metered`` is True if either applies; political brands return
-        False with both None. ``used_today`` / ``remaining_today`` are None
+        per-minute rates (``att``: ``sms_tpm``, ``mms_tpm``), counted in
+        message parts: a two-part text counts twice. The lanes are
+        independent: ``t_mobile`` is None when the brand has no T-Mobile daily
+        limit on file (so ``daily_cap`` is always an integer when present), and
+        ``att`` is None only when the campaign has no AT&T rate on file.
+        ``carrier_metered`` is True if either applies; False with both None
+        when neither does. ``used_today`` / ``remaining_today`` are None
         when usage is temporarily unavailable (never zero).
         """
         return self._request("GET", f"/campaigns/{id}/throughput")
@@ -504,9 +505,11 @@ class PoliticalCommsClient:
 
         Pre-flight estimate of carrier limits for the project:
         ``t_mobile.will_pause`` and ``estimated_send_days``,
-        ``att.estimated_minutes``, ``recipients`` and ``carrier_coverage``
+        ``att.estimated_minutes`` (which accounts for the number of parts in the
+        project's text; ``att.tpm`` is in message parts per minute), ``recipients`` and ``carrier_coverage``
         (0 to 1; low coverage means the estimates use the platform-wide carrier
-        split). Political brands return ``carrier_metered: False``. With
+        split). A political brand with an AT&T rate on file returns
+        ``carrier_metered: True``, ``t_mobile: None`` and a populated ``att``. With
         ``daily_cap_bypass`` on, ``will_pause`` is False and
         ``estimated_send_days`` is 1. ``used_today`` / ``remaining_today`` are
         None (not 0) when usage is temporarily unavailable, and ``will_pause``
@@ -561,9 +564,9 @@ class PoliticalCommsClient:
         Any other value is rejected with a 400.
 
         ``daily_cap_bypass`` runs the whole project past the brand's T-Mobile
-        daily cap instead of pausing at it. It only applies to brands T-Mobile
-        meters (Aegis-vetted, non-political), which otherwise pause each
-        Pacific day at their cap and must be started again to continue.
+        daily cap instead of pausing at it. It only applies to brands that have a
+        T-Mobile daily limit on file (political brands have none today), which
+        otherwise pause each Pacific day at their cap and must be started again to continue.
         Setting it accepts that messages to T-Mobile recipients over the limit
         may fail and are still billed: carrier is not reliably known before
         sending, so the platform cannot skip only those recipients. Defaults to

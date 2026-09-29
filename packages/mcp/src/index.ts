@@ -114,7 +114,7 @@ const TOOLS: Tool[] = [
     description:
       'Estimate how carrier limits will affect one project before or during a send: recipients on ' +
       'T-Mobile and AT&T, whether it will pause at the brand T-Mobile daily cap (`will_pause`, ' +
-      '`estimated_send_days`), and AT&T minutes. Political brands return `carrier_metered: false`. ' +
+      '`estimated_send_days`), and AT&T minutes (`att.tpm` is in message parts per minute; the estimate accounts for the parts in the project text). A political brand with an AT&T rate returns `carrier_metered: true` with `t_mobile` null. ' +
       'Nulls mean not known right now, never zero (if `used_today` is null, `will_pause` is false). ' +
       'With `daily_cap_bypass` on, `will_pause` is false and `estimated_send_days` is 1. Results are ' +
       'cached up to 60 seconds; a timed-out estimate returns 503 `CARRIER_ESTIMATE_TIMEOUT` (retry later). ' +
@@ -136,10 +136,10 @@ const TOOLS: Tool[] = [
     name: 'get_campaign_throughput',
     description:
       'Get a 10DLC campaign brand carrier limits: the T-Mobile daily cap, how much is used today ' +
-      '(Pacific day), and the AT&T per-minute SMS and MMS rates. The lanes are independent: `t_mobile` ' +
-      'is null until a daily cap has synced, `att` is null unless the brand is Aegis-vetted with a known ' +
-      'tier, and `carrier_metered` is true if either applies. Political brands return ' +
-      '`carrier_metered: false` with both null. Nulls inside mean not known right now, never zero.',
+      '(Pacific day), and the AT&T per-minute SMS and MMS rates (SMS counted in message parts, so a two-part text counts twice). The lanes are independent: `t_mobile` ' +
+      'is null when the brand has no T-Mobile daily limit on file, `att` is null only when the campaign has no ' +
+      'AT&T rate on file, and `carrier_metered` is true if either applies (political brands with an AT&T rate ' +
+      'return true with `t_mobile` null). Both null means neither applies. Nulls inside mean not known right now, never zero.',
     inputSchema: {
       type: 'object',
       properties: { id: idParam },
@@ -395,7 +395,7 @@ const TOOLS: Tool[] = [
           type: 'boolean',
           description:
             'Optional. Run the whole project past the brand daily carrier limit instead of ' +
-            'pausing at it. Only applies to brands T-Mobile meters (Aegis-vetted, non-political), ' +
+            'pausing at it. Only applies to brands that have a T-Mobile daily limit on file (political brands have none today), ' +
             'which otherwise pause each Pacific day at their T-Mobile cap and must be started ' +
             'again to continue. Setting this accepts that messages to T-Mobile recipients over ' +
             'the limit may fail and are still billed. Defaults to false.',
