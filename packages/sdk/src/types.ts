@@ -174,7 +174,7 @@ export interface CampaignThroughput {
     /** The current Pacific day (YYYY-MM-DD); the cap resets at midnight Pacific. */
     pacific_day: string;
   } | null;
-  /** Null only when the campaign has no AT&T rate on file; `sms_tpm` and `mms_tpm` can each be null. AT&T counts message parts: a two-part text counts twice. */
+  /** Null only when the campaign has no AT&T rate on file; `sms_tpm` and `mms_tpm` can each be null. AT&T counts message parts: a two-part text counts twice. AT&T traffic is sent right away and delivered at this rate, usually within about an hour; only in the last 90 minutes of the recipients' sending window are AT&T recipients that could not be delivered before the window closes held back. */
   att: {
     /** SMS message parts per minute. */
     sms_tpm: number | null;
@@ -393,6 +393,7 @@ export interface ImportContactListRequest {
   list_name: string;
   /** Name of the CSV column that holds the phone number. */
   phone_column: string;
+  /** Omit it (or map nothing) and every non-phone column gets a merge tag automatically; supply it and it is used exactly as sent, with unlisted columns getting no tag. */
   merge_tags?: MergeTagMapping;
 }
 
@@ -644,8 +645,10 @@ export interface ProjectDetail {
    * Why a paused project stopped; null when not paused. Known values:
    * `brand_daily_cap` (T-Mobile daily cap; `scheduleProject` resumes it: pass a
    * morning `scheduled_at` inside the next day's sending hours, or resume now
-   * with `daily_cap_bypass: true`), `quiet_hours` (paused at
-   * 10 PM recipients' local time; restart manually the next morning),
+   * with `daily_cap_bypass: true`), `quiet_hours` (paused when
+   * the sending window closes: 10 PM in the time zone of most recipients, or
+   * 10 PM Pacific when no zone holds a majority; restart manually once the
+   * window opens),
    * `carrier_block_rate`, `unregistered_campaign`, `provider_error`,
    * `insufficient_funds_auto_recharge_failed`, `insufficient_funds_ancestor`,
    * `shared_phone_revoked`, `phone_released`, `organization_deleted`, and
@@ -862,7 +865,7 @@ export interface ProjectThroughput {
     /** The campaign's AT&T limit in message parts per minute for this project's protocol. */
     tpm: number;
     estimated_recipients: number;
-    /** Accounts for the number of parts in the project's text. */
+    /** Minutes AT&T needs at `tpm` to deliver what the campaign already has waiting plus this project's AT&T recipients, accounting for the number of parts in the project's text. In practice AT&T recipients usually receive the message within about an hour of sending. */
     estimated_minutes: number;
   } | null;
   recipients?: number;
@@ -1414,10 +1417,9 @@ export interface EmailList {
   status: 'processing' | 'ready' | 'failed' | 'archived';
   /** null = organization-wide; set = only campaigns on that sending domain may use the list. */
   email_domain_id?: string | null;
-  /** Provenance for a list you did not collect yourself. Acquired lists must be validated before the first send. */
+  /** Provenance for a list you did not collect yourself. Acquired lists warm up more slowly; there is no validation requirement. */
   acquired?: string | null;
   sunset_enabled?: boolean;
-  validated_at?: string | null;
   counts?: EmailListCounts;
   last_send_at?: string | null;
   created_at?: string;
@@ -1454,7 +1456,6 @@ export interface EmailListContact {
   fields?: Record<string, unknown>;
   consent_source?: string | null;
   consent_at?: string | null;
-  validation_state?: string | null;
   added_at?: string;
   last_engaged_at?: string | null;
   [key: string]: unknown;
@@ -1570,13 +1571,6 @@ export interface EmailCampaignCounts {
 
 export type EmailCampaignApprovalStatus = 'not_required' | 'pending' | 'approved' | 'rejected';
 
-/**
- * `max_reach` (default) sends to every subscribed contact. `max_deliverability`
- * sends only to contacts whose current validation verdict is deliverable;
- * never-validated contacts are skipped.
- */
-export type EmailCampaignRecipientPolicy = 'max_reach' | 'max_deliverability';
-
 export interface EmailCampaign {
   id: string;
   name: string;
@@ -1602,13 +1596,6 @@ export interface EmailCampaign {
   /** Returned by the single-campaign read: why this campaign will not schedule yet. */
   blocked?: Array<{ code: string; message: string }>;
   require_approval?: boolean;
-  /**
-   * Which subscribed contacts on the campaign's lists actually receive it.
-   * `max_reach` (default) sends to every subscribed contact.
-   * `max_deliverability` sends only to contacts whose current validation
-   * verdict is deliverable; never-validated contacts are skipped.
-   */
-  recipient_policy?: EmailCampaignRecipientPolicy;
   approval_status?: EmailCampaignApprovalStatus;
   /** ISO 8601 date-time of the last accepted test send, or null. */
   last_tested_at?: string | null;
@@ -1647,13 +1634,6 @@ export interface CreateEmailCampaignRequest {
    */
   tracking_domain_id?: string | null;
   require_approval?: boolean;
-  /**
-   * Which subscribed contacts on the campaign's lists actually receive it.
-   * `max_reach` (default) sends to every subscribed contact.
-   * `max_deliverability` sends only to contacts whose current validation
-   * verdict is deliverable; never-validated contacts are skipped.
-   */
-  recipient_policy?: EmailCampaignRecipientPolicy;
 }
 
 export interface TestEmailCampaignResult {
@@ -1782,6 +1762,12 @@ export type EmailListImportConsentSource =
   | 'rented'
   | 'other';
 
+export interface EmailListImportSummary {
+  /** Addresses imported but currently held back by send-time screening. */
+  screened?: number;
+  [key: string]: unknown;
+}
+
 export interface EmailListImport {
   id: string;
   status: string;
@@ -1794,7 +1780,7 @@ export interface EmailListImport {
   mapping: Record<string, string>;
   /** The ESP export format the recognizer matched, or null. */
   recognized_provider: string | null;
-  summary: Record<string, unknown> | null;
+  summary: EmailListImportSummary | null;
   error_message: string | null;
   created_at?: string;
   started_at: string | null;
@@ -1813,7 +1799,7 @@ export interface StartEmailListImportRequest {
   name?: string;
   /** Scope the new list to one sending domain. Omit for organization-wide. */
   email_domain_id?: string;
-  /** The addresses were purchased or rented; the list must pass validation before a send. */
+  /** The addresses were purchased or rented; the list warms up more slowly (no validation requirement). */
   acquired?: boolean;
   consent: {
     source: EmailListImportConsentSource;
@@ -1827,8 +1813,4 @@ export interface StartEmailListImportRequest {
    * guessing.
    */
   mapping?: Record<string, string>;
-  options?: {
-    /** Accept role addresses (info@, sales@) instead of rejecting them. */
-    allow_role?: boolean;
-  };
 }

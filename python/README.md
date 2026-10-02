@@ -101,7 +101,7 @@ for conversation in page["data"]:
 
 The `/v1/email` surface is wrapped in full: sending domains, sender identities,
 lists and contacts, list imports, suppressions, templates, and campaigns.
-Paid and human-driven workflows (AI drafting, list validation, result exports)
+Paid and human-driven workflows (AI drafting, result exports)
 and deliverability triage (pausing a live send) run in the dashboard.
 **Write methods need the email entitlement on the organization and return
 `403 ENTITLEMENT_REQUIRED` without it. Reads are open.**

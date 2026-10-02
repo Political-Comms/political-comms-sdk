@@ -204,7 +204,14 @@ class PoliticalCommsClient:
         merge_tags: Optional[JsonDict] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
-        """POST /contact-lists/import"""
+        """POST /contact-lists/import
+
+        When `merge_tags` is omitted or maps nothing, every non-phone column
+        gets a merge tag automatically: a header that matches a standard field
+        gets the standard tag, and any other column gets a tag named after its
+        header in lowercase with underscores. When `merge_tags` is supplied it
+        is used exactly as sent, and unlisted columns get no tag.
+        """
         body = _compact(
             {
                 "source_url": source_url,
@@ -505,8 +512,9 @@ class PoliticalCommsClient:
 
         Pre-flight estimate of carrier limits for the project:
         ``t_mobile.will_pause`` and ``estimated_send_days``,
-        ``att.estimated_minutes`` (which accounts for the number of parts in the
-        project's text; ``att.tpm`` is in message parts per minute), ``recipients`` and ``carrier_coverage``
+        ``att.estimated_minutes`` (the minutes AT&T needs for what the campaign
+        already has waiting plus this project's AT&T recipients, accounting for
+        the number of parts in the project's text; ``att.tpm`` is in message parts per minute), ``recipients`` and ``carrier_coverage``
         (0 to 1; low coverage means the estimates use the platform-wide carrier
         split). A political brand with an AT&T rate on file returns
         ``carrier_metered: True``, ``t_mobile: None`` and a populated ``att``. With
@@ -578,8 +586,9 @@ class PoliticalCommsClient:
         project is being analyzed; wait for ``analysis.status`` ``complete``.
 
         To resume a project paused with ``pause_reason`` ``brand_daily_cap``,
-        schedule it for the next day during sending hours (8 AM to 10 PM
-        recipients' local time) with a morning ``scheduled_at``, or resume now
+        schedule it for the next day during sending hours (the project's window:
+        8 AM to 10 PM in the time zone of most recipients, or 8 AM Eastern to
+        10 PM Pacific when no zone holds a majority) with a morning ``scheduled_at``, or resume now
         with ``daily_cap_bypass=True`` (over-cap T-Mobile messages may fail and
         are still billed).
 
@@ -1034,7 +1043,6 @@ class PoliticalCommsClient:
         is_repermission: Optional[bool] = None,
         tracking_domain_id: Optional[str] = None,
         require_approval: Optional[bool] = None,
-        recipient_policy: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /email/campaigns.
@@ -1050,12 +1058,7 @@ class PoliticalCommsClient:
         and unsubscribe page with your own ``links.`` host. Leave it unset to
         let the platform pick the obvious default.
 
-        ``recipient_policy`` decides which subscribed contacts on the campaign's
-        lists actually receive it: "max_reach" (default) sends to every
-        subscribed contact, and "max_deliverability" sends only to contacts
-        whose current validation verdict is deliverable, skipping contacts that
-        have never been validated. Writable on create and update, and readable
-        on every campaign response.
+        A campaign sends to every subscribed, unsuppressed contact on its lists.
         """
         return self._request(
             "POST",
@@ -1076,7 +1079,6 @@ class PoliticalCommsClient:
                     "is_repermission": is_repermission,
                     "tracking_domain_id": tracking_domain_id,
                     "require_approval": require_approval,
-                    "recipient_policy": recipient_policy,
                 }
             ),
             idempotency_key=idempotency_key,
@@ -1190,7 +1192,6 @@ class PoliticalCommsClient:
         email_domain_id: Optional[str] = None,
         acquired: Optional[bool] = None,
         mapping: Optional[dict[str, str]] = None,
-        options: Optional[JsonDict] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /email/lists/import.
@@ -1204,7 +1205,10 @@ class PoliticalCommsClient:
         Omit mapping to let the server recognize a common ESP export; when neither
         your mapping nor the recognizer finds an email column the call is a 400
         VALIDATION_ERROR whose details["headers"] lists the headers that were read,
-        so retry with a mapping instead of guessing. Returns 202; the import's
+        so retry with a mapping instead of guessing. Role addresses (info@, admin@) are
+        always removed at import; the import's ``summary["screened"]`` counts
+        addresses imported but currently held back by send-time screening.
+        Acquired lists only warm up more slowly. Returns 202; the import's
         progress is shown on the list in the dashboard.
 
         Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
@@ -1222,7 +1226,6 @@ class PoliticalCommsClient:
                     "acquired": acquired,
                     "consent": consent,
                     "mapping": mapping,
-                    "options": options,
                 }
             ),
             idempotency_key=idempotency_key,

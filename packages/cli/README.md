@@ -60,7 +60,7 @@ Email commands are read-only by design.
 The write side of the email API (importing contacts, scheduling campaigns,
 saving templates) is multi-step and belongs in a script against the SDK rather
 than in flag-per-field shell invocations. Paid and human-driven workflows
-(AI drafting, list validation, result exports) run in the dashboard.
+(AI drafting, result exports) run in the dashboard.
 
 Template HTML is printed only with `--json`. Without it the commands report the
 body size, so a multi-megabyte email never floods the terminal.

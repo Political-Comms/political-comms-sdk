@@ -20,7 +20,7 @@ const SERVER_INSTRUCTIONS =
   'schedule compliant political SMS and MMS sends. An API key is required via the ' +
   'POLITICAL_COMMS_API_KEY environment variable (created in the dashboard under Admin > API). ' +
   'The write tools create_project, test_project, schedule_project, reply_to_conversation, ' +
-  'schedule_email_campaign, resume_email_campaign, create_email_template_draft, and ' +
+  'schedule_email_campaign, create_email_template_draft, and ' +
   'start_email_list_import send real messages, spend money, or write contacts, and require ' +
   'confirm: true. Rate limit per key: 600 requests/minute, bursts up to 600, refilling 10 per second. ' +
   'The email write tools need the email entitlement on the organization and return ' +
@@ -114,16 +114,16 @@ const TOOLS: Tool[] = [
     description:
       'Estimate how carrier limits will affect one project before or during a send: recipients on ' +
       'T-Mobile and AT&T, whether it will pause at the brand T-Mobile daily cap (`will_pause`, ' +
-      '`estimated_send_days`), and AT&T minutes (`att.tpm` is in message parts per minute; the estimate accounts for the parts in the project text). A political brand with an AT&T rate returns `carrier_metered: true` with `t_mobile` null. ' +
+      '`estimated_send_days`), and AT&T minutes (`att.tpm` is in message parts per minute; the estimate is the minutes AT&T needs for what the campaign already has waiting plus the AT&T recipients in this project, accounting for the parts in the project text). A political brand with an AT&T rate returns `carrier_metered: true` with `t_mobile` null. ' +
       'Nulls mean not known right now, never zero (if `used_today` is null, `will_pause` is false). ' +
       'With `daily_cap_bypass` on, `will_pause` is false and `estimated_send_days` is 1. Results are ' +
       'cached up to 60 seconds; a timed-out estimate returns 503 `CARRIER_ESTIMATE_TIMEOUT` (retry later). ' +
       'A project paused with `pause_reason` `brand_daily_cap` resumes with `schedule_project` (it accepts ' +
-      'paused projects): schedule it for the next day during sending hours (8 AM to 10 PM recipients local ' +
-      'time) with a morning `scheduled_at`, or resume now with `daily_cap_bypass: true` (over-cap T-Mobile ' +
+      'paused projects): schedule it for the next day during sending hours (8 AM to 10 PM in the time zone of most ' +
+      'recipients, or 8 AM Eastern to 10 PM Pacific when no zone holds a majority) with a morning `scheduled_at`, or resume now with `daily_cap_bypass: true` (over-cap T-Mobile ' +
       'may fail, still billed). Never resume at midnight. At the cap, known other carriers keep sending and ' +
       'T-Mobile plus unknown-carrier recipients wait; analyzing the list first means only T-Mobile waits. ' +
-      '`quiet_hours` pauses (10 PM recipients local time) need a manual restart the next morning.',
+      '`quiet_hours` pauses (at the window close: 10 PM in the time zone of most recipients, or 10 PM Pacific when no zone holds a majority) need a manual restart once the window opens.',
     inputSchema: {
       type: 'object',
       properties: { id: idParam },
@@ -784,10 +784,6 @@ const TOOLS: Tool[] = [
           description: 'CSV header to contact field. Omit to use the server recognizer.',
           additionalProperties: { type: 'string' },
         },
-        allow_role: {
-          type: 'boolean',
-          description: 'Accept role addresses (info@, sales@) instead of rejecting them.',
-        },
       },
       required: ['confirm', 'source_url', 'consent_source'],
       additionalProperties: false,
@@ -808,7 +804,6 @@ const CONFIRM_REQUIRED = new Set([
   // Sends a real SMS and spends money.
   'reply_to_conversation',
   'schedule_email_campaign',
-  'resume_email_campaign',
   // Spends $3.00 per finished draft.
   'create_email_template_draft',
   // Writes contacts into a list, changing who a campaign reaches.
@@ -1085,9 +1080,6 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
             ...(args.consent_note === undefined ? {} : { note: s(args, 'consent_note') }),
           },
           mapping: args.mapping as Record<string, string> | undefined,
-          ...(args.allow_role === undefined
-            ? {}
-            : { options: { allow_role: args.allow_role as boolean } }),
         }),
       );
 
@@ -1098,7 +1090,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.14.0' },
+    { name: 'political-comms', version: '0.15.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

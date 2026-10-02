@@ -733,39 +733,6 @@ class TestEmailTemplates:
         assert len(result["data"]["lint"]["errors"]) == 1
 
 
-class TestEmailCampaigns:
-    def test_recipient_policy_is_passed_through_on_create(self):
-        seen = {}
-
-        def handler(request):
-            seen["body"] = json.loads(request.content)
-            return httpx.Response(
-                201,
-                json={"success": True, "data": {"id": "camp_1", "recipient_policy": "max_deliverability"}},
-            )
-
-        with make_client(handler) as client:
-            result = client.create_email_campaign(
-                "August appeal",
-                "sender_1",
-                ["list_1"],
-                recipient_policy="max_deliverability",
-            )
-        assert seen["body"]["recipient_policy"] == "max_deliverability"
-        assert result["data"]["recipient_policy"] == "max_deliverability"
-
-    def test_recipient_policy_is_omitted_when_not_set(self):
-        seen = {}
-
-        def handler(request):
-            seen["body"] = json.loads(request.content)
-            return httpx.Response(201, json={"success": True, "data": {"id": "camp_1"}})
-
-        with make_client(handler) as client:
-            client.create_email_campaign("August appeal", "sender_1", ["list_1"])
-        assert "recipient_policy" not in seen["body"]
-
-
 class TestMediaUsage:
     def test_email_asset_usage_is_sent_without_a_brand(self):
         seen = {}

@@ -520,7 +520,7 @@ export class PoliticalCommsClient {
    * paused for the organization or platform-wide; `error.body.details.scope`
    * is `'organization' | 'platform'`. Also resumes a `paused` project: for a
    * `brand_daily_cap` pause, pass a morning `scheduled_at` inside the next
-   * day's sending hours (8 AM to 10 PM recipients' local time), or resume now
+   * day's sending hours (the project's window: 8 AM to 10 PM in the time zone of most recipients, or 8 AM Eastern to 10 PM Pacific when no zone holds a majority), or resume now
    * with `daily_cap_bypass: true` (over-cap T-Mobile may fail, still billed).
    * Throws a 409 `LIST_ANALYSIS_IN_PROGRESS` while a contact list on the
    * project is being analyzed; wait for `analysis.status` `complete`.

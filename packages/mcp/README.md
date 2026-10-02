@@ -57,7 +57,6 @@ Read only:
 | `get_email_domain` | One sending domain, including the DNS records to publish. |
 | `list_email_senders` | Email sender identities (From addresses). |
 | `list_email_lists` | Email lists with contact counts and status. |
-| `get_email_list_validation` | Status of the latest paid validation run for a list. |
 | `list_email_suppressions` | Suppressed addresses at org, identity, or list scope. |
 | `list_email_campaigns` | Email campaigns with status and audience counts. |
 | `get_email_campaign` | One campaign, including `blocked`: why it will not schedule. |
@@ -85,7 +84,7 @@ The server deliberately exposes no delete operations.
 
 Email write tools need the email entitlement on the organization and return
 `403 ENTITLEMENT_REQUIRED` without it; reads are open. Paid and human-driven email workflows (AI
-drafting, list validation, result exports) and deliverability triage (pausing
+drafting, result exports) and deliverability triage (pausing
 and resuming a live send) are dashboard features rather than tools: they cost
 money or need a human watching a send. There is no inbound email or inbox
 surface.
