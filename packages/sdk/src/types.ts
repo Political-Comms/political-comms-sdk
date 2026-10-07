@@ -336,6 +336,15 @@ export interface ContactListAnalysisSection {
   [key: string]: unknown;
 }
 
+export interface ContactListMergeTag {
+  /** The merge tag name; use it in message content as `{tag}`. */
+  tag?: string;
+  /** The CSV column the tag reads. */
+  column?: string;
+  /** True for a standard field such as first_name; false for a custom tag. */
+  standard?: boolean;
+}
+
 /**
  * Single-list read. Note the different field names from the list endpoint:
  * list_id (not id) and organization_id (not org_id).
@@ -348,6 +357,8 @@ export interface ContactListDetail {
   /** True when the list was created through POST /contact-lists/import. */
   imported_via_api?: boolean;
   created_at?: string;
+  /** The merge tags this list offers, one per mapped column; after an import without `merge_tags`, the tags assigned automatically. */
+  available_merge_tags?: ContactListMergeTag[];
   import?: ContactListImportSection;
   analysis?: ContactListAnalysisSection;
   /** API URLs (send your X-API-Key; they do not expire). */
@@ -1024,6 +1035,26 @@ export interface UnscheduleProjectResult {
   project_id?: string;
   status?: string;
   unscheduled_at?: string;
+  [key: string]: unknown;
+}
+
+export interface PauseProjectRequest {
+  /** Optional short reason (1-100 chars), returned as `pause_reason` on GET /projects/{id}. Defaults to `manual`. */
+  reason?: string;
+  [key: string]: unknown;
+}
+
+export interface PauseProjectResult {
+  project_id?: string;
+  /** Always `paused` on success. */
+  status?: string;
+  /** `manual`, the reason you sent, or the existing reason when the project was already paused. */
+  pause_reason?: string | null;
+  /** True only when the platform paused the project before this call. */
+  auto_paused?: boolean;
+  /** Kept from a paused `scheduled` project; null otherwise. */
+  scheduled_at?: string | null;
+  paused_at?: string;
   [key: string]: unknown;
 }
 

@@ -23,6 +23,7 @@ const EXPECTED_TOOLS = [
   'test_project',
   'schedule_project',
   'unschedule_project',
+  'pause_project',
   'copy_project',
   'list_conversations',
   'get_conversation',

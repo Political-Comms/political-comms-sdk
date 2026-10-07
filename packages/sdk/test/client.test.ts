@@ -400,6 +400,25 @@ describe('endpoint serialization', () => {
     expect((init.headers as Record<string, string>)['Idempotency-Key']).toMatch(UUID_RE);
   });
 
+  it('sends POST without a body for pauseProject by default', async () => {
+    const fetchMock = vi.fn(async () => okResponse({}));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.pauseProject('proj_1');
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/projects/proj_1/pause');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toMatch(UUID_RE);
+  });
+
+  it('sends the reason as the body for pauseProject when given', async () => {
+    const fetchMock = vi.fn(async () => okResponse({}));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.pauseProject('proj_1', { reason: 'Holding until the debate ends' });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ reason: 'Holding until the debate ends' });
+  });
+
   it('respects a custom baseUrl', async () => {
     const fetchMock = vi.fn(async () => okResponse([]));
     const client = new PoliticalCommsClient({

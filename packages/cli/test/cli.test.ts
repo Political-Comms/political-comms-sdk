@@ -25,6 +25,7 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     testProject: vi.fn(() => ok({ project_id: 'proj_1', tests_sent: 1 })),
     scheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'scheduled', scheduled_at: '2026-11-03T09:00:00' })),
     unscheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'draft' })),
+    pauseProject: vi.fn(() => ok({ project_id: 'proj_1', status: 'paused', pause_reason: 'manual' })),
     copyProject: vi.fn(() => ok({ project_id: 'proj_2', name: 'GOTV_v2', status: 'draft' })),
     listContactLists: vi.fn(() => ok([{ id: 'cl_1', list_name: 'Voters', contact_count: 1200, status: 'ready' }])),
     getContactList: vi.fn(() => ok({ id: 'cl_1', list_name: 'Voters' })),

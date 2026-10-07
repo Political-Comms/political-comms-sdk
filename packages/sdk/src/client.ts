@@ -60,6 +60,8 @@ import type {
   TollFreeVerificationDetail,
   TrackingDomain,
   UnscheduleProjectResult,
+  PauseProjectRequest,
+  PauseProjectResult,
   UpdateProjectRequest,
   UpdateProjectResult,
   // Email
@@ -543,6 +545,27 @@ export class PoliticalCommsClient {
       `/projects/${encodeURIComponent(id)}/unschedule`,
       undefined,
       undefined,
+      options,
+    );
+  }
+
+  /**
+   * POST /projects/{id}/pause
+   *
+   * Stops an `active`, `sending`, or `scheduled` project. Already paused
+   * returns 200 with the project's current `pause_reason`. Resume with
+   * `scheduleProject`.
+   */
+  pauseProject(
+    id: string,
+    body?: PauseProjectRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<PauseProjectResult>> {
+    return this.request(
+      'POST',
+      `/projects/${encodeURIComponent(id)}/pause`,
+      undefined,
+      body,
       options,
     );
   }

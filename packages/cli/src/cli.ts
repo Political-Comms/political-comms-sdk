@@ -14,6 +14,7 @@ export type CliClient = Pick<
   | 'testProject'
   | 'scheduleProject'
   | 'unscheduleProject'
+  | 'pauseProject'
   | 'copyProject'
   | 'listContactLists'
   | 'getContactList'
@@ -69,6 +70,7 @@ Commands:
   projects schedule <id>           Schedule a send (--send-at, --timezone,
                                    [--daily-cap-bypass])
   projects unschedule <id>         Remove a schedule
+  projects pause <id>              Pause a running or scheduled send ([--reason])
   projects copy <id>               Copy a project (drops lists, schedule, stats)
   contact-lists list               List contact lists
   contact-lists get <id>           Show one contact list
@@ -153,6 +155,7 @@ const PARSE_OPTIONS = {
   'send-at': { type: 'string' },
   timezone: { type: 'string' },
   'daily-cap-bypass': { type: 'boolean', default: false },
+  reason: { type: 'string' },
   from: { type: 'string' },
   to: { type: 'string' },
   scope: { type: 'string' },
@@ -602,7 +605,7 @@ async function projectsCommand(
   flags: Flags,
   io: CliIO,
 ): Promise<number> {
-  requireSub(sub, ['list', 'get', 'throughput', 'create', 'test', 'schedule', 'unschedule', 'copy'], 'projects');
+  requireSub(sub, ['list', 'get', 'throughput', 'create', 'test', 'schedule', 'unschedule', 'pause', 'copy'], 'projects');
 
   switch (sub) {
     case 'list': {
@@ -717,6 +720,18 @@ async function projectsCommand(
       const result = await client.unscheduleProject(id);
       if (flags.json) return printJson(io, result);
       io.out(`Unscheduled project ${id} (status: ${str(result.data?.status)}).`);
+      return 0;
+    }
+
+    case 'pause': {
+      const id = requireArg(arg, 'projects pause <id>');
+      const reason = str(flags.reason);
+      const result = await client.pauseProject(id, reason ? { reason } : undefined);
+      if (flags.json) return printJson(io, result);
+      io.out(
+        `Paused project ${id} (reason: ${str(result.data?.pause_reason) || 'manual'}). ` +
+          'Resume with `projects schedule`.',
+      );
       return 0;
     }
 

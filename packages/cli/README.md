@@ -30,6 +30,7 @@ projects create                  Create a project
 projects test <id>               Send a test message (--phone, repeatable)
 projects schedule <id>           Schedule a send (--send-at, --timezone)
 projects unschedule <id>         Remove a schedule
+projects pause <id>              Pause a running or scheduled send ([--reason])
 projects copy <id>               Copy a project (drops lists, schedule, stats)
 contact-lists list               List contact lists
 contact-lists get <id>           Show one contact list

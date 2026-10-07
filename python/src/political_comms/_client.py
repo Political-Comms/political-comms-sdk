@@ -190,7 +190,11 @@ class PoliticalCommsClient:
         )
 
     def get_contact_list(self, id: str) -> JsonDict:
-        """GET /contact-lists/{id}"""
+        """GET /contact-lists/{id}
+
+        The result includes ``available_merge_tags``: each merge tag the list
+        offers, the column it reads, and whether it is a standard field.
+        """
         return self._request("GET", f"/contact-lists/{id}")
 
     def import_contact_list(
@@ -612,6 +616,26 @@ class PoliticalCommsClient:
     def unschedule_project(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
         """POST /projects/{id}/unschedule"""
         return self._request("POST", f"/projects/{id}/unschedule", idempotency_key=idempotency_key)
+
+    def pause_project(
+        self,
+        id: str,
+        *,
+        reason: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> JsonDict:
+        """POST /projects/{id}/pause
+
+        Stops an ``active``, ``sending``, or ``scheduled`` project. ``reason``
+        (1-100 characters) is returned as ``pause_reason`` on
+        ``get_project``; omitted means ``manual``. An already paused project
+        returns 200 with its current ``pause_reason``. Resume with
+        :meth:`schedule_project`.
+        """
+        body: Optional[JsonDict] = {"reason": reason} if reason is not None else None
+        return self._request(
+            "POST", f"/projects/{id}/pause", body=body, idempotency_key=idempotency_key
+        )
 
     def copy_project(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
         """POST /projects/{id}/copy

@@ -457,6 +457,35 @@ class TestProjectCopy:
         assert result["data"]["name"] == "GOTV_v2"
         assert result["data"]["status"] == "draft"
 
+    def test_pause_project_posts_without_body_by_default(self):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["path"] = request.url.path
+            seen["content"] = request.content
+            seen["idem"] = request.headers.get("Idempotency-Key")
+            return ok_response({"project_id": "proj_1", "status": "paused", "pause_reason": "manual"})
+
+        with make_client(handler) as client:
+            result = client.pause_project("proj_1")
+        assert seen["method"] == "POST"
+        assert seen["path"] == "/v1/projects/proj_1/pause"
+        assert seen["content"] == b""
+        assert UUID_RE.match(seen["idem"])
+        assert result["data"]["status"] == "paused"
+
+    def test_pause_project_sends_reason_when_given(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({"project_id": "proj_1", "status": "paused", "pause_reason": "donor call"})
+
+        with make_client(handler) as client:
+            client.pause_project("proj_1", reason="donor call")
+        assert seen["body"] == {"reason": "donor call"}
+
 
 class TestProjectListAndCreateOptions:
     @pytest.mark.parametrize(

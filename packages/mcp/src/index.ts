@@ -177,7 +177,7 @@ const TOOLS: Tool[] = [
   {
     name: 'get_contact_list',
     description:
-      'Get one contact list by ID, including import progress and list analysis results when available.',
+      'Get one contact list by ID, including its available merge tags, import progress and list analysis results when available.',
     inputSchema: {
       type: 'object',
       properties: { id: idParam },
@@ -424,6 +424,33 @@ const TOOLS: Tool[] = [
     },
     annotations: {
       title: 'Unschedule Project',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+    },
+  },
+  {
+    name: 'pause_project',
+    description:
+      'Pause a project that is active, sending, or scheduled. Messages already handed to the carriers ' +
+      'finish; everything else holds. Safe to call repeatedly: an already paused project returns its ' +
+      'current pause_reason. Resume with schedule_project.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: idParam,
+        reason: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 100,
+          description: 'Optional short reason, returned as pause_reason on get_project. Defaults to manual.',
+        },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Pause Project',
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
@@ -981,6 +1008,10 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       );
     case 'unschedule_project':
       return textResult(await client.unscheduleProject(s(args, 'id')));
+    case 'pause_project': {
+      const reason = opt(args, 'reason');
+      return textResult(await client.pauseProject(s(args, 'id'), reason ? { reason } : undefined));
+    }
     case 'copy_project':
       return textResult(await client.copyProject(s(args, 'project_id')));
 
@@ -1090,7 +1121,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.15.0' },
+    { name: 'political-comms', version: '0.16.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

@@ -72,6 +72,7 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, `sc
 | `test_project` | Send real test messages to explicit phone numbers. |
 | `schedule_project` | Commit a bulk send at a specific date and time. |
 | `unschedule_project` | Remove a project's schedule. |
+| `pause_project` | Pause a running or scheduled send; resume with `schedule_project`. |
 | `copy_project` | Copy a project into a new draft (drops lists, schedule, and stats). |
 | `reply_to_conversation` | Send a real SMS reply inside an existing conversation. Requires `confirm: true`. |
 | `schedule_email_campaign` | Commit an email send. Requires `confirm: true`. |
