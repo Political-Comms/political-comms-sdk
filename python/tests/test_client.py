@@ -556,6 +556,28 @@ class TestProjectListAndCreateOptions:
             client.update_project("proj_1", link_tracking_fallback_url="https://example.com/fb")
         assert seen["body"] == {"link_tracking_fallback_url": "https://example.com/fb"}
 
+    def test_update_project_sends_sending_setup_fields(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({"project_id": "proj_1"})
+
+        with make_client(handler) as client:
+            client.update_project(
+                "proj_1",
+                channel="10dlc",
+                brand_id="b1",
+                campaign_id="c1",
+                phone_number_ids=["pn_1"],
+            )
+        assert seen["body"] == {
+            "channel": "10dlc",
+            "brand_id": "b1",
+            "campaign_id": "c1",
+            "phone_number_ids": ["pn_1"],
+        }
+
     def test_schedule_project_omits_daily_cap_bypass_by_default(self):
         # Absent means pause at the brand's daily T-Mobile carrier limit, which
         # is the safe default; the client must not send the field unasked.

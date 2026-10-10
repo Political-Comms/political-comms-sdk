@@ -118,6 +118,22 @@ describe('idempotency keys', () => {
     expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('my-key-1');
   });
 
+  it('sends the sending-setup fields on PATCH', async () => {
+    const fetchMock = vi.fn(async () => okResponse({}));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.updateProject('proj_1', {
+      channel: 'toll-free',
+      toll_free_verification_id: 'tfv_1',
+      phone_number_ids: ['pn_1'],
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      channel: 'toll-free',
+      toll_free_verification_id: 'tfv_1',
+      phone_number_ids: ['pn_1'],
+    });
+  });
+
   it('replays the same auto-generated key across retries', async () => {
     const fetchMock = vi
       .fn()

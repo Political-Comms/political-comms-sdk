@@ -470,7 +470,12 @@ export class PoliticalCommsClient {
   /**
    * PATCH /projects/{id}. Throws a 409 `LIST_ANALYSIS_IN_PROGRESS` while a
    * contact list on the project is being analyzed; wait for `analysis.status`
-   * `complete`.
+   * `complete`. Editable in `draft`, `awaiting_test`, `ready`, and `paused`;
+   * any edit moves the project to `awaiting_test`. To resume a paused project
+   * after an edit: `updateProject`, then `testProject`, then `scheduleProject`.
+   * Changing the sending setup (`channel`, `brand_id`, `campaign_id`,
+   * `toll_free_verification_id`) requires the full setup plus
+   * `phone_number_ids`; see `UpdateProjectRequest`.
    */
   updateProject(
     id: string,

@@ -561,7 +561,7 @@ export interface DeleteMediaResult {
 // Projects
 // ---------------------------------------------------------------------------
 
-export type ProjectChannel = '10dlc' | 'toll-free';
+export type ProjectChannel = '10dlc' | 'toll-free' | 'short-code';
 export type ProjectProtocol = 'sms' | 'mms';
 export type ProjectType = 'broadcast' | 'survey';
 export type ProjectStatsStatusFilter = 'draft' | 'active' | 'completed' | 'paused' | 'all';
@@ -787,6 +787,28 @@ export interface CreateProjectResult {
 }
 
 export interface UpdateProjectRequest {
+  /**
+   * Editable while the project is draft, awaiting_test, ready, or paused.
+   * Only organization_id and type are immutable.
+   *
+   * Sending any of channel, brand_id, campaign_id, or toll_free_verification_id
+   * requires the full setup for the effective channel (the channel sent, else
+   * the project's current one) plus phone_number_ids: 10dlc needs brand_id and
+   * campaign_id (no toll_free_verification_id); toll-free needs
+   * toll_free_verification_id (no brand_id or campaign_id); short-code takes
+   * none of the three. Send new contact_list_ids, suppression_list_ids, and
+   * media_ids in the same request when the old ones belong to the old brand
+   * or registration (400 ASSET_OUT_OF_SCOPE). A suspended campaign returns
+   * 409 CAMPAIGN_SUSPENDED. Switching to toll-free or short-code clears the
+   * brand and campaign.
+   */
+  channel?: ProjectChannel;
+  /** Required with campaign_id when the effective channel is 10dlc; omit otherwise. */
+  brand_id?: string;
+  /** Required with brand_id when the effective channel is 10dlc; omit otherwise. */
+  campaign_id?: string;
+  /** Required when the effective channel is toll-free; omit otherwise. */
+  toll_free_verification_id?: string;
   name?: string;
   message_text?: string;
   protocol?: ProjectProtocol;

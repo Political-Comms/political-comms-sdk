@@ -456,6 +456,10 @@ class PoliticalCommsClient:
         self,
         id: str,
         *,
+        channel: Optional[str] = None,
+        brand_id: Optional[str] = None,
+        campaign_id: Optional[str] = None,
+        toll_free_verification_id: Optional[str] = None,
         name: Optional[str] = None,
         message_text: Optional[str] = None,
         protocol: Optional[str] = None,
@@ -476,6 +480,20 @@ class PoliticalCommsClient:
         Raises a 409 ``LIST_ANALYSIS_IN_PROGRESS`` while a contact list on the
         project is being analyzed; wait for ``analysis.status`` ``complete``.
 
+        Editable in ``draft``, ``awaiting_test``, ``ready``, and ``paused``;
+        any edit moves the project to ``awaiting_test``. To resume a paused
+        project after an edit: ``update_project``, then ``test_project``, then
+        ``schedule_project``. Only ``organization_id`` and ``type`` are
+        immutable. Sending any of ``channel`` (``10dlc``, ``toll-free``,
+        ``short-code``), ``brand_id``, ``campaign_id``, or
+        ``toll_free_verification_id`` requires the full setup for the
+        effective channel plus ``phone_number_ids``: 10dlc needs ``brand_id``
+        and ``campaign_id``; toll-free needs ``toll_free_verification_id``;
+        short-code takes none. Send new list and media ids in the same request
+        when the old ones belong to the old brand or registration (400
+        ``ASSET_OUT_OF_SCOPE``); a suspended campaign returns 409
+        ``CAMPAIGN_SUSPENDED``.
+
         ``opt_out_footer_enabled`` toggles the automatic "STOP=END" footer.
         ``link_tracking_fallback_url`` is required whenever
         ``link_tracking_destination_url`` is a whole-URL placeholder such as
@@ -483,6 +501,10 @@ class PoliticalCommsClient:
         """
         body = _compact(
             {
+                "channel": channel,
+                "brand_id": brand_id,
+                "campaign_id": campaign_id,
+                "toll_free_verification_id": toll_free_verification_id,
                 "name": name,
                 "message_text": message_text,
                 "protocol": protocol,
