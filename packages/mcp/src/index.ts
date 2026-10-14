@@ -113,7 +113,7 @@ const TOOLS: Tool[] = [
     name: 'get_project_throughput',
     description:
       'Estimate how carrier limits will affect one project before or during a send: recipients on ' +
-      'T-Mobile and AT&T, whether it will pause at the brand T-Mobile daily cap (`will_pause`, ' +
+      'T-Mobile and AT&T, whether it will pause at the brand T-Mobile daily cap (counted in message parts, like AT&T; `will_pause`, ' +
       '`estimated_send_days`), and AT&T minutes (`att.tpm` is in message parts per minute; the estimate is the minutes AT&T needs for what the campaign already has waiting plus the AT&T recipients in this project, accounting for the parts in the project text). A political brand with an AT&T rate returns `carrier_metered: true` with `t_mobile` null. ' +
       'Nulls mean not known right now, never zero (if `used_today` is null, `will_pause` is false). ' +
       'With `daily_cap_bypass` on, `will_pause` is false and `estimated_send_days` is 1. Results are ' +

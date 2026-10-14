@@ -164,10 +164,10 @@ export interface CampaignThroughput {
   brand_id: string;
   /** True if either lane applies. False (both lanes null) when the campaign has neither. */
   carrier_metered: boolean;
-  /** Null when the brand has no T-Mobile daily limit on file; when present `daily_cap` is always an integer. */
+  /** Null when the brand has no T-Mobile daily limit on file; when present `daily_cap` is always an integer. The cap, `used_today` and `remaining_today` are message parts (160-character SMS segments; an MMS is one). */
   t_mobile: {
     daily_cap: number;
-    /** Null when today's usage is temporarily unavailable. */
+    /** Message parts counted against the cap today. Null when today's usage is temporarily unavailable. */
     used_today: number | null;
     /** Null when `used_today` is null. */
     remaining_today: number | null;
@@ -192,7 +192,7 @@ export interface ListCampaignsQuery {
 export interface OwnedTrackingDomain {
   id?: string;
   domain?: string;
-  source: 'own';
+  source: "own";
   /** Always "active"; only active domains are listed. */
   status?: string;
   verified_at?: string | null;
@@ -209,7 +209,7 @@ export interface OwnedTrackingDomain {
 export interface InheritedTrackingDomain {
   id?: string;
   domain?: string;
-  source: 'inherited';
+  source: "inherited";
   [key: string]: unknown;
 }
 
@@ -220,8 +220,9 @@ export interface ListTrackingDomainsQuery {
   organization_id?: string;
 }
 
-export type PhoneNumberChannel = '10dlc' | 'toll-free' | 'short-code' | 'rcs';
-export type PhoneNumberOwnerType = 'campaign' | 'toll_free_registration' | 'short_code' | 'unassigned';
+export type PhoneNumberChannel = "10dlc" | "toll-free" | "short-code" | "rcs";
+export type PhoneNumberOwnerType =
+  "campaign" | "toll_free_registration" | "short_code" | "unassigned";
 
 export interface PhoneNumber {
   id?: string;
@@ -259,7 +260,8 @@ export interface ListPhoneNumbersQuery {
 // Toll-free verifications
 // ---------------------------------------------------------------------------
 
-export type TollFreeVerificationStatus = 'draft' | 'In Progress' | 'Verified' | 'Rejected';
+export type TollFreeVerificationStatus =
+  "draft" | "In Progress" | "Verified" | "Rejected";
 
 export interface TollFreeVerification {
   id?: string;
@@ -304,8 +306,10 @@ export interface ContactList {
   [key: string]: unknown;
 }
 
-export type ContactListImportStatus = 'uploading' | 'processing' | 'ready' | 'failed';
-export type ContactListAnalysisStatus = 'not_started' | 'processing' | 'complete' | 'failed';
+export type ContactListImportStatus =
+  "uploading" | "processing" | "ready" | "failed";
+export type ContactListAnalysisStatus =
+  "not_started" | "processing" | "complete" | "failed";
 
 export interface ContactListImportSection {
   status?: ContactListImportStatus;
@@ -366,7 +370,7 @@ export interface ContactListDetail {
   [key: string]: unknown;
 }
 
-export type ContactListDownloadType = 'original' | 'analyzed';
+export type ContactListDownloadType = "original" | "analyzed";
 
 export interface ContactListDownloads {
   original_url?: string;
@@ -412,7 +416,7 @@ export interface ImportContactListRequest {
 export interface ContactListImportResult {
   list_id?: string;
   name?: string;
-  status?: 'processing';
+  status?: "processing";
   total_rows?: number | null;
   imported_via_api?: boolean;
   [key: string]: unknown;
@@ -426,7 +430,7 @@ export interface ContactListImportResult {
 export interface ContactListAnalysisResult {
   list_id?: string;
   analysis?: {
-    status?: 'processing' | 'complete';
+    status?: "processing" | "complete";
     numbers_queued?: number;
     estimated_completion_seconds?: number;
     [key: string]: unknown;
@@ -481,7 +485,7 @@ export interface MediaFile {
   [key: string]: unknown;
 }
 
-export type MediaStatus = 'optimizing' | 'ready' | 'failed';
+export type MediaStatus = "optimizing" | "ready" | "failed";
 
 /**
  * Single-media read. Note the different field names from the list endpoint:
@@ -523,7 +527,7 @@ export interface ListMediaQuery {
  * 'email_asset'. Sending both is refused at the schema layer with a 400
  * VALIDATION_ERROR rather than the brand being ignored.
  */
-export type MediaUsage = 'mms' | 'email_asset';
+export type MediaUsage = "mms" | "email_asset";
 
 export interface ImportMediaRequest {
   /** HTTPS URL of the media file to import. The server retrieves and stores it. */
@@ -538,7 +542,7 @@ export interface ImportMediaRequest {
 /** 202 Accepted. Poll GET /media/{id} for readiness. */
 export interface MediaImportResult {
   media_id?: string;
-  status?: 'optimizing';
+  status?: "optimizing";
   uploaded_via_api?: boolean;
   file_size_bytes?: number;
   name?: string;
@@ -561,10 +565,11 @@ export interface DeleteMediaResult {
 // Projects
 // ---------------------------------------------------------------------------
 
-export type ProjectChannel = '10dlc' | 'toll-free' | 'short-code';
-export type ProjectProtocol = 'sms' | 'mms';
-export type ProjectType = 'broadcast' | 'survey';
-export type ProjectStatsStatusFilter = 'draft' | 'active' | 'completed' | 'paused' | 'all';
+export type ProjectChannel = "10dlc" | "toll-free" | "short-code";
+export type ProjectProtocol = "sms" | "mms";
+export type ProjectType = "broadcast" | "survey";
+export type ProjectStatsStatusFilter =
+  "draft" | "active" | "completed" | "paused" | "all";
 
 /** List item returned by GET /projects. */
 export interface Project {
@@ -587,7 +592,8 @@ export interface Project {
   [key: string]: unknown;
 }
 
-export type SurveyQuestionType = 'intro' | 'multiple_choice' | 'open_ended' | 'outro';
+export type SurveyQuestionType =
+  "intro" | "multiple_choice" | "open_ended" | "outro";
 
 export interface SurveyQuestionOption {
   value?: number;
@@ -883,6 +889,7 @@ export interface ProjectThroughput {
   project_id: string;
   carrier_metered: boolean;
   t_mobile: {
+    /** Message parts per day; `used_today` and `remaining_today` are parts too. */
     daily_cap: number | null;
     /** Null (not 0) when usage is temporarily unavailable. */
     used_today: number | null;
@@ -947,7 +954,10 @@ export interface AllProjectStats {
     campaignCount?: number;
     statusBreakdown?: Record<string, number>;
     messageStats?: Record<string, number>;
-    dateRange?: { earliestProject?: string | null; latestProject?: string | null };
+    dateRange?: {
+      earliestProject?: string | null;
+      latestProject?: string | null;
+    };
     [key: string]: unknown;
   };
   pagination?: {
@@ -1008,12 +1018,12 @@ export interface TestProjectResult {
 
 /** The six US IANA zones the schedule endpoint accepts; any other value is rejected with a 400. */
 export type ScheduleTimezone =
-  | 'America/New_York'
-  | 'America/Chicago'
-  | 'America/Denver'
-  | 'America/Los_Angeles'
-  | 'America/Anchorage'
-  | 'Pacific/Honolulu';
+  | "America/New_York"
+  | "America/Chicago"
+  | "America/Denver"
+  | "America/Los_Angeles"
+  | "America/Anchorage"
+  | "Pacific/Honolulu";
 
 export interface ScheduleProjectRequest {
   /**
@@ -1114,7 +1124,7 @@ export interface CopyProjectResult {
 // that have at least one inbound message.
 // ---------------------------------------------------------------------------
 
-export type ConversationStatus = 'active' | 'inactive' | 'opted_out';
+export type ConversationStatus = "active" | "inactive" | "opted_out";
 
 export interface ConversationContact {
   phone_number?: string;
@@ -1145,7 +1155,7 @@ export interface Conversation {
   [key: string]: unknown;
 }
 
-export type MessageDirection = 'inbound' | 'outbound';
+export type MessageDirection = "inbound" | "outbound";
 
 /** Item returned by GET /conversations/{id}/messages. */
 export interface ConversationMessage {
@@ -1154,14 +1164,14 @@ export interface ConversationMessage {
   text?: string;
   media_urls?: string[];
   status?:
-    | 'unsent'
-    | 'queued'
-    | 'sending'
-    | 'sent'
-    | 'delivered'
-    | 'failed'
-    | 'received'
-    | 'on_hold';
+    | "unsent"
+    | "queued"
+    | "sending"
+    | "sent"
+    | "delivered"
+    | "failed"
+    | "received"
+    | "on_hold";
   sent_at?: string | null;
   delivered_at?: string | null;
   /** Set only on inbound messages; always null on outbound. */
@@ -1383,7 +1393,7 @@ export interface EmailPageQuery {
 }
 
 export interface EmailDnsRecord {
-  type: 'CNAME' | 'TXT' | 'MX';
+  type: "CNAME" | "TXT" | "MX";
   name: string;
   value: string | null;
   purpose?: string | null;
@@ -1393,7 +1403,7 @@ export interface EmailDnsRecord {
 export interface EmailDomain {
   id: string;
   domain: string;
-  status: 'pending' | 'active' | 'failed';
+  status: "pending" | "active" | "failed";
   dns_records?: EmailDnsRecord[];
   verification?: Record<string, string | null>;
   error_message?: string | null;
@@ -1410,14 +1420,14 @@ export interface ListEmailDomainsQuery extends EmailPageQuery {
 /** Status of this address in Google's Gmail Verified Sender Program, submitted through Campaign Verify. Read-only. */
 export interface GmailVerifiedSender {
   status:
-    | 'not_eligible'
-    | 'eligible'
-    | 'ready_to_submit'
-    | 'submitted'
-    | 'verified'
-    | 'suspended'
-    | 'rejected'
-    | 'expired';
+    | "not_eligible"
+    | "eligible"
+    | "ready_to_submit"
+    | "submitted"
+    | "verified"
+    | "suspended"
+    | "rejected"
+    | "expired";
   submitted_at: string | null;
   /** Set when status is verified, else null. */
   verified_at: string | null;
@@ -1430,7 +1440,7 @@ export interface EmailSenderIdentity {
   from_local_part?: string;
   from_name?: string;
   reply_to?: string | null;
-  status: 'draft' | 'active' | 'paused';
+  status: "draft" | "active" | "paused";
   physical_address?: string | null;
   disclaimer?: string | null;
   disclaimer_required?: boolean;
@@ -1441,15 +1451,16 @@ export interface EmailSenderIdentity {
   [key: string]: unknown;
 }
 
-export type EmailListSourceType = 'uploaded' | 'segmented' | 'winred' | 'anedot';
+export type EmailListSourceType =
+  "uploaded" | "segmented" | "winred" | "anedot";
 
 export type EmailContactStatus =
-  | 'subscribed'
-  | 'unsubscribed'
-  | 'bounced'
-  | 'complained'
-  | 'invalid'
-  | 'sunset';
+  | "subscribed"
+  | "unsubscribed"
+  | "bounced"
+  | "complained"
+  | "invalid"
+  | "sunset";
 
 export interface EmailListCounts {
   total?: number;
@@ -1467,13 +1478,15 @@ export interface EmailList {
   name: string;
   description?: string | null;
   source_type: EmailListSourceType;
-  status: 'processing' | 'ready' | 'failed' | 'archived';
+  status: "processing" | "ready" | "failed" | "archived";
   /** null = organization-wide; set = only campaigns on that sending domain may use the list. */
   email_domain_id?: string | null;
   /** Provenance for a list you did not collect yourself. Acquired lists warm up more slowly; there is no validation requirement. */
   acquired?: string | null;
   sunset_enabled?: boolean;
   counts?: EmailListCounts;
+  /** Addresses removed before joining, by upload reason (yahoo_family, role, typo, ...). */
+  removed_at_upload?: Record<string, number>;
   last_send_at?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -1536,7 +1549,7 @@ export interface BulkUpsertResult {
   results: Array<{
     index: number;
     email: string;
-    status: 'accepted' | 'rejected' | 'duplicate';
+    status: "accepted" | "rejected" | "duplicate";
     reason: string | null;
   }>;
   [key: string]: unknown;
@@ -1548,7 +1561,7 @@ export interface RemoveEmailContactsResult {
   [key: string]: unknown;
 }
 
-export type EmailSuppressionScope = 'org' | 'identity' | 'domain';
+export type EmailSuppressionScope = "org" | "identity" | "domain";
 
 export interface EmailSuppression {
   email: string;
@@ -1598,16 +1611,16 @@ export interface RemoveEmailSuppressionsResult {
 }
 
 export type EmailCampaignStatus =
-  | 'draft'
-  | 'awaiting_test'
-  | 'awaiting_approval'
-  | 'ready'
-  | 'scheduled'
-  | 'compiling'
-  | 'sending'
-  | 'paused'
-  | 'completed'
-  | 'deleted';
+  | "draft"
+  | "awaiting_test"
+  | "awaiting_approval"
+  | "ready"
+  | "scheduled"
+  | "compiling"
+  | "sending"
+  | "paused"
+  | "completed"
+  | "deleted";
 
 export interface EmailCampaignCounts {
   queued?: number;
@@ -1622,7 +1635,8 @@ export interface EmailCampaignCounts {
   [key: string]: unknown;
 }
 
-export type EmailCampaignApprovalStatus = 'not_required' | 'pending' | 'approved' | 'rejected';
+export type EmailCampaignApprovalStatus =
+  "not_required" | "pending" | "approved" | "rejected";
 
 export interface EmailCampaign {
   id: string;
@@ -1735,7 +1749,7 @@ export interface EmailTemplateContent {
   preheader: string | null;
   html: string | null;
   text: string | null;
-  editor: 'html' | 'document';
+  editor: "html" | "document";
 }
 
 export interface EmailTemplate {
@@ -1791,7 +1805,8 @@ export interface CreateEmailTemplateRequest {
   description?: string;
 }
 
-export type EmailTemplateDraftStatus = 'queued' | 'running' | 'ready' | 'failed';
+export type EmailTemplateDraftStatus =
+  "queued" | "running" | "ready" | "failed";
 
 /**
  * INSUFFICIENT_BALANCE here means the wallet emptied mid-generation, which
@@ -1800,20 +1815,18 @@ export type EmailTemplateDraftStatus = 'queued' | 'running' | 'ready' | 'failed'
  * is created.
  */
 export type EmailTemplateDraftErrorCode =
-  | 'EMAIL_DRAFT_INVALID'
-  | 'EMAIL_DRAFT_MODEL_ERROR'
-  | 'INSUFFICIENT_BALANCE';
+  "EMAIL_DRAFT_INVALID" | "EMAIL_DRAFT_MODEL_ERROR" | "INSUFFICIENT_BALANCE";
 
 /** Hex triplets (#rrggbb) the generated design should use. */
 /** How the people in the imported file consented to hear from you. */
 export type EmailListImportConsentSource =
-  | 'donation_form'
-  | 'petition'
-  | 'signup_form'
-  | 'event'
-  | 'purchased'
-  | 'rented'
-  | 'other';
+  | "donation_form"
+  | "petition"
+  | "signup_form"
+  | "event"
+  | "purchased"
+  | "rented"
+  | "other";
 
 export interface EmailListImportSummary {
   /** Addresses imported but currently held back by send-time screening. */
