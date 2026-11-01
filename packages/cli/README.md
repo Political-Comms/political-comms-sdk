@@ -40,7 +40,7 @@ conversations list               List conversations with an inbound message
                                   (--project, --since, --include-test)
 conversations get <id>           Show one conversation
 conversations messages <id>      List messages in a conversation
-conversations reply <id>         Send a real reply (--text, required)
+conversations reply <id>         Send a real reply (--text and/or --media-id, one required)
 media list                       List media files
 media get <id>                   Show one media file
 media delete <id>                Delete an unused media file
@@ -90,9 +90,9 @@ npx @political-comms/cli projects test proj_123 --phone +15555550100
 npx @political-comms/cli projects schedule proj_123 \
   --send-at 2026-11-03T09:00:00 --timezone America/New_York
 
-# Same, but run the whole project through the brand's daily T-Mobile carrier
-# limit instead of pausing at it each day (over-limit messages to T-Mobile
-# recipients may fail and are still billed)
+# Same, but skip the reduced rate past the brand's daily T-Mobile carrier limit
+# and send T-Mobile recipients at full speed (a carrier rejection still pauses
+# the project, and rejected messages are still billed)
 npx @political-comms/cli projects schedule proj_123 \
   --send-at 2026-11-03T09:00:00 --timezone America/New_York --daily-cap-bypass
 
@@ -102,8 +102,9 @@ npx @political-comms/cli stats messages --from 2026-06-01 --to 2026-06-30 --json
 # Recover inbound messages missed while a webhook endpoint was down
 npx @political-comms/cli conversations list --since 2026-09-01T00:00:00Z
 
-# Reply to a conversation (sends a real SMS)
+# Reply to a conversation (sends a real SMS, or an MMS with --media-id)
 npx @political-comms/cli conversations reply conv_123 --text "Thanks for reaching out!"
+npx @political-comms/cli conversations reply conv_123 --media-id <media id> --text "Here is the flyer"
 ```
 
 ## Global options

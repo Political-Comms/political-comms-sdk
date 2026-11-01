@@ -69,10 +69,10 @@ await client.testProject(projectId, {
 await client.scheduleProject(projectId, {
   scheduled_at: '2026-11-03T09:00:00',
   scheduled_timezone: 'America/New_York',
-  // Optional. Brands with a T-Mobile daily limit on file pause at that
-  // T-Mobile cap and must be started again each day; set this to run the whole
-  // project through instead, accepting that over-limit messages to T-Mobile
-  // recipients may fail and are still billed. Defaults to false.
+  // Optional. Past a brand's T-Mobile daily limit, T-Mobile recipients send at
+  // a reduced rate; set this to skip the reduced rate and send them at full
+  // speed. A carrier rejection still pauses the project, and rejected messages
+  // are still billed. Defaults to false.
   // daily_cap_bypass: true,
 });
 ```
@@ -92,6 +92,9 @@ the email lists.
 await client.replyToConversation(conversationId, { text: 'Thanks for reaching out!' }, {
   idempotencyKey: 'reply-' + messageId,
 });
+
+// Reply with an image or video from the media library (one flat-rate MMS).
+await client.replyToConversation(conversationId, { text: 'Here is the flyer', media_ids: [mediaId] });
 
 // Recover inbound messages missed while a webhook endpoint was down.
 const { data: page } = await client.listConversations({ updated_since: lastSeenAt });

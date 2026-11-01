@@ -65,9 +65,9 @@ client.test_project(project_id, [{"phone": "+15555550100"}])
 
 # 4. Schedule the send.
 client.schedule_project(project_id, "2026-11-03T09:00:00", "America/New_York")
-# Optional: run the whole project past the brand's daily T-Mobile carrier limit
-# instead of pausing at it each day. Over-limit messages to T-Mobile recipients
-# may fail and are still billed.
+# Optional: skip the reduced rate past the brand's daily T-Mobile carrier limit
+# and send T-Mobile recipients at full speed. A carrier rejection still pauses
+# the project, and rejected messages are still billed.
 # client.schedule_project(
 #     project_id, "2026-11-03T09:00:00", "America/New_York", daily_cap_bypass=True
 # )
@@ -90,6 +90,9 @@ like the email lists.
 client.reply_to_conversation(
     conversation_id, "Thanks for reaching out!", idempotency_key=f"reply-{message_id}"
 )
+
+# Reply with an image or video from the media library (one flat-rate MMS).
+client.reply_to_conversation(conversation_id, "Here is the flyer", media_ids=[media_id])
 
 # Recover inbound messages missed while a webhook endpoint was down.
 page = client.list_conversations(updated_since=last_seen_at)["data"]

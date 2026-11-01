@@ -113,16 +113,15 @@ const TOOLS: Tool[] = [
     name: 'get_project_throughput',
     description:
       'Estimate how carrier limits will affect one project before or during a send: recipients on ' +
-      'T-Mobile and AT&T, whether it will pause at the brand T-Mobile daily cap (counted in message parts, like AT&T; `will_pause`, ' +
-      '`estimated_send_days`), and AT&T minutes (`att.tpm` is in message parts per minute; the estimate is the minutes AT&T needs for what the campaign already has waiting plus the AT&T recipients in this project, accounting for the parts in the project text). A political brand with an AT&T rate returns `carrier_metered: true` with `t_mobile` null. ' +
-      'Nulls mean not known right now, never zero (if `used_today` is null, `will_pause` is false). ' +
-      'With `daily_cap_bypass` on, `will_pause` is false and `estimated_send_days` is 1. Results are ' +
+      'T-Mobile and AT&T, the brand T-Mobile daily cap (counted in message parts, like AT&T; `will_pause` is always false and `estimated_send_days` is always 1, kept for compatibility), and AT&T minutes (`att.tpm` is in message parts per minute; the estimate is the minutes AT&T needs for what the campaign already has waiting plus the AT&T recipients in this project, accounting for the parts in the project text). A political brand with an AT&T rate returns `carrier_metered: true` with `t_mobile` null. ' +
+      'Nulls mean not known right now, never zero. ' +
+      'Past the cap, T-Mobile recipients send at a reduced rate and only a carrier rejection pauses a project. Results are ' +
       'cached up to 60 seconds; a timed-out estimate returns 503 `CARRIER_ESTIMATE_TIMEOUT` (retry later). ' +
       'A project paused with `pause_reason` `brand_daily_cap` resumes with `schedule_project` (it accepts ' +
       'paused projects): schedule it for the next day during sending hours (8 AM to 10 PM in the time zone of most ' +
-      'recipients, or 8 AM Eastern to 10 PM Pacific when no zone holds a majority) with a morning `scheduled_at`, or resume now with `daily_cap_bypass: true` (over-cap T-Mobile ' +
-      'may fail, still billed). Never resume at midnight. At the cap, known other carriers keep sending and ' +
-      'T-Mobile plus unknown-carrier recipients wait; analyzing the list first means only T-Mobile waits. ' +
+      'recipients, or 8 AM Eastern to 10 PM Pacific when no zone holds a majority) with a morning `scheduled_at`, or call without one to try T-Mobile again at the reduced rate (it pauses ' +
+      'again if T-Mobile is still rejecting; rejected messages are still billed). Never resume at midnight. Past the cap, other carriers are never slowed and ' +
+      'T-Mobile plus unknown-carrier recipients send at a reduced rate; analyzing the list first means only T-Mobile is affected. ' +
       '`quiet_hours` pauses (at the window close: 10 PM in the time zone of most recipients, or 10 PM Pacific when no zone holds a majority) need a manual restart once the window opens.',
     inputSchema: {
       type: 'object',
@@ -394,11 +393,10 @@ const TOOLS: Tool[] = [
         daily_cap_bypass: {
           type: 'boolean',
           description:
-            'Optional. Run the whole project past the brand daily carrier limit instead of ' +
-            'pausing at it. Only applies to brands that have a T-Mobile daily limit on file (political brands have none today), ' +
-            'which otherwise pause each Pacific day at their T-Mobile cap and must be started ' +
-            'again to continue. Setting this accepts that messages to T-Mobile recipients over ' +
-            'the limit may fail and are still billed. Defaults to false.',
+            'Optional. Skip the reduced rate past the brand daily carrier limit and send T-Mobile ' +
+            'recipients at full speed. Only applies to brands that have a T-Mobile daily limit on file (political brands have none today), ' +
+            'whose T-Mobile recipients otherwise send at a reduced rate past the cap. ' +
+            'A carrier rejection still pauses the project, and rejected messages are still billed. Defaults to false.',
         },
       },
       required: ['confirm', 'id', 'scheduled_at', 'scheduled_timezone'],
@@ -546,18 +544,27 @@ const TOOLS: Tool[] = [
   {
     name: 'reply_to_conversation',
     description:
-      'Send a real SMS reply inside an existing conversation, from the same sending number, on the ' +
-      'same project. This delivers an actual text message to the contact and incurs cost. Text is ' +
-      '1-1600 characters, SMS only (no media). Final delivery state arrives on the existing ' +
+      'Send a real reply inside an existing conversation, from the same sending number, on the ' +
+      'same project. This delivers an actual message to the contact and incurs cost. Send text ' +
+      '(up to 1600 characters), one media_ids entry from the media library, or both; at least one ' +
+      'of non-blank text or a media id is required. Without media it is an SMS billed per segment; ' +
+      'with media it is one flat-rate MMS. A media id that is not usable returns MEDIA_NOT_USABLE ' +
+      'and nothing is charged. Final delivery state arrives on the existing ' +
       'message.sent / message.delivered / message.failed webhooks.',
     inputSchema: {
       type: 'object',
       properties: {
         confirm: confirmParam,
         id: idParam,
-        text: { type: 'string', minLength: 1, maxLength: 1600, description: 'The reply text to send' },
+        text: { type: 'string', maxLength: 1600, description: 'The reply text to send. Optional when media_ids is given' },
+        media_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          maxItems: 1,
+          description: 'One media library id to send as MMS (see list_media)',
+        },
       },
-      required: ['confirm', 'id', 'text'],
+      required: ['confirm', 'id'],
       additionalProperties: false,
     },
     annotations: {
@@ -1035,7 +1042,12 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
         }),
       );
     case 'reply_to_conversation':
-      return textResult(await client.replyToConversation(s(args, 'id'), { text: s(args, 'text') }));
+      return textResult(
+        await client.replyToConversation(s(args, 'id'), {
+          text: opt(args, 'text'),
+          media_ids: args.media_ids as string[] | undefined,
+        }),
+      );
 
     // Email.
     case 'list_email_domains':
@@ -1121,7 +1133,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.17.0' },
+    { name: 'political-comms', version: '0.18.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

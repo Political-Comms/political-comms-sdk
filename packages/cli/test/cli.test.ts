@@ -498,6 +498,14 @@ describe('commands', () => {
     expect(out[0]).toBe('Sent reply msg_2 in conversation conv_1.');
   });
 
+  it('conversations reply sends a media id with no text', async () => {
+    const client = makeClient();
+    const { io } = makeIO();
+    const code = await main(['conversations', 'reply', 'conv_1', '--media-id', 'media_1'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.replyToConversation).toHaveBeenCalledWith('conv_1', { media_ids: ['media_1'] });
+  });
+
   it('exits 2 when conversations reply is missing --text', async () => {
     const client = makeClient();
     const { io, err } = makeIO();

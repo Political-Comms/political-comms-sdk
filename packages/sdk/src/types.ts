@@ -240,6 +240,7 @@ export interface PhoneNumber {
   org_id?: string;
   org_name?: string;
   status?: string;
+  /** When this organization acquired the number. A number released and purchased again is a new record with a new `id`. */
   created_at?: string;
   /** True when an ancestor organization shared this number with `org_id` under `nickname`. Owner names and `brand_id` are null on shared rows. */
   shared?: boolean;
@@ -660,9 +661,10 @@ export interface ProjectDetail {
   scheduled_timezone?: string | null;
   /**
    * Why a paused project stopped; null when not paused. Known values:
-   * `brand_daily_cap` (T-Mobile daily cap; `scheduleProject` resumes it: pass a
-   * morning `scheduled_at` inside the next day's sending hours, or resume now
-   * with `daily_cap_bypass: true`), `quiet_hours` (paused when
+   * `brand_daily_cap` (T-Mobile rejected messages over the daily cap;
+   * `scheduleProject` resumes it: pass a morning `scheduled_at` inside the next
+   * day's sending hours, or call without one to try T-Mobile again at the
+   * reduced rate), `quiet_hours` (paused when
    * the sending window closes: 10 PM in the time zone of most recipients, or
    * 10 PM Pacific when no zone holds a majority; restart manually once the
    * window opens),
@@ -674,9 +676,9 @@ export interface ProjectDetail {
    * restart via `scheduleProject`.
    */
   pause_reason?: string | null;
-  /** True when the platform paused the project itself, for example at the daily cap. */
+  /** True when the platform paused the project itself, for example after T-Mobile rejected messages over the daily cap. */
   auto_paused?: boolean;
-  /** Whether the project runs through the T-Mobile daily cap; set by the last schedule or resume call. */
+  /** Whether the project skips the reduced rate past the T-Mobile daily cap; set by the last schedule or resume call. */
   daily_cap_bypass?: boolean;
   created_via_api?: boolean;
   created_at?: string;
@@ -880,8 +882,8 @@ export interface ProjectStats {
  * project. `recipients` and `carrier_coverage` are present only when
  * `carrier_metered` is true. A political brand with an AT&T rate on file
  * returns `carrier_metered: true`, `t_mobile: null` and a populated `att`. When coverage is low the per-carrier estimates
- * use the platform-wide carrier split. With `daily_cap_bypass` on,
- * `will_pause` is false and `estimated_send_days` is 1. Results are cached up
+ * use the platform-wide carrier split. `will_pause` is always
+ * false and `estimated_send_days` is always 1 (kept for compatibility). Results are cached up
  * to 60 seconds. A timed-out estimate throws a 503 `CARRIER_ESTIMATE_TIMEOUT`
  * error; retry later.
  */
@@ -896,9 +898,9 @@ export interface ProjectThroughput {
     /** Null when `used_today` is null. */
     remaining_today: number | null;
     estimated_recipients: number;
-    /** True when the project will use up the remaining cap and auto-pause (`pause_reason` `brand_daily_cap`). Always false with `daily_cap_bypass` on or when `used_today` is null. */
+    /** Always false: a project no longer pauses on the cap arithmetic, only on a carrier rejection. Kept for compatibility. */
     will_pause: boolean;
-    /** Always 1 with `daily_cap_bypass` on. */
+    /** Always 1. Kept for compatibility. */
     estimated_send_days: number;
   } | null;
   att: {
@@ -1035,18 +1037,17 @@ export interface ScheduleProjectRequest {
   /** One of the six supported US IANA zones, for example "America/New_York". */
   scheduled_timezone: ScheduleTimezone;
   /**
-   * Run the whole project past the brand's T-Mobile daily cap instead of
-   * pausing at it.
+   * Skip the reduced rate past the brand's T-Mobile daily cap and send
+   * T-Mobile recipients at full speed.
    *
    * Only meaningful for brands that have a T-Mobile daily limit on file
-   * (political brands have none today): those carry a per-brand daily cap, and a project otherwise pauses at it
-   * each Pacific day and must be started again to continue. Ignored for
-   * brands with no cap.
+   * (political brands have none today): past the cap, their T-Mobile
+   * recipients otherwise send at a reduced rate (about 300 message parts per
+   * minute per campaign, rising to about 3,000 once receipts look healthy).
+   * Ignored for brands with no cap.
    *
-   * Setting this accepts that messages to T-Mobile recipients over the limit
-   * may fail and are still billed - carrier is not reliably known before
-   * sending, so the platform cannot skip only those recipients. Defaults to
-   * false (pause). Holds until the next schedule or resume call rewrites it, so
+   * A carrier rejection still pauses a bypassed project, and rejected messages
+   * are still billed. Defaults to false (reduced rate). Holds until the next schedule or resume call rewrites it, so
    * send it on every schedule or resume call. Scheduling also resumes a paused
    * project.
    */
@@ -1214,8 +1215,19 @@ export interface ListConversationMessagesQuery {
 }
 
 export interface ReplyToConversationRequest {
-  /** 1-1600 chars. Normalized for GSM before sending (curly quotes etc.). */
-  text: string;
+  /**
+   * 0-1600 chars, default "". Normalized for GSM before sending (curly quotes
+   * etc.). Optional when `media_ids` has an entry; at least one of non-blank
+   * `text` or one media id is required.
+   */
+  text?: string;
+  /**
+   * At most one media library id (the ids `createProject` accepts; list them
+   * with `listMedia`). Sends the reply as one flat-rate MMS. An unusable id
+   * (other organization, not ready, or a different brand than the project's)
+   * is a 400 `MEDIA_NOT_USABLE` and nothing is charged.
+   */
+  media_ids?: string[];
 }
 
 /** 202 Accepted for POST /conversations/{id}/messages. */
@@ -1226,6 +1238,8 @@ export interface ReplyToConversationResult {
   from?: string;
   to?: string;
   text?: string;
+  /** CDN URLs of the attached media; empty for an SMS reply. */
+  media_urls?: string[];
   created_at?: string;
   [key: string]: unknown;
 }
@@ -1485,7 +1499,7 @@ export interface EmailList {
   acquired?: string | null;
   sunset_enabled?: boolean;
   counts?: EmailListCounts;
-  /** Addresses removed before joining, by upload reason (yahoo_family, role, typo, ...). */
+  /** Addresses removed before joining, by upload reason (yahoo_family, high_complaint_domain, role, typo, ...). */
   removed_at_upload?: Record<string, number>;
   last_send_at?: string | null;
   created_at?: string;

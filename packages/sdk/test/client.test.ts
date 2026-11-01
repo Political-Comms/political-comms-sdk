@@ -840,6 +840,21 @@ describe('conversations', () => {
     expect(res.data.message_id).toBe('msg_2');
   });
 
+  it('replyToConversation sends media_ids with no text and returns media_urls', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(202, {
+        success: true,
+        data: { message_id: 'msg_4', text: '', media_urls: ['https://cdn.example.com/m/flyer.png'] },
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.replyToConversation('conv_1', { media_ids: ['media_1'] });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ media_ids: ['media_1'] });
+    expect(res.data.media_urls).toEqual(['https://cdn.example.com/m/flyer.png']);
+  });
+
   it('replyToConversation uses the caller-provided idempotency key', async () => {
     const fetchMock = vi.fn(async () => okResponse({ message_id: 'msg_3' }));
     const client = makeClient(fetchMock as unknown as typeof fetch);

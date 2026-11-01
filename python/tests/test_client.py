@@ -730,6 +730,18 @@ class TestConversations:
         assert UUID_RE.match(seen["idem"])
         assert result["data"]["message_id"] == "msg_2"
 
+    def test_reply_to_conversation_sends_media_ids_without_text(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return ok_response({"message_id": "msg_4", "media_urls": ["https://cdn.example.com/m/a.png"]})
+
+        with make_client(handler) as client:
+            result = client.reply_to_conversation("conv_1", media_ids=["media_1"])
+        assert seen["body"] == {"text": "", "media_ids": ["media_1"]}
+        assert result["data"]["media_urls"] == ["https://cdn.example.com/m/a.png"]
+
     def test_reply_to_conversation_uses_caller_supplied_idempotency_key(self):
         seen = {}
 

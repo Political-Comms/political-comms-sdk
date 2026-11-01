@@ -537,17 +537,15 @@ class PoliticalCommsClient:
         """GET /projects/{id}/throughput
 
         Pre-flight estimate of carrier limits for the project:
-        ``t_mobile.will_pause`` and ``estimated_send_days``,
+        ``t_mobile.estimated_recipients`` (``will_pause`` is always False and
+        ``estimated_send_days`` is always 1, kept for compatibility),
         ``att.estimated_minutes`` (the minutes AT&T needs for what the campaign
         already has waiting plus this project's AT&T recipients, accounting for
         the number of parts in the project's text; ``att.tpm`` is in message parts per minute), ``recipients`` and ``carrier_coverage``
         (0 to 1; low coverage means the estimates use the platform-wide carrier
         split). A political brand with an AT&T rate on file returns
-        ``carrier_metered: True``, ``t_mobile: None`` and a populated ``att``. With
-        ``daily_cap_bypass`` on, ``will_pause`` is False and
-        ``estimated_send_days`` is 1. ``used_today`` / ``remaining_today`` are
-        None (not 0) when usage is temporarily unavailable, and ``will_pause``
-        is then False. Results are cached up to 60 seconds. A timed-out
+        ``carrier_metered: True``, ``t_mobile: None`` and a populated ``att``. ``used_today`` / ``remaining_today`` are
+        None (not 0) when usage is temporarily unavailable. Results are cached up to 60 seconds. A timed-out
         estimate raises an error with status 503 and code
         ``CARRIER_ESTIMATE_TIMEOUT``; retry later.
         """
@@ -597,14 +595,12 @@ class PoliticalCommsClient:
         ``America/Los_Angeles``, ``America/Anchorage``, or ``Pacific/Honolulu``.
         Any other value is rejected with a 400.
 
-        ``daily_cap_bypass`` runs the whole project past the brand's T-Mobile
-        daily cap instead of pausing at it. It only applies to brands that have a
-        T-Mobile daily limit on file (political brands have none today), which
-        otherwise pause each Pacific day at their cap and must be started again to continue.
-        Setting it accepts that messages to T-Mobile recipients over the limit
-        may fail and are still billed: carrier is not reliably known before
-        sending, so the platform cannot skip only those recipients. Defaults to
-        pausing. It holds only until the next schedule or resume call rewrites
+        ``daily_cap_bypass`` skips the reduced rate past the brand's T-Mobile
+        daily cap and sends T-Mobile recipients at full speed. It only applies to
+        brands that have a T-Mobile daily limit on file (political brands have
+        none today), whose T-Mobile recipients otherwise send at a reduced rate
+        past the cap. A carrier rejection still pauses the project, and rejected
+        messages are still billed. Defaults to the reduced rate. It holds only until the next schedule or resume call rewrites
         it, so send it on every such call; this call also resumes a paused
         project. The response echoes the persisted ``daily_cap_bypass``.
 
@@ -614,9 +610,9 @@ class PoliticalCommsClient:
         To resume a project paused with ``pause_reason`` ``brand_daily_cap``,
         schedule it for the next day during sending hours (the project's window:
         8 AM to 10 PM in the time zone of most recipients, or 8 AM Eastern to
-        10 PM Pacific when no zone holds a majority) with a morning ``scheduled_at``, or resume now
-        with ``daily_cap_bypass=True`` (over-cap T-Mobile messages may fail and
-        are still billed).
+        10 PM Pacific when no zone holds a majority) with a morning ``scheduled_at``, or call
+        without one to try T-Mobile again at the reduced rate (it pauses again
+        if T-Mobile is still rejecting; rejected messages are still billed).
 
         Returns ``409 SENDING_PAUSED`` if sending is paused for the
         organization or platform-wide; the error's
@@ -738,15 +734,21 @@ class PoliticalCommsClient:
     def reply_to_conversation(
         self,
         id: str,
-        text: str,
+        text: str = "",
         *,
+        media_ids: Optional[Sequence[str]] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /conversations/{id}/messages
 
         Replies inside an existing conversation from the same sending number,
-        on the same project. ``text`` is 1-1600 characters, SMS only (no
-        media). Returns 202 Accepted; final delivery state arrives on the
+        on the same project. ``text`` is up to 1600 characters and
+        optional when ``media_ids`` has an entry; at least one of non-blank
+        ``text`` or one media id is required. ``media_ids`` takes at most one
+        media library id and sends the reply as one flat-rate MMS (SMS billed
+        per segment without it); an unusable id is a ``400 MEDIA_NOT_USABLE``
+        and nothing is charged. The result's ``media_urls`` lists the CDN URLs
+        of the attached media. Returns 202 Accepted; final delivery state arrives on the
         existing ``message.sent`` / ``message.delivered`` / ``message.failed``
         webhooks (no new webhook event). Quiet hours do not apply. On a
         ``503 SEND_ENQUEUE_FAILED`` nothing was sent or charged, so it is
@@ -754,10 +756,13 @@ class PoliticalCommsClient:
         sending is paused for the organization or platform-wide; the error's
         ``body["details"]["scope"]`` is ``"organization"`` or ``"platform"``.
         """
+        body: JsonDict = {"text": text}
+        if media_ids:
+            body["media_ids"] = list(media_ids)
         return self._request(
             "POST",
             f"/conversations/{id}/messages",
-            body={"text": text},
+            body=body,
             idempotency_key=idempotency_key,
         )
 

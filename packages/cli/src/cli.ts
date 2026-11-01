@@ -62,8 +62,8 @@ Commands:
   hierarchy                        Show the organization hierarchy
   projects list                    List projects
   projects get <id>                Show one project
-  projects throughput <id>         Carrier-limit estimate: will it pause at the
-                                   daily cap, and how long it takes
+  projects throughput <id>         Carrier-limit estimate: recipients per
+                                   carrier and how long AT&T takes
   projects create                  Create a project (see create flags)
   projects test <id>               Send a test message (--phone, repeatable;
                                    --set tag=value, repeatable)
@@ -83,7 +83,7 @@ Commands:
   conversations messages <id>      List messages in a conversation
                                    (--limit, --cursor)
   conversations reply <id>         Send a real reply in a conversation
-                                   (--text, required)
+                                   (--text and/or --media-id, one required)
   media list                       List media files
   media get <id>                   Show one media file
   media delete <id>                Delete an unused media file
@@ -114,7 +114,7 @@ Create flags (projects create):
   --channel <10dlc|toll-free>      Messaging channel (default 10dlc)
   --toll-free-verification-id <id> Toll-free verification (channel=toll-free)
   --suppression-list-id <id>       Suppression list, repeatable
-  --media-id <id>                  Media file for MMS, repeatable
+  --media-id <id>                  Media file for MMS, repeatable (conversations reply: one)
 
 Test flags (projects test):
   --phone <e164>                   Test recipient, repeatable
@@ -699,8 +699,8 @@ async function projectsCommand(
       const result = await client.scheduleProject(id, {
         scheduled_at: flags['send-at'],
         scheduled_timezone: parseTimezone(flags.timezone),
-        // Opt-in only: omitted means the project pauses at the brand's
-        // T-Mobile daily cap, which is the safe default.
+        // Opt-in only: omitted means T-Mobile recipients past the brand's
+        // daily cap send at the reduced rate, which is the safe default.
         ...(flags['daily-cap-bypass'] ? { daily_cap_bypass: true } : {}),
       });
       if (flags.json) return printJson(io, result);
@@ -708,8 +708,8 @@ async function projectsCommand(
         `Scheduled project ${id} for ${str(result.data?.scheduled_at) || flags['send-at']} ` +
           `(${str(result.data?.scheduled_timezone) || flags.timezone}).` +
           (result.data?.daily_cap_bypass
-            ? ' Sending will not pause at the brand daily carrier limit; over-limit ' +
-              'T-Mobile messages may fail and are still billed.'
+            ? ' T-Mobile recipients will send at full speed past the brand daily carrier limit; ' +
+              'a carrier rejection still pauses the project and rejected messages are still billed.'
             : ''),
       );
       return 0;
@@ -816,8 +816,14 @@ async function conversationsCommand(
 
     case 'reply': {
       const id = requireArg(arg, 'conversations reply <id>');
-      if (!flags.text) throw new UsageError('conversations reply requires --text "<text>"');
-      const result = await client.replyToConversation(id, { text: flags.text });
+      const mediaIds = flags['media-id'] ?? [];
+      if (!flags.text?.trim() && mediaIds.length === 0) {
+        throw new UsageError('conversations reply requires --text "<text>" or --media-id <id>');
+      }
+      const result = await client.replyToConversation(id, {
+        ...(flags.text ? { text: flags.text } : {}),
+        ...(mediaIds.length ? { media_ids: mediaIds } : {}),
+      });
       if (flags.json) return printJson(io, result);
       io.out(`Sent reply ${str(result.data?.message_id)} in conversation ${id}.`);
       return 0;

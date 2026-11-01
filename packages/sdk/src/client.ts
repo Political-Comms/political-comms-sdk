@@ -496,7 +496,7 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** GET /projects/{id}/throughput. Will the project pause at the daily cap, and how long it takes. */
+  /** GET /projects/{id}/throughput. Estimated recipients per carrier and how long AT&T takes (`will_pause` is always false). */
   getProjectThroughput(
     id: string,
     options?: RequestOptions,
@@ -526,9 +526,10 @@ export class PoliticalCommsClient {
    * POST /projects/{id}/schedule. Returns `409 SENDING_PAUSED` if sending is
    * paused for the organization or platform-wide; `error.body.details.scope`
    * is `'organization' | 'platform'`. Also resumes a `paused` project: for a
-   * `brand_daily_cap` pause, pass a morning `scheduled_at` inside the next
-   * day's sending hours (the project's window: 8 AM to 10 PM in the time zone of most recipients, or 8 AM Eastern to 10 PM Pacific when no zone holds a majority), or resume now
-   * with `daily_cap_bypass: true` (over-cap T-Mobile may fail, still billed).
+   * `brand_daily_cap` pause (T-Mobile rejected messages over the cap), pass a
+   * morning `scheduled_at` inside the next day's sending hours (the project's window: 8 AM to 10 PM in the time zone of most recipients, or 8 AM Eastern to 10 PM Pacific when no zone holds a majority), or call without one
+   * to try T-Mobile again at the reduced rate. `daily_cap_bypass: true` skips
+   * the reduced rate; a carrier rejection still pauses the project.
    * Throws a 409 `LIST_ANALYSIS_IN_PROGRESS` while a contact list on the
    * project is being analyzed; wait for `analysis.status` `complete`.
    */
@@ -649,7 +650,8 @@ export class PoliticalCommsClient {
    * from the same sending number, on the same project. 202 Accepted; final
    * delivery state arrives on the existing message.sent / message.delivered /
    * message.failed webhooks (no new webhook event). Quiet hours do not apply.
-   * SMS only, no media. On a 503 SEND_ENQUEUE_FAILED nothing was sent or
+   * Send text, one `media_ids` entry, or both (at least one is required): SMS
+   * per segment without media, one flat-rate MMS with. On a 503 SEND_ENQUEUE_FAILED nothing was sent or
    * charged, so it is safe to retry the same call. Returns
    * `409 SENDING_PAUSED` if sending is paused for the organization or
    * platform-wide; `error.body.details.scope` is `'organization' | 'platform'`.

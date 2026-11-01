@@ -43,7 +43,7 @@ Read only:
 | `list_projects` | List messaging projects, filterable by organization, brand, or campaign. |
 | `get_project` | Full configuration of one project. |
 | `get_project_stats` | Delivery and engagement stats for one project. |
-| `get_project_throughput` | Carrier-limit estimate for one project: will it pause at the T-Mobile daily cap, and how long it takes. |
+| `get_project_throughput` | Carrier-limit estimate for one project: recipients per carrier and how long AT&T takes (`will_pause` is always false). |
 | `get_campaign_throughput` | A campaign's T-Mobile daily cap, use today, and AT&T per-minute rates. |
 | `list_contact_lists` | Contact lists with counts and status. |
 | `get_contact_list` | One contact list with import progress, analysis, and `downloads` URLs. |
@@ -74,7 +74,7 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, `sc
 | `unschedule_project` | Remove a project's schedule. |
 | `pause_project` | Pause a running or scheduled send; resume with `schedule_project`. |
 | `copy_project` | Copy a project into a new draft (drops lists, schedule, and stats). |
-| `reply_to_conversation` | Send a real SMS reply inside an existing conversation. Requires `confirm: true`. |
+| `reply_to_conversation` | Send a real reply (text, one `media_ids` entry for MMS, or both) inside an existing conversation. Requires `confirm: true`. |
 | `schedule_email_campaign` | Commit an email send. Requires `confirm: true`. |
 | `unschedule_email_campaign` | Return a scheduled campaign to a draft state. |
 | `start_email_list_import` | Import a CSV of contacts into an email list. Requires `confirm: true`. |
