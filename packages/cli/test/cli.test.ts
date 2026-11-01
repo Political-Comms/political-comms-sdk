@@ -20,6 +20,29 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     ),
     listProjects: vi.fn(() => ok([{ id: 'proj_1', name: 'GOTV', campaign_name: 'Fall', org_name: 'Civic Action Fund' }])),
     getProject: vi.fn(() => ok({ id: 'proj_1', name: 'GOTV', status: 'draft' })),
+    getProjectStats: vi.fn(() => ok({ project_id: 'proj_1', status: 'completed', metrics: { sent: 10 } })),
+    getProjectSurveyResults: vi.fn(() =>
+      ok({
+        project_id: 'proj_1',
+        name: 'Voter survey',
+        status: 'completed',
+        total_recipients: 1000,
+        completion_rate: 62.5,
+        dropoff_rate: 37.5,
+        results: [
+          {
+            question_id: 'q_1',
+            sequence: 1,
+            question_text: 'Will you vote?',
+            question_type: 'multiple_choice',
+            total_responses: 400,
+            option_results: [{ value: 1, label: 'Yes', count: 300, percentage: 75 }],
+            other_count: 100,
+            other_percentage: 25,
+          },
+        ],
+      }),
+    ),
     getProjectThroughput: vi.fn(() => ok({ project_id: 'proj_1', carrier_metered: false })),
     createProject: vi.fn(() => ok({ id: 'proj_9', status: 'draft' })),
     testProject: vi.fn(() => ok({ project_id: 'proj_1', tests_sent: 1 })),
@@ -316,6 +339,36 @@ describe('commands', () => {
       scheduled_at: '2026-11-03T09:00:00',
       scheduled_timezone: 'America/New_York',
     });
+  });
+
+  it('projects stats calls getProjectStats', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['projects', 'stats', 'proj_1'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.getProjectStats).toHaveBeenCalledWith('proj_1');
+    expect(out.join('\n')).toContain('completed');
+  });
+
+  it('projects survey-results prints the project line and each question block', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['projects', 'survey-results', 'proj_1'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.getProjectSurveyResults).toHaveBeenCalledWith('proj_1');
+    const text = out.join('\n');
+    expect(text).toContain('Voter survey');
+    expect(text).toContain('completion_rate');
+    expect(text).toContain('Q1. Will you vote? (400 responses)');
+    expect(text).toContain('Yes: 300 (75%)');
+    expect(text).toContain('Other: 100 (25%)');
+  });
+
+  it('projects survey-results --json prints the raw response', async () => {
+    const { io, out } = makeIO();
+    const code = await main(['projects', 'survey-results', 'proj_1', '--json'], deps(makeClient(), io));
+    expect(code).toBe(0);
+    expect(JSON.parse(out.join('\n')).data.total_recipients).toBe(1000);
   });
 
   it('projects throughput calls getProjectThroughput', async () => {

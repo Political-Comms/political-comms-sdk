@@ -877,6 +877,43 @@ export interface ProjectStats {
   [key: string]: unknown;
 }
 
+/** One answer option of a survey question. */
+export interface SurveyOptionResult {
+  value: number;
+  label: string;
+  count: number;
+  percentage: number;
+}
+
+/** Results for one survey question. */
+export interface SurveyQuestionResult {
+  question_id: string;
+  sequence: number;
+  question_text: string;
+  question_type: string;
+  total_responses: number;
+  option_results: SurveyOptionResult[];
+  /** Replies that matched no option (or all replies, for open-ended questions). */
+  other_count: number;
+  other_percentage: number;
+}
+
+/**
+ * GET /projects/{id}/survey-results response: topline survey results. The
+ * numbers match the survey results page in the dashboard.
+ */
+export interface ProjectSurveyResults {
+  project_id: string;
+  name: string;
+  status: string;
+  total_recipients: number;
+  /** Percentage of responding conversations that reached the final question. */
+  completion_rate: number;
+  dropoff_rate: number;
+  /** One entry per question, ordered by sequence. */
+  results: SurveyQuestionResult[];
+}
+
 /**
  * GET /projects/{id}/throughput response: how carrier limits will affect the
  * project. `recipients` and `carrier_coverage` are present only when
@@ -1216,9 +1253,11 @@ export interface ListConversationMessagesQuery {
 
 export interface ReplyToConversationRequest {
   /**
-   * 0-1600 chars, default "". Normalized for GSM before sending (curly quotes
-   * etc.). Optional when `media_ids` has an entry; at least one of non-blank
-   * `text` or one media id is required.
+   * Default "". Up to 10 SMS parts (1,530 GSM-7 or 670 Unicode characters), or
+   * 1,500 characters with media; longer text is a 400 naming the limit.
+   * Normalized for GSM before sending (curly quotes etc.). Optional when
+   * `media_ids` has an entry; at least one of non-blank `text` or one media id
+   * is required.
    */
   text?: string;
   /**

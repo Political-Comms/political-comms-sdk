@@ -47,6 +47,7 @@ import type {
   Project,
   ProjectDetail,
   ProjectStats,
+  ProjectSurveyResults,
   ProjectThroughput,
   RateLimitState,
   ReplyToConversationRequest,
@@ -490,6 +491,23 @@ export class PoliticalCommsClient {
     return this.request(
       'GET',
       `/projects/${encodeURIComponent(id)}/stats`,
+      undefined,
+      undefined,
+      options,
+    );
+  }
+
+  /**
+   * GET /projects/{id}/survey-results. Topline survey results: per-question
+   * option counts and percentages, the unmatched/open-ended "other" bucket,
+   * and overall completion/dropoff rates. The numbers match the survey results
+   * page in the dashboard. Rejects with a 409 `NOT_A_SURVEY` error when the
+   * project is not a survey.
+   */
+  getProjectSurveyResults(id: string, options?: RequestOptions): Promise<ApiResponse<ProjectSurveyResults>> {
+    return this.request(
+      'GET',
+      `/projects/${encodeURIComponent(id)}/survey-results`,
       undefined,
       undefined,
       options,

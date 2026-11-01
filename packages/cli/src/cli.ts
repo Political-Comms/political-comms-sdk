@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import { PoliticalCommsClient, PoliticalCommsError } from '@political-comms/sdk';
-import type { ScheduleTimezone } from '@political-comms/sdk';
+import type { ProjectSurveyResults, ScheduleTimezone } from '@political-comms/sdk';
 
 /** The subset of the SDK the CLI uses. Injectable for tests. */
 export type CliClient = Pick<
@@ -9,6 +9,8 @@ export type CliClient = Pick<
   | 'getHierarchy'
   | 'listProjects'
   | 'getProject'
+  | 'getProjectStats'
+  | 'getProjectSurveyResults'
   | 'getProjectThroughput'
   | 'createProject'
   | 'testProject'
@@ -64,6 +66,8 @@ Commands:
   projects get <id>                Show one project
   projects throughput <id>         Carrier-limit estimate: recipients per
                                    carrier and how long AT&T takes
+  projects stats <id>              Show delivery and engagement stats
+  projects survey-results <id>     Show survey results (survey projects only)
   projects create                  Create a project (see create flags)
   projects test <id>               Send a test message (--phone, repeatable;
                                    --set tag=value, repeatable)
@@ -605,7 +609,7 @@ async function projectsCommand(
   flags: Flags,
   io: CliIO,
 ): Promise<number> {
-  requireSub(sub, ['list', 'get', 'throughput', 'create', 'test', 'schedule', 'unschedule', 'pause', 'copy'], 'projects');
+  requireSub(sub, ['list', 'get', 'stats', 'survey-results', 'throughput', 'create', 'test', 'schedule', 'unschedule', 'pause', 'copy'], 'projects');
 
   switch (sub) {
     case 'list': {
@@ -631,6 +635,22 @@ async function projectsCommand(
       const result = await client.getProject(id);
       if (flags.json) return printJson(io, result);
       io.out(kv(result.data));
+      return 0;
+    }
+
+    case 'stats': {
+      const id = requireArg(arg, 'projects stats <id>');
+      const result = await client.getProjectStats(id);
+      if (flags.json) return printJson(io, result);
+      io.out(kv(result.data));
+      return 0;
+    }
+
+    case 'survey-results': {
+      const id = requireArg(arg, 'projects survey-results <id>');
+      const result = await client.getProjectSurveyResults(id);
+      if (flags.json) return printJson(io, result);
+      printSurveyResults(io, result.data);
       return 0;
     }
 
@@ -748,6 +768,28 @@ async function projectsCommand(
 
     default:
       throw new UsageError(`Unknown projects subcommand: ${sub}`);
+  }
+}
+
+/** Project summary line, then one block per question with its options and the "other" bucket. */
+function printSurveyResults(io: CliIO, data: ProjectSurveyResults | undefined): void {
+  if (!data) return;
+  io.out(
+    kv({
+      name: data.name,
+      status: data.status,
+      total_recipients: data.total_recipients,
+      completion_rate: data.completion_rate,
+      dropoff_rate: data.dropoff_rate,
+    }),
+  );
+  for (const q of data.results ?? []) {
+    io.out('');
+    io.out(`Q${q.sequence}. ${q.question_text} (${q.total_responses} responses)`);
+    for (const o of q.option_results ?? []) {
+      io.out(`  ${o.label}: ${o.count} (${o.percentage}%)`);
+    }
+    io.out(`  Other: ${q.other_count} (${q.other_percentage}%)`);
   }
 }
 

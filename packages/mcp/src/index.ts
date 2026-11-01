@@ -162,6 +162,20 @@ const TOOLS: Tool[] = [
     annotations: { title: 'Get Project Stats', readOnlyHint: true },
   },
   {
+    name: 'get_project_survey_results',
+    description:
+      'Get topline survey results for one project: per-question option counts and percentages, the ' +
+      'unmatched or open-ended "other" bucket, and overall completion and dropoff rates. Only works for ' +
+      'survey projects; any other project returns a 409 NOT_A_SURVEY error.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: { title: 'Get Project Survey Results', readOnlyHint: true },
+  },
+  {
     name: 'list_contact_lists',
     description:
       'List contact lists with their contact counts and import status. Optionally filter by ' +
@@ -546,7 +560,8 @@ const TOOLS: Tool[] = [
     description:
       'Send a real reply inside an existing conversation, from the same sending number, on the ' +
       'same project. This delivers an actual message to the contact and incurs cost. Send text ' +
-      '(up to 1600 characters), one media_ids entry from the media library, or both; at least one ' +
+      '(up to 10 SMS parts, or 1500 characters with media), one media_ids entry from the ' +
+      'media library, or both; at least one ' +
       'of non-blank text or a media id is required. Without media it is an SMS billed per segment; ' +
       'with media it is one flat-rate MMS. A media id that is not usable returns MEDIA_NOT_USABLE ' +
       'and nothing is charged. Final delivery state arrives on the existing ' +
@@ -936,6 +951,8 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       return textResult(await client.getCampaignThroughput(s(args, 'id')));
     case 'get_project_stats':
       return textResult(await client.getProjectStats(s(args, 'id')));
+    case 'get_project_survey_results':
+      return textResult(await client.getProjectSurveyResults(s(args, 'id')));
     case 'list_contact_lists':
       return textResult(
         await client.listContactLists({

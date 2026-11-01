@@ -327,6 +327,39 @@ describe('5xx backoff', () => {
 });
 
 describe('endpoint serialization', () => {
+  it('getProjectSurveyResults GETs the survey-results path and returns the parsed data', async () => {
+    const data = {
+      project_id: 'proj_1',
+      name: 'Voter survey',
+      status: 'completed',
+      total_recipients: 1000,
+      completion_rate: 62.5,
+      dropoff_rate: 37.5,
+      results: [
+        {
+          question_id: 'q_1',
+          sequence: 1,
+          question_text: 'Will you vote?',
+          question_type: 'multiple_choice',
+          total_responses: 400,
+          option_results: [
+            { value: 1, label: 'Yes', count: 300, percentage: 75 },
+            { value: 2, label: 'No', count: 60, percentage: 15 },
+          ],
+          other_count: 40,
+          other_percentage: 10,
+        },
+      ],
+    };
+    const fetchMock = vi.fn(async () => okResponse(data));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const result = await client.getProjectSurveyResults('proj_1');
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(new URL(url).pathname).toBe('/v1/projects/proj_1/survey-results');
+    expect(init.method).toBe('GET');
+    expect(result.data).toEqual(data);
+  });
+
   it('serializes query params for getAllProjectStats and omits undefined ones', async () => {
     const fetchMock = vi.fn(async () => okResponse({}));
     const client = makeClient(fetchMock as unknown as typeof fetch);

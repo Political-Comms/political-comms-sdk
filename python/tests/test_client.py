@@ -431,6 +431,42 @@ class TestThroughput:
         assert campaign["data"]["carrier_metered"] is False
 
 
+class TestProjectSurveyResults:
+    def test_get_project_survey_results_gets_path_and_returns_data(self):
+        seen = {}
+        data = {
+            "project_id": "proj_1",
+            "name": "Voter survey",
+            "status": "completed",
+            "total_recipients": 1000,
+            "completion_rate": 62.5,
+            "dropoff_rate": 37.5,
+            "results": [
+                {
+                    "question_id": "q_1",
+                    "sequence": 1,
+                    "question_text": "Will you vote?",
+                    "question_type": "multiple_choice",
+                    "total_responses": 400,
+                    "option_results": [{"value": 1, "label": "Yes", "count": 300, "percentage": 75}],
+                    "other_count": 100,
+                    "other_percentage": 25,
+                }
+            ],
+        }
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["path"] = request.url.path
+            return ok_response(data)
+
+        with make_client(handler) as client:
+            result = client.get_project_survey_results("proj_1")
+        assert seen["method"] == "GET"
+        assert seen["path"] == "/v1/projects/proj_1/survey-results"
+        assert result["data"] == data
+
+
 class TestProjectCopy:
     def test_copy_project_posts_without_body(self):
         seen = {}

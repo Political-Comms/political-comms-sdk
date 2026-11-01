@@ -26,6 +26,8 @@ orgs list                        List organizations visible to the key
 hierarchy                        Show the organization hierarchy
 projects list                    List projects
 projects get <id>                Show one project
+projects stats <id>              Show delivery and engagement stats
+projects survey-results <id>     Show survey results (survey projects only)
 projects create                  Create a project
 projects test <id>               Send a test message (--phone, repeatable)
 projects schedule <id>           Schedule a send (--send-at, --timezone)

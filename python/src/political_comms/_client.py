@@ -533,6 +533,17 @@ class PoliticalCommsClient:
         """
         return self._request("GET", f"/projects/{id}/stats")
 
+    def get_project_survey_results(self, id: str) -> JsonDict:
+        """GET /projects/{id}/survey-results
+
+        Topline survey results: per-question option counts and percentages, the
+        unmatched/open-ended "other" bucket (``other_count``/``other_percentage``),
+        and overall ``completion_rate``/``dropoff_rate``. The numbers match the
+        survey results page in the dashboard. Raises a 409 ``NOT_A_SURVEY``
+        error when the project is not a survey.
+        """
+        return self._request("GET", f"/projects/{id}/survey-results")
+
     def get_project_throughput(self, id: str) -> JsonDict:
         """GET /projects/{id}/throughput
 
@@ -742,7 +753,8 @@ class PoliticalCommsClient:
         """POST /conversations/{id}/messages
 
         Replies inside an existing conversation from the same sending number,
-        on the same project. ``text`` is up to 1600 characters and
+        on the same project. ``text`` is up to 10 SMS parts (1,530 GSM-7 or
+        670 Unicode characters), or 1,500 characters with media, and
         optional when ``media_ids`` has an entry; at least one of non-blank
         ``text`` or one media id is required. ``media_ids`` takes at most one
         media library id and sends the reply as one flat-rate MMS (SMS billed

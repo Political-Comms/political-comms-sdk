@@ -43,6 +43,7 @@ Read only:
 | `list_projects` | List messaging projects, filterable by organization, brand, or campaign. |
 | `get_project` | Full configuration of one project. |
 | `get_project_stats` | Delivery and engagement stats for one project. |
+| `get_project_survey_results` | Topline survey results for a survey project: per-question option counts and percentages, completion and dropoff rates. Returns a 409 `NOT_A_SURVEY` error for other projects. |
 | `get_project_throughput` | Carrier-limit estimate for one project: recipients per carrier and how long AT&T takes (`will_pause` is always false). |
 | `get_campaign_throughput` | A campaign's T-Mobile daily cap, use today, and AT&T per-minute rates. |
 | `list_contact_lists` | Contact lists with counts and status. |
