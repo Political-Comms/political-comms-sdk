@@ -1684,6 +1684,8 @@ export interface EmailCampaignCounts {
   unsubscribed?: number;
   opened?: number;
   clicked?: number;
+  /** Replies to a sequence email that came back through the platform. */
+  replied?: number;
   failed?: number;
   [key: string]: unknown;
 }
@@ -1702,6 +1704,15 @@ export interface EmailCampaign {
   source_code?: string | null;
   scheduled_at?: string | null;
   timezone?: string | null;
+  /**
+   * The sequence this campaign belongs to: the first email's id, which points
+   * at itself. `null` for a broadcast.
+   */
+  sequence_id?: string | null;
+  /** 1 for the first email of a sequence, 2 and up for its follow-ups. `null` for a broadcast. */
+  sequence_position?: number | null;
+  /** Sequence emails only: replies are forwarded to the sender's reply address and end that person's follow-ups. */
+  stop_on_reply?: boolean;
   audience_count?: number | null;
   counts?: EmailCampaignCounts;
   pause_reason?: string | null;
@@ -1731,6 +1742,30 @@ export interface ListEmailCampaignsQuery extends EmailPageQuery {
   search?: string;
 }
 
+export interface CreateEmailSequenceStepRequest {
+  template_id: string;
+  /** Defaults to the template's subject. */
+  subject?: string;
+  preheader?: string | null;
+  /** Days after the previous email; 0 is later the same day. 0-365. */
+  delay_days: number;
+  /** Local time of day in the campaign's time zone, "HH:MM" (for example "08:30"). */
+  send_time: string;
+}
+
+export interface CreateEmailSequenceRequest {
+  /** Default true: a reply ends that person's follow-ups and is forwarded to the sender's reply address. */
+  stop_on_reply?: boolean;
+  /**
+   * Default false. True sends each follow-up as a reply in the first email's
+   * thread (In-Reply-To and References name the recipient's earlier emails,
+   * subject "Re: <first email's subject>"); step subjects are then set for you.
+   */
+  thread_replies?: boolean;
+  /** Up to 9 follow-ups, in order. */
+  steps: CreateEmailSequenceStepRequest[];
+}
+
 export interface CreateEmailCampaignRequest {
   name: string;
   sender_identity_id: string;
@@ -1754,6 +1789,15 @@ export interface CreateEmailCampaignRequest {
    */
   tracking_domain_id?: string | null;
   require_approval?: boolean;
+  /**
+   * Make this campaign the first email of a sequence: `steps` are its
+   * follow-ups in order. Each sends `delay_days` after the previous email at
+   * `send_hour` in the campaign's time zone, to the people the first email
+   * reached, skipping anyone who replied (with `stop_on_reply`, the default),
+   * unsubscribed, bounced or complained. Schedule the first email to schedule
+   * them all; one test send tests every email.
+   */
+  sequence?: CreateEmailSequenceRequest;
 }
 
 export interface TestEmailCampaignResult {

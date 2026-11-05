@@ -1106,9 +1106,19 @@ class PoliticalCommsClient:
         is_repermission: Optional[bool] = None,
         tracking_domain_id: Optional[str] = None,
         require_approval: Optional[bool] = None,
+        sequence: Optional[JsonDict] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /email/campaigns.
+
+        ``sequence`` makes this campaign the first email of a sequence:
+        ``{"stop_on_reply": True, "thread_replies": False, "steps": [{"template_id": ...,
+        "delay_days": 3, "send_time": "08:30"}, ...]}``; ``thread_replies`` sends each
+        follow-up as a reply in the first email's thread. Each follow-up sends ``delay_days`` after the
+        previous email at ``send_hour`` in the campaign's time zone, to the
+        people the first email reached, skipping anyone who replied,
+        unsubscribed, bounced or complained. Scheduling the first email
+        schedules them all.
 
         Once GA, also returns ``403 ONBOARDING_INCOMPLETE`` if the
         organization's 14-day setup grace window has passed and the business
@@ -1142,6 +1152,7 @@ class PoliticalCommsClient:
                     "is_repermission": is_repermission,
                     "tracking_domain_id": tracking_domain_id,
                     "require_approval": require_approval,
+                    "sequence": sequence,
                 }
             ),
             idempotency_key=idempotency_key,
