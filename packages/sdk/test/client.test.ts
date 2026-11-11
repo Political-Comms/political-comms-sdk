@@ -552,6 +552,70 @@ describe('media', () => {
   });
 });
 
+describe('contact list import', () => {
+  it('posts an email-and-phone import with consent and an Idempotency-Key', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(202, {
+        success: true,
+        data: {
+          list_id: 'cl_1',
+          name: 'Donors',
+          status: 'processing',
+          total_rows: null,
+          imported_via_api: true,
+          purpose: 'audience',
+          channels: ['text', 'email'],
+          email_import: { id: 'imp_1', status: 'queued' },
+        },
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const body = {
+      source_url: 'https://example.com/donors.csv',
+      list_name: 'Donors',
+      phone_column: 'Phone',
+      email_column: 'Email',
+      consent: { source: 'donation_form' as const },
+      email_domain_id: null,
+    };
+    const res = await client.importContactList(body);
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.politicalcomms.com/v1/contact-lists/import');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual(body);
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toMatch(UUID_RE);
+    expect(res.data.purpose).toBe('audience');
+    if (res.data.purpose === 'audience') expect(res.data.email_import?.id).toBe('imp_1');
+  });
+
+  it('returns no list id for a do_not_contact import', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(202, {
+        success: true,
+        data: { purpose: 'do_not_contact', name: 'DNC', status: 'processing', total_rows: 3, channels: ['email'] },
+      }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.importContactList({
+      source_url: 'https://example.com/dnc.csv',
+      list_name: 'DNC',
+      purpose: 'do_not_contact',
+      email_column: 'Email',
+    });
+    expect(res.data.purpose).toBe('do_not_contact');
+    expect(res.data).not.toHaveProperty('list_id');
+  });
+
+  it('forwards the channel filter on listContactLists', async () => {
+    const fetchMock = vi.fn(async () => okResponse([]));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.listContactLists({ channel: 'all' });
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toBe('https://api.politicalcomms.com/v1/contact-lists?channel=all');
+  });
+});
+
 describe('deletes', () => {
   it('deleteContactList issues DELETE and unwraps the response', async () => {
     const fetchMock = vi.fn(async () =>

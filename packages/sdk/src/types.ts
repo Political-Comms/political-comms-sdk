@@ -296,6 +296,45 @@ export interface ListTollFreeVerificationsQuery {
 // Contact lists
 // ---------------------------------------------------------------------------
 
+/**
+ * Which channels a list reaches: `text` when it holds phone numbers, `email`
+ * when it holds email addresses.
+ */
+export type ContactListChannel = "text" | "email";
+
+export type ContactListEmailSourceType = "uploaded" | "segmented" | "winred" | "anedot";
+
+export interface ContactListEmailCounts {
+  total?: number;
+  sendable?: number;
+  bounced?: number;
+  complained?: number;
+  unsubscribed?: number;
+  invalid?: number;
+  suppressed_global?: number;
+  [key: string]: unknown;
+}
+
+/** The email side of a list. `status` is the email import status: poll GET /contact-lists/{id} until it is `ready`. */
+export interface ContactListEmail {
+  description?: string | null;
+  source_type?: ContactListEmailSourceType;
+  status?: "processing" | "ready" | "failed" | "archived";
+  /** null = organization-wide; set = only campaigns on that sending domain may use the list. */
+  email_domain_id?: string | null;
+  /** True for a list you did not collect yourself; it warms up more slowly. */
+  acquired?: boolean | null;
+  sunset_enabled?: boolean | null;
+  quality_grade?: "green" | "yellow" | "red" | null;
+  counts?: ContactListEmailCounts;
+  /** Addresses removed before joining, by reason. */
+  removed_at_upload?: Record<string, number>;
+  last_send_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  [key: string]: unknown;
+}
+
 export interface ContactList {
   id?: string;
   name?: string;
@@ -303,6 +342,9 @@ export interface ContactList {
   brand_name?: string | null;
   org_id?: string;
   org_name?: string;
+  channels?: ContactListChannel[];
+  /** The email side; null when the list has none. */
+  email?: ContactListEmail | null;
   created_at?: string;
   [key: string]: unknown;
 }
@@ -361,6 +403,7 @@ export interface ContactListDetail {
   organization_id?: string | null;
   /** True when the list was created through POST /contact-lists/import. */
   imported_via_api?: boolean;
+  channels?: ContactListChannel[];
   created_at?: string;
   /** The merge tags this list offers, one per mapped column; after an import without `merge_tags`, the tags assigned automatically. */
   available_merge_tags?: ContactListMergeTag[];
@@ -368,6 +411,8 @@ export interface ContactListDetail {
   analysis?: ContactListAnalysisSection;
   /** API URLs (send your X-API-Key; they do not expire). */
   downloads?: ContactListDownloads;
+  /** The email side; null when the list has none. `email.status` replaces polling a separate email list. */
+  email?: ContactListEmail | null;
   [key: string]: unknown;
 }
 
@@ -383,6 +428,8 @@ export interface ContactListDownloads {
 export interface ListContactListsQuery {
   organization_id?: string;
   brand_id?: string;
+  /** `text` (the default) lists the lists that hold phone numbers, `email` the ones that hold addresses, `all` both. */
+  channel?: ContactListChannel | "all";
 }
 
 export interface MergeTagCustomField {
@@ -401,27 +448,97 @@ export interface MergeTagMapping {
   custom_fields?: MergeTagCustomField[];
 }
 
+/** How the people in the imported file agreed to hear from you. */
+export type ContactListConsentSource =
+  | "donation_form"
+  | "petition"
+  | "signup_form"
+  | "event"
+  | "purchased"
+  | "rented"
+  | "other";
+
+/**
+ * `audience` (the default) makes a list you can send to. `do_not_contact`
+ * makes the phones an opt-out list and the emails unsubscribes (visible on
+ * GET /email/suppressions).
+ */
+export type ContactListImportPurpose = "audience" | "do_not_contact";
+
 export interface ImportContactListRequest {
-  /** Publicly readable or presigned URL of the CSV to import. */
+  /** HTTPS URL of the CSV (public or presigned), at most 50 MB, served as text/csv, application/csv, or text/plain. */
   source_url: string;
   organization_id?: string;
   brand_id?: string;
+  /** 1-255 characters. */
   list_name: string;
-  /** Name of the CSV column that holds the phone number. */
-  phone_column: string;
-  /** Omit it (or map nothing) and every non-phone column gets a merge tag automatically; supply it and it is used exactly as sent, with unlisted columns getting no tag. */
+  purpose?: ContactListImportPurpose;
+  /** CSV column that holds the phone number. Send this, `email_column`, or both; the two must differ. */
+  phone_column?: string;
+  /**
+   * CSV column that holds the email address. There is no automatic
+   * detection. Needs email enabled for the organization (403
+   * ENTITLEMENT_REQUIRED otherwise).
+   */
+  email_column?: string;
+  /** Omit it (or map nothing) and every non-phone column gets a merge tag automatically. Supply it and phones map only the columns you name, while emails map the named columns and also every remaining column by its default name. With `email_column`, custom field names must match `^[a-z][a-z0-9_]{0,63}$`. Unknown keys are refused with a 400 (unknown top-level fields in the request are ignored). */
   merge_tags?: MergeTagMapping;
+  /**
+   * Optional. How the people on the list agreed to hear from you. Allowed
+   * only when `purpose` is `audience` and `email_column` is set; refused
+   * with a 400 otherwise. Omit it and no consent record is stored. Unknown
+   * keys inside it are refused.
+   */
+  consent?: {
+    source: ContactListConsentSource;
+    /** Up to 1000 characters. */
+    note?: string;
+  };
+  /** Scope the emails to one sending domain. Null or omitted: the whole organization. */
+  email_domain_id?: string | null;
+  /** Optional, default false. True marks the emails as purchased or rented; the list is sent more gradually (warms up on half steps). */
+  acquired?: boolean;
 }
 
-/** 202 Accepted. Poll GET /contact-lists/{id} for progress. */
-export interface ContactListImportResult {
-  list_id?: string;
-  name?: string;
-  status?: "processing";
-  total_rows?: number | null;
-  imported_via_api?: boolean;
+/** An email side queued with the list. Poll GET /contact-lists/{list_id} and read `email.status`. */
+export interface ContactListEmailImport {
+  id?: string;
+  status?: "queued";
   [key: string]: unknown;
 }
+
+interface ContactListImportResultBase {
+  name?: string;
+  status?: "processing";
+  /** Null when the row count is not known yet. */
+  total_rows?: number | null;
+  channels?: ContactListChannel[];
+  [key: string]: unknown;
+}
+
+/**
+ * 202 Accepted for an `audience` import. Poll GET /contact-lists/{list_id}
+ * for the phone side and `email.status` of the same response for the
+ * email side. An email-only list belongs to the whole organization, with no
+ * brand.
+ */
+export interface AudienceContactListImportResult extends ContactListImportResultBase {
+  purpose: "audience";
+  list_id: string;
+  imported_via_api?: boolean;
+  /** Present when the file had an email column. */
+  email_import?: ContactListEmailImport;
+}
+
+/**
+ * 202 Accepted for a `do_not_contact` import. No list id comes back: phones
+ * become an opt-out list and emails become unsubscribes.
+ */
+export interface DoNotContactImportResult extends ContactListImportResultBase {
+  purpose: "do_not_contact";
+}
+
+export type ContactListImportResult = AudienceContactListImportResult | DoNotContactImportResult;
 
 /**
  * 202 Accepted (queued or already running), or 200 when nothing was left to
@@ -442,7 +559,8 @@ export interface ContactListAnalysisResult {
 }
 
 /**
- * 200 OK for DELETE /contact-lists/{id}. A list referenced by any project
+ * 200 OK for DELETE /contact-lists/{id}. Removes the list's phone numbers
+ * and its emails. A list referenced by any project
  * cannot be deleted; the API returns 409 CONTACT_LIST_IN_USE with
  * `details.projects` listing the referencing projects ({ id, name, status }).
  */
@@ -807,7 +925,7 @@ export interface UpdateProjectRequest {
    * none of the three. Send new contact_list_ids, suppression_list_ids, and
    * media_ids in the same request when the old ones belong to the old brand
    * or registration (400 ASSET_OUT_OF_SCOPE). A suspended campaign returns
-   * 409 CAMPAIGN_SUSPENDED. Switching to toll-free or short-code clears the
+   * 409 CAMPAIGN_SUSPENDED and an expired one 409 CAMPAIGN_EXPIRED. Switching to toll-free or short-code clears the
    * brand and campaign.
    */
   channel?: ProjectChannel;
@@ -1504,116 +1622,6 @@ export interface EmailSenderIdentity {
   [key: string]: unknown;
 }
 
-export type EmailListSourceType =
-  "uploaded" | "segmented" | "winred" | "anedot";
-
-export type EmailContactStatus =
-  | "subscribed"
-  | "unsubscribed"
-  | "bounced"
-  | "complained"
-  | "invalid"
-  | "sunset";
-
-export interface EmailListCounts {
-  total?: number;
-  sendable?: number;
-  bounced?: number;
-  complained?: number;
-  unsubscribed?: number;
-  invalid?: number;
-  suppressed_global?: number;
-  [key: string]: unknown;
-}
-
-export interface EmailList {
-  id: string;
-  name: string;
-  description?: string | null;
-  source_type: EmailListSourceType;
-  status: "processing" | "ready" | "failed" | "archived";
-  /** null = organization-wide; set = only campaigns on that sending domain may use the list. */
-  email_domain_id?: string | null;
-  /** Provenance for a list you did not collect yourself. Acquired lists warm up more slowly; there is no validation requirement. */
-  acquired?: string | null;
-  sunset_enabled?: boolean;
-  counts?: EmailListCounts;
-  /** Addresses removed before joining, by upload reason (yahoo_family, high_complaint_domain, role, typo, ...). */
-  removed_at_upload?: Record<string, number>;
-  last_send_at?: string | null;
-  created_at?: string;
-  updated_at?: string;
-  [key: string]: unknown;
-}
-
-/** How the people on a list consented to hear from you. Required on create. */
-export interface EmailConsentAttestation {
-  source: string;
-  note?: string;
-}
-
-export interface ListEmailListsQuery extends EmailPageQuery {
-  source_type?: EmailListSourceType;
-  search?: string;
-}
-
-export interface CreateEmailListRequest {
-  name: string;
-  consent_attestation: EmailConsentAttestation;
-  description?: string;
-  /** Scope the list to one sending domain. Omit for an organization-wide list. */
-  email_domain_id?: string;
-  acquired?: string;
-  sunset_enabled?: boolean;
-}
-
-export interface EmailListContact {
-  id: string;
-  email: string;
-  status: EmailContactStatus;
-  status_reason?: string | null;
-  fields?: Record<string, unknown>;
-  consent_source?: string | null;
-  consent_at?: string | null;
-  added_at?: string;
-  last_engaged_at?: string | null;
-  [key: string]: unknown;
-}
-
-export interface ListEmailContactsQuery extends EmailPageQuery {
-  status?: EmailContactStatus;
-  search?: string;
-}
-
-export interface EmailContactInput {
-  email: string;
-  fields?: Record<string, unknown>;
-  consent_source?: string;
-  /** ISO 8601 date-time. */
-  consent_at?: string;
-}
-
-/** Per-row outcome. Invalid rows are reported, not fatal. */
-export interface BulkUpsertResult {
-  written: number;
-  accepted: number;
-  rejected: number;
-  duplicates: number;
-  results: Array<{
-    index: number;
-    email: string;
-    status: "accepted" | "rejected" | "duplicate";
-    reason: string | null;
-  }>;
-  [key: string]: unknown;
-}
-
-export interface RemoveEmailContactsResult {
-  unsubscribed: number;
-  submitted: number;
-  [key: string]: unknown;
-}
-
 export type EmailSuppressionScope = "org" | "identity" | "domain";
 
 export interface EmailSuppression {
@@ -1913,67 +1921,3 @@ export type EmailTemplateDraftStatus =
  */
 export type EmailTemplateDraftErrorCode =
   "EMAIL_DRAFT_INVALID" | "EMAIL_DRAFT_MODEL_ERROR" | "INSUFFICIENT_BALANCE";
-
-/** Hex triplets (#rrggbb) the generated design should use. */
-/** How the people in the imported file consented to hear from you. */
-export type EmailListImportConsentSource =
-  | "donation_form"
-  | "petition"
-  | "signup_form"
-  | "event"
-  | "purchased"
-  | "rented"
-  | "other";
-
-export interface EmailListImportSummary {
-  /** Addresses imported but currently held back by send-time screening. */
-  screened?: number;
-  [key: string]: unknown;
-}
-
-export interface EmailListImport {
-  id: string;
-  status: string;
-  email_list_id: string | null;
-  file_name: string | null;
-  file_size: number;
-  /** Column headers read from the CSV. */
-  headers: string[];
-  /** CSV header to contact field, as applied. */
-  mapping: Record<string, string>;
-  /** The ESP export format the recognizer matched, or null. */
-  recognized_provider: string | null;
-  summary: EmailListImportSummary | null;
-  error_message: string | null;
-  created_at?: string;
-  started_at: string | null;
-  completed_at: string | null;
-  [key: string]: unknown;
-}
-
-export interface StartEmailListImportRequest {
-  /** HTTPS URL of the CSV. The server fetches it; there is no file upload on this surface. */
-  source_url: string;
-  /**
-   * Name for the list this file becomes. Defaults to the file name. The
-   * uploaded file IS the list: an import creates one rather than adding to an
-   * existing list.
-   */
-  name?: string;
-  /** Scope the new list to one sending domain. Omit for organization-wide. */
-  email_domain_id?: string;
-  /** The addresses were purchased or rented; the list warms up more slowly (no validation requirement). */
-  acquired?: boolean;
-  consent: {
-    source: EmailListImportConsentSource;
-    note?: string;
-  };
-  /**
-   * CSV header to contact field. Omit to let the server recognize a common ESP
-   * export; when neither your mapping nor the recognizer finds an email column
-   * the call is a 400 VALIDATION_ERROR whose `details.headers` lists the
-   * headers that were read, so you can retry with a mapping instead of
-   * guessing.
-   */
-  mapping?: Record<string, string>;
-}

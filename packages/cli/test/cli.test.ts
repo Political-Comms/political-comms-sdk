@@ -50,7 +50,9 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     unscheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'draft' })),
     pauseProject: vi.fn(() => ok({ project_id: 'proj_1', status: 'paused', pause_reason: 'manual' })),
     copyProject: vi.fn(() => ok({ project_id: 'proj_2', name: 'GOTV_v2', status: 'draft' })),
-    listContactLists: vi.fn(() => ok([{ id: 'cl_1', list_name: 'Voters', contact_count: 1200, status: 'ready' }])),
+    listContactLists: vi.fn(() =>
+      ok([{ id: 'cl_1', name: 'Voters', channels: ['text', 'email'], created_at: '2026-11-01T00:00:00Z' }]),
+    ),
     getContactList: vi.fn(() => ok({ id: 'cl_1', list_name: 'Voters' })),
     downloadContactList: vi.fn(async () => 'Phone Number,Original Row\n+15555550100,1\n'),
     deleteContactList: vi.fn(() => ok({ list_id: 'cl_1', name: 'Voters', deleted: true })),
@@ -116,31 +118,6 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
         description: null,
         content: { subject: 'Vote Tuesday', preheader: null, html: '<p>Vote</p>', editor: 'html' },
         updated_at: '2026-09-01T00:00:00Z',
-      }),
-    ),
-    getEmailTemplateDraft: vi.fn(() =>
-      ok({
-        id: 'draft_1',
-        status: 'ready',
-        subject: 'Vote Tuesday',
-        preheader: null,
-        error_code: null,
-        error_message: null,
-        html: '<p>Vote</p>',
-        completed_at: '2026-09-01T00:01:00Z',
-      }),
-    ),
-    getEmailListImport: vi.fn(() =>
-      ok({
-        id: 'imp_1',
-        status: 'completed',
-        name: 'August donors',
-        file_name: 'donors.csv',
-        headers: ['Email', 'First Name'],
-        recognized_provider: 'mailchimp',
-        error_message: null,
-        summary: { imported: 1200, rejected: 3 },
-        completed_at: '2026-09-01T00:05:00Z',
       }),
     ),
     ...overrides,
@@ -435,6 +412,24 @@ describe('commands', () => {
     expect(code).toBe(2);
     expect(err.join('\n')).toContain('projects copy <id>');
     expect(client.copyProject).not.toHaveBeenCalled();
+  });
+
+  it('contact-lists list prints channels and forwards --channel', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['contact-lists', 'list', '--channel', 'all'], deps(client, io));
+    expect(code).toBe(0);
+    expect(client.listContactLists).toHaveBeenCalledWith(expect.objectContaining({ channel: 'all' }));
+    expect(out.join('\n')).toContain('CHANNELS');
+    expect(out.join('\n')).toContain('text,email');
+  });
+
+  it('contact-lists list exits 2 on an unknown --channel', async () => {
+    const client = makeClient();
+    const { io } = makeIO();
+    const code = await main(['contact-lists', 'list', '--channel', 'sms'], deps(client, io));
+    expect(code).toBe(2);
+    expect(client.listContactLists).not.toHaveBeenCalled();
   });
 
   it('contact-lists delete calls deleteContactList and confirms', async () => {

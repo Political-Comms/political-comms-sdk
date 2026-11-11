@@ -33,7 +33,6 @@ export type CliClient = Pick<
   | 'getLedgerUsage'
   | 'listEmailDomains'
   | 'listEmailSenders'
-  | 'listEmailLists'
   | 'listEmailSuppressions'
   | 'listEmailCampaigns'
   | 'getEmailCampaign'
@@ -76,10 +75,11 @@ Commands:
   projects unschedule <id>         Remove a schedule
   projects pause <id>              Pause a running or scheduled send ([--reason])
   projects copy <id>               Copy a project (drops lists, schedule, stats)
-  contact-lists list               List contact lists
+  contact-lists list               List contact lists (--channel text|email|all;
+                                   default text)
   contact-lists get <id>           Show one contact list
   contact-lists download <id>      Print a contact list CSV (--type original|analyzed)
-  contact-lists delete <id>        Delete an unused contact list
+  contact-lists delete <id>        Delete an unused contact list (phones and emails)
   conversations list               List conversations with an inbound message
                                    (--project, --since, --include-test,
                                    --limit, --cursor)
@@ -95,7 +95,6 @@ Commands:
   usage                            Billing usage (--from, --to; default last 30 days)
   email domains list               List email sending domains
   email senders list               List email sender identities
-  email lists list                 List email lists
   email suppressions list          List email suppressions (--scope)
   email campaigns list             List email campaigns (--status)
   email campaigns get <id>         Show one email campaign, including blockers
@@ -280,18 +279,26 @@ async function dispatch(client: CliClient, positionals: string[], flags: Flags, 
     case 'contact-lists': {
       requireSub(sub, ['list', 'get', 'download', 'delete'], 'contact-lists');
       if (sub === 'list') {
+        const channel = flags.channel;
+        if (channel !== undefined && channel !== 'text' && channel !== 'email' && channel !== 'all') {
+          throw new UsageError('contact-lists list --channel must be text, email, or all.');
+        }
         const result = await client.listContactLists({
           organization_id: flags['organization-id'],
           brand_id: flags['brand-id'],
+          channel,
         });
         if (flags.json) return printJson(io, result);
         io.out(
-          table(result.data ?? [], [
-            { key: 'id', header: 'ID' },
-            { key: 'list_name', header: 'NAME' },
-            { key: 'contact_count', header: 'CONTACTS' },
-            { key: 'status', header: 'STATUS' },
-          ]),
+          table(
+            (result.data ?? []).map((list) => ({ ...list, channels: list.channels?.join(',') })),
+            [
+              { key: 'id', header: 'ID' },
+              { key: 'name', header: 'NAME' },
+              { key: 'channels', header: 'CHANNELS' },
+              { key: 'created_at', header: 'CREATED' },
+            ],
+          ),
         );
         return 0;
       }
@@ -424,7 +431,7 @@ async function emailCommand(
 ): Promise<number> {
   requireSub(
     sub,
-    ['domains', 'senders', 'lists', 'suppressions', 'campaigns', 'templates', 'drafts', 'imports'],
+    ['domains', 'senders', 'suppressions', 'campaigns', 'templates'],
     'email',
   );
   const limit = flags.limit === undefined ? undefined : Number(flags.limit);
@@ -456,21 +463,6 @@ async function emailCommand(
           { key: 'id', header: 'ID' },
           { key: 'from_address', header: 'FROM' },
           { key: 'from_name', header: 'NAME' },
-          { key: 'status', header: 'STATUS' },
-        ]),
-      );
-      return 0;
-    }
-
-    case 'lists': {
-      requireSub(arg, ['list'], 'email lists');
-      const result = await client.listEmailLists({ limit });
-      if (flags.json) return printJson(io, result);
-      io.out(
-        table(result.data?.data ?? [], [
-          { key: 'id', header: 'ID' },
-          { key: 'name', header: 'NAME' },
-          { key: 'source_type', header: 'SOURCE' },
           { key: 'status', header: 'STATUS' },
         ]),
       );

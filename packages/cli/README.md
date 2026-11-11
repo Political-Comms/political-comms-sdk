@@ -34,10 +34,11 @@ projects schedule <id>           Schedule a send (--send-at, --timezone)
 projects unschedule <id>         Remove a schedule
 projects pause <id>              Pause a running or scheduled send ([--reason])
 projects copy <id>               Copy a project (drops lists, schedule, stats)
-contact-lists list               List contact lists
+contact-lists list               List contact lists (--channel text|email|all;
+                                 default text)
 contact-lists get <id>           Show one contact list
 contact-lists download <id>      Print a contact list CSV (--type original|analyzed)
-contact-lists delete <id>        Delete an unused contact list
+contact-lists delete <id>        Delete an unused contact list (phones and emails)
 conversations list               List conversations with an inbound message
                                   (--project, --since, --include-test)
 conversations get <id>           Show one conversation
@@ -50,7 +51,6 @@ stats messages                   Message stats (--from, --to; default last 30 da
 usage                            Billing usage (--from, --to; default last 30 days)
 email domains list               List email sending domains
 email senders list               List email sender identities
-email lists list                 List email lists
 email suppressions list          List email suppressions (--scope)
 email campaigns list             List email campaigns (--status)
 email campaigns get <id>         Show one email campaign, including blockers
@@ -59,8 +59,8 @@ email templates list             List email templates (--search)
 email templates get <id>         Show one email template (HTML only with --json)
 ```
 
-Email commands are read-only by design.
-The write side of the email API (importing contacts, scheduling campaigns,
+The `email` commands are read-only by design.
+The rest of the write side of the email API (importing a CSV, scheduling campaigns,
 saving templates) is multi-step and belongs in a script against the SDK rather
 than in flag-per-field shell invocations. Paid and human-driven workflows
 (AI drafting, result exports) run in the dashboard.

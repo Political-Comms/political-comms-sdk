@@ -181,12 +181,17 @@ class PoliticalCommsClient:
         *,
         organization_id: Optional[str] = None,
         brand_id: Optional[str] = None,
+        channel: Optional[str] = None,
     ) -> JsonDict:
-        """GET /contact-lists"""
+        """GET /contact-lists
+
+        ``channel`` is ``"text"`` (the default: lists that hold phone numbers),
+        ``"email"``, or ``"all"``. Each list reports its ``channels``.
+        """
         return self._request(
             "GET",
             "/contact-lists",
-            query={"organization_id": organization_id, "brand_id": brand_id},
+            query={"organization_id": organization_id, "brand_id": brand_id, "channel": channel},
         )
 
     def get_contact_list(self, id: str) -> JsonDict:
@@ -201,20 +206,49 @@ class PoliticalCommsClient:
         self,
         source_url: str,
         list_name: str,
-        phone_column: str,
+        phone_column: Optional[str] = None,
         *,
+        email_column: Optional[str] = None,
+        purpose: Optional[str] = None,
         organization_id: Optional[str] = None,
         brand_id: Optional[str] = None,
         merge_tags: Optional[JsonDict] = None,
+        consent: Optional[JsonDict] = None,
+        email_domain_id: Optional[str] = None,
+        acquired: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /contact-lists/import
 
-        When `merge_tags` is omitted or maps nothing, every non-phone column
+        The one list import. The server fetches ``source_url`` (https, 50 MB
+        cap) and returns 202. Send ``phone_column``, ``email_column``, or
+        both; the two must differ, and there is no automatic email column
+        detection. ``email_column`` needs email enabled for the organization
+        (403 ``ENTITLEMENT_REQUIRED``).
+
+        ``purpose`` is ``"audience"`` (the default) or ``"do_not_contact"``,
+        which turns phones into an opt-out list and emails into unsubscribes
+        and returns no ``list_id``. ``consent`` is ``{"source": str, "note":
+        str | None}``, source one of donation_form, petition, signup_form,
+        event, purchased, rented, or other; it is optional (omit it and no
+        consent record is stored), allowed only for an audience list with an
+        email column, and a 400 otherwise. ``email_domain_id`` scopes the
+        emails to one sending domain (omit for the whole organization);
+        ``acquired`` (default false) marks emails that were purchased or
+        rented, which are sent more gradually.
+
+        When ``merge_tags`` is omitted or maps nothing, every non-phone column
         gets a merge tag automatically: a header that matches a standard field
         gets the standard tag, and any other column gets a tag named after its
-        header in lowercase with underscores. When `merge_tags` is supplied it
-        is used exactly as sent, and unlisted columns get no tag.
+        header in lowercase with underscores. When ``merge_tags`` is supplied,
+        phones map only the named columns, while emails map the named columns
+        and also every remaining column by its default name; with an email
+        column, custom field names must match ``^[a-z][a-z0-9_]{0,63}$``.
+        Unknown keys inside ``merge_tags`` or ``consent`` are a 400; unknown
+        top-level fields are ignored.
+
+        Poll ``get_contact_list(list_id)``: ``import`` is the phone side and
+        ``email.status`` is the email side.
         """
         body = _compact(
             {
@@ -222,8 +256,13 @@ class PoliticalCommsClient:
                 "organization_id": organization_id,
                 "brand_id": brand_id,
                 "list_name": list_name,
+                "purpose": purpose,
                 "phone_column": phone_column,
+                "email_column": email_column,
                 "merge_tags": merge_tags,
+                "consent": consent,
+                "email_domain_id": email_domain_id,
+                "acquired": acquired,
             }
         )
         return self._request("POST", "/contact-lists/import", body=body, idempotency_key=idempotency_key)
@@ -260,7 +299,7 @@ class PoliticalCommsClient:
     def delete_contact_list(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
         """DELETE /contact-lists/{id}
 
-        A list referenced by any project cannot be deleted; the API returns
+        Removes the list's phone numbers and its emails. A list referenced by any project cannot be deleted; the API returns
         409 CONTACT_LIST_IN_USE with the referencing projects in the details.
         """
         return self._request("DELETE", f"/contact-lists/{id}", idempotency_key=idempotency_key)
@@ -492,7 +531,7 @@ class PoliticalCommsClient:
         short-code takes none. Send new list and media ids in the same request
         when the old ones belong to the old brand or registration (400
         ``ASSET_OUT_OF_SCOPE``); a suspended campaign returns 409
-        ``CAMPAIGN_SUSPENDED``.
+        ``CAMPAIGN_SUSPENDED`` and an expired one 409 ``CAMPAIGN_EXPIRED``.
 
         ``opt_out_footer_enabled`` toggles the automatic "STOP=END" footer.
         ``link_tracking_fallback_url`` is required whenever
@@ -875,113 +914,6 @@ class PoliticalCommsClient:
         """GET /email/senders/{id}."""
         return self._request("GET", f"/email/senders/{id}")
 
-    def list_email_lists(
-        self,
-        *,
-        limit: Optional[int] = None,
-        cursor: Optional[str] = None,
-        source_type: Optional[str] = None,
-        search: Optional[str] = None,
-    ) -> JsonDict:
-        """GET /email/lists."""
-        return self._request(
-            "GET",
-            "/email/lists",
-            query={
-                "limit": limit,
-                "cursor": cursor,
-                "source_type": source_type,
-                "search": search,
-            },
-        )
-
-    def get_email_list(self, id: str) -> JsonDict:
-        """GET /email/lists/{id}."""
-        return self._request("GET", f"/email/lists/{id}")
-
-    def create_email_list(
-        self,
-        name: str,
-        consent_attestation: JsonDict,
-        *,
-        description: Optional[str] = None,
-        email_domain_id: Optional[str] = None,
-        acquired: Optional[str] = None,
-        sunset_enabled: Optional[bool] = None,
-        idempotency_key: Optional[str] = None,
-    ) -> JsonDict:
-        """POST /email/lists.
-
-        consent_attestation is {"source": str, "note": str | None}: the record of how
-        the people on this list agreed to hear from you. Set `acquired` when the list
-        came from anywhere other than your own sign-up flow; acquired lists must be
-        validated before their first send. email_domain_id scopes the list to one
-        sending domain; omit it for a list any campaign may use.
-
-        Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
-        organization is not entitled to email; the error's
-        ``body["details"]["entitlement"]`` is ``"email"``.
-        """
-        return self._request(
-            "POST",
-            "/email/lists",
-            body=_compact(
-                {
-                    "name": name,
-                    "consent_attestation": consent_attestation,
-                    "description": description,
-                    "email_domain_id": email_domain_id,
-                    "acquired": acquired,
-                    "sunset_enabled": sunset_enabled,
-                }
-            ),
-            idempotency_key=idempotency_key,
-        )
-
-    def list_email_list_contacts(
-        self,
-        id: str,
-        *,
-        limit: Optional[int] = None,
-        cursor: Optional[str] = None,
-        status: Optional[str] = None,
-        search: Optional[str] = None,
-    ) -> JsonDict:
-        """GET /email/lists/{id}/contacts."""
-        return self._request(
-            "GET",
-            f"/email/lists/{id}/contacts",
-            query={
-                "limit": limit,
-                "cursor": cursor,
-                "status": status,
-                "search": search,
-            },
-        )
-
-    def add_email_list_contacts(
-        self,
-        id: str,
-        contacts: list[JsonDict],
-        *,
-        idempotency_key: Optional[str] = None,
-    ) -> JsonDict:
-        """POST /email/lists/{id}/contacts.
-
-        Upserts up to 1000 contacts. Invalid rows do not fail the call: read `results`
-        and resend only the rows that came back "rejected".
-
-        Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
-        organization is not entitled to email; the error's
-        ``body["details"]["entitlement"]`` is ``"email"``.
-        """
-        return self._request(
-            "POST",
-            f"/email/lists/{id}/contacts",
-            body={"contacts": contacts},
-            idempotency_key=idempotency_key,
-        )
-
     def list_email_suppressions(
         self,
         *,
@@ -1253,54 +1185,6 @@ class PoliticalCommsClient:
             "/email/templates",
             body=_compact(
                 {"name": name, "content": content, "description": description}
-            ),
-            idempotency_key=idempotency_key,
-        )
-
-    def start_email_list_import(
-        self,
-        source_url: str,
-        consent: JsonDict,
-        *,
-        name: Optional[str] = None,
-        email_domain_id: Optional[str] = None,
-        acquired: Optional[bool] = None,
-        mapping: Optional[dict[str, str]] = None,
-        idempotency_key: Optional[str] = None,
-    ) -> JsonDict:
-        """POST /email/lists/import.
-
-        Fetches your CSV over https (50 MB cap, SSRF-guarded) and commits it as a NEW
-        list in one call: the file is the list. name defaults to the file name, and
-        email_domain_id scopes the new list to one sending domain. consent is
-        {"source": str, "note": str | None}, where source is one of donation_form,
-        petition, signup_form, event, purchased, rented, or other.
-
-        Omit mapping to let the server recognize a common ESP export; when neither
-        your mapping nor the recognizer finds an email column the call is a 400
-        VALIDATION_ERROR whose details["headers"] lists the headers that were read,
-        so retry with a mapping instead of guessing. Role addresses (info@, admin@) are
-        always removed at import; the import's ``summary["screened"]`` counts
-        addresses imported but currently held back by send-time screening.
-        Acquired lists only warm up more slowly. Returns 202; the import's
-        progress is shown on the list in the dashboard.
-
-        Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
-        organization is not entitled to email; the error's
-        ``body["details"]["entitlement"]`` is ``"email"``.
-        """
-        return self._request(
-            "POST",
-            "/email/lists/import",
-            body=_compact(
-                {
-                    "source_url": source_url,
-                    "name": name,
-                    "email_domain_id": email_domain_id,
-                    "acquired": acquired,
-                    "consent": consent,
-                    "mapping": mapping,
-                }
             ),
             idempotency_key=idempotency_key,
         )

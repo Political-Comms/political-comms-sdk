@@ -46,7 +46,7 @@ Read only:
 | `get_project_survey_results` | Topline survey results for a survey project: per-question option counts and percentages, completion and dropoff rates. Returns a 409 `NOT_A_SURVEY` error for other projects. |
 | `get_project_throughput` | Carrier-limit estimate for one project: recipients per carrier and how long AT&T takes (`will_pause` is always false). |
 | `get_campaign_throughput` | A campaign's T-Mobile daily cap, use today, and AT&T per-minute rates. |
-| `list_contact_lists` | Contact lists with counts and status. |
+| `list_contact_lists` | Contact lists, each with its `channels` (`text`, `email`) and `email` side. `channel` is `text` (default), `email`, or `all`. |
 | `get_contact_list` | One contact list with import progress, analysis, and `downloads` URLs. |
 | `download_contact_list` | A contact list as CSV text (`type` original or analyzed), truncated at 100,000 characters. |
 | `get_message_stats` | Aggregate message stats for a date range. |
@@ -57,7 +57,6 @@ Read only:
 | `list_email_domains` | Email sending domains and their DNS verification status. |
 | `get_email_domain` | One sending domain, including the DNS records to publish. |
 | `list_email_senders` | Email sender identities (From addresses). |
-| `list_email_lists` | Email lists with contact counts and status. |
 | `list_email_suppressions` | Suppressed addresses at org, identity, or list scope. |
 | `list_email_campaigns` | Email campaigns with status and audience counts. |
 | `get_email_campaign` | One campaign, including `blocked`: why it will not schedule. |
@@ -65,10 +64,11 @@ Read only:
 | `list_email_templates` | Saved email templates with subject and last-updated time. |
 | `get_email_template` | One template including its full HTML body. |
 
-Write (each is annotated as non read-only; `create_project`, `test_project`, `schedule_project`, and `reply_to_conversation` additionally require `confirm: true` because they stage or send real messages):
+Write (each is annotated as non read-only; `create_project`, `test_project`, `schedule_project`, `reply_to_conversation`, `schedule_email_campaign`, and `import_contact_list` additionally require `confirm: true` because they send real messages or write contacts):
 
 | Tool | Description |
 |------|-------------|
+| `import_contact_list` | Import a CSV as a new list of phones, emails, or both, or as a do-not-contact list. Requires `confirm: true`. |
 | `create_project` | Create a draft messaging project. |
 | `test_project` | Send real test messages to explicit phone numbers. |
 | `schedule_project` | Commit a bulk send at a specific date and time. |
@@ -78,7 +78,6 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, `sc
 | `reply_to_conversation` | Send a real reply (text, one `media_ids` entry for MMS, or both) inside an existing conversation. Requires `confirm: true`. |
 | `schedule_email_campaign` | Commit an email send. Requires `confirm: true`. |
 | `unschedule_email_campaign` | Return a scheduled campaign to a draft state. |
-| `start_email_list_import` | Import a CSV of contacts into an email list. Requires `confirm: true`. |
 
 The server deliberately exposes no delete operations.
 

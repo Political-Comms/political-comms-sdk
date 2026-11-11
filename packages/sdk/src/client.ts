@@ -68,35 +68,25 @@ import type {
   // Email
   AddEmailSuppressionsRequest,
   AddEmailSuppressionsResult,
-  BulkUpsertResult,
   CreateEmailCampaignRequest,
-  CreateEmailListRequest,
   CreateEmailTemplateRequest,
   CursorPage,
   DeletedResult,
   EmailCampaign,
   EmailCampaignStats,
-  EmailContactInput,
   EmailDomain,
-  EmailList,
-  EmailListContact,
-  EmailListImport,
   EmailPageQuery,
   EmailSenderIdentity,
   EmailSuppression,
   EmailTemplate,
   EmailTemplateWithLint,
   ListEmailCampaignsQuery,
-  ListEmailContactsQuery,
   ListEmailDomainsQuery,
-  ListEmailListsQuery,
   ListEmailSuppressionsQuery,
   ListEmailTemplatesQuery,
-  RemoveEmailContactsResult,
   RemoveEmailSuppressionsRequest,
   RemoveEmailSuppressionsResult,
   ScheduleEmailCampaignRequest,
-  StartEmailListImportRequest,
   TestEmailCampaignResult,
 } from './types';
 
@@ -287,7 +277,7 @@ export class PoliticalCommsClient {
     return this.request(
       'GET',
       '/contact-lists',
-      { organization_id: query.organization_id, brand_id: query.brand_id },
+      { organization_id: query.organization_id, brand_id: query.brand_id, channel: query.channel },
       undefined,
       options,
     );
@@ -298,7 +288,17 @@ export class PoliticalCommsClient {
     return this.request('GET', `/contact-lists/${encodeURIComponent(id)}`, undefined, undefined, options);
   }
 
-  /** POST /contact-lists/import */
+  /**
+   * POST /contact-lists/import
+   *
+   * The one list import: send `phone_column`, `email_column`, or both. The
+   * server fetches `source_url` and returns 202; branch on `purpose` in the
+   * result, because a `do_not_contact` import returns no `list_id`. `consent`
+   * is optional and allowed only for an `audience` list with emails. With
+   * `merge_tags`, phones map only the named columns while emails also map
+   * every remaining column. Poll `getContactList` for
+   * the phone side (`import`) and the email side (`email.status`).
+   */
   importContactList(
     body: ImportContactListRequest,
     options?: RequestOptions,
@@ -356,7 +356,7 @@ export class PoliticalCommsClient {
     return response.text();
   }
 
-  /** DELETE /contact-lists/{id} */
+  /** DELETE /contact-lists/{id}. Removes the list's phone numbers and its emails. */
   deleteContactList(
     id: string,
     options?: RequestOptions,
@@ -804,91 +804,6 @@ export class PoliticalCommsClient {
     );
   }
 
-  /** GET /email/lists. */
-  listEmailLists(
-    query: ListEmailListsQuery = {},
-    options?: RequestOptions,
-  ): Promise<ApiResponse<CursorPage<EmailList>>> {
-    return this.request(
-      'GET',
-      '/email/lists',
-      {
-        limit: query.limit,
-        cursor: query.cursor,
-        source_type: query.source_type,
-        search: query.search,
-      },
-      undefined,
-      options,
-    );
-  }
-
-  /** GET /email/lists/{id}. */
-  getEmailList(id: string, options?: RequestOptions): Promise<ApiResponse<EmailList>> {
-    return this.request(
-      'GET',
-      `/email/lists/${encodeURIComponent(id)}`,
-      undefined,
-      undefined,
-      options,
-    );
-  }
-
-  /**
-   * POST /email/lists.
-   * `consent_attestation` records how these people agreed to hear from you.
-   * Once GA, also returns `403 ENTITLEMENT_REQUIRED` if the organization is
-   * not entitled to email; `error.body.details.entitlement` is `'email'`.
-   */
-  createEmailList(
-    body: CreateEmailListRequest,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailList>> {
-    return this.request('POST', '/email/lists', undefined, body, options);
-  }
-
-  /** GET /email/lists/{id}/contacts. */
-  listEmailListContacts(
-    id: string,
-    query: ListEmailContactsQuery = {},
-    options?: RequestOptions,
-  ): Promise<ApiResponse<CursorPage<EmailListContact>>> {
-    return this.request(
-      'GET',
-      `/email/lists/${encodeURIComponent(id)}/contacts`,
-      {
-        limit: query.limit,
-        cursor: query.cursor,
-        status: query.status,
-        search: query.search,
-      },
-      undefined,
-      options,
-    );
-  }
-
-  /**
-   * POST /email/lists/{id}/contacts.
-   *
-   * Upserts up to 1000 contacts. Invalid rows do not fail the call: read
-   * `results` and resend only the rows that came back 'rejected'. Once GA,
-   * also returns `403 ENTITLEMENT_REQUIRED` if the organization is not
-   * entitled to email; `error.body.details.entitlement` is `'email'`.
-   */
-  addEmailListContacts(
-    id: string,
-    contacts: EmailContactInput[],
-    options?: RequestOptions,
-  ): Promise<ApiResponse<BulkUpsertResult>> {
-    return this.request(
-      'POST',
-      `/email/lists/${encodeURIComponent(id)}/contacts`,
-      undefined,
-      { contacts },
-      options,
-    );
-  }
-
   /** GET /email/suppressions. */
   listEmailSuppressions(
     query: ListEmailSuppressionsQuery = {},
@@ -1071,25 +986,6 @@ export class PoliticalCommsClient {
     options?: RequestOptions,
   ): Promise<ApiResponse<EmailTemplateWithLint>> {
     return this.request('POST', '/email/templates', undefined, body, options);
-  }
-
-  /**
-   * POST /email/lists/import.
-   *
-   * Fetches your CSV over https (50 MB cap, SSRF-guarded) and commits it in
-   * one call. Omit `mapping` to let the server recognize a common ESP export;
-   * when neither your mapping nor the recognizer finds an email column the
-   * call is a 400 VALIDATION_ERROR whose `details.headers` lists the headers
-   * that were read, so retry with a mapping instead of guessing. Returns 202;
-   * the import's progress is shown on the list in the dashboard. Once GA,
-   * also returns `403 ENTITLEMENT_REQUIRED` if the organization is not
-   * entitled to email; `error.body.details.entitlement` is `'email'`.
-   */
-  startEmailListImport(
-    body: StartEmailListImportRequest,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<EmailListImport>> {
-    return this.request('POST', '/email/lists/import', undefined, body, options);
   }
 
   // -------------------------------------------------------------------------

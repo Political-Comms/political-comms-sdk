@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.19.0] - 2026-11-10
+
+### Breaking
+- Breaking: `email lists list` is removed, because `GET /email/lists` no longer exists. Use `contact-lists list --channel email` (or `--channel all`).
+
+### Added
+- `contact-lists list` accepts `--channel text|email|all` (default `text`) and shows each list's channels.
+
+### Fixed
+- `contact-lists list` shows the list name and created date; it read fields the API does not return, so the name column was blank.
+- `email drafts` and `email imports` are no longer accepted as subcommands; they had no command behind them.
+
+### Changed
+- Requires `@political-comms/sdk` 0.19.
+
 ## [0.18.0] - 2026-10-31
 
 ### Added

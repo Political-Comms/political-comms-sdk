@@ -18,6 +18,7 @@ const EXPECTED_TOOLS = [
   'list_contact_lists',
   'get_contact_list',
   'download_contact_list',
+  'import_contact_list',
   'get_message_stats',
   'get_ledger_usage',
   'create_project',
@@ -30,13 +31,11 @@ const EXPECTED_TOOLS = [
   'get_conversation',
   'list_conversation_messages',
   'reply_to_conversation',
-  // Email. Reads, the campaign lifecycle, and the two writes that
-  // spend money or add contacts; no delete_* tools, so the surface stays
-  // non-destructive.
+  // Email. Reads and the campaign lifecycle; no delete_* tools, so the
+  // surface stays non-destructive.
   'list_email_domains',
   'get_email_domain',
   'list_email_senders',
-  'list_email_lists',
   'list_email_suppressions',
   'list_email_campaigns',
   'get_email_campaign',
@@ -45,7 +44,6 @@ const EXPECTED_TOOLS = [
   'unschedule_email_campaign',
   'list_email_templates',
   'get_email_template',
-  'start_email_list_import',
 ];
 
 describe('political-comms MCP server (stdio)', () => {
@@ -103,8 +101,7 @@ describe('political-comms MCP server (stdio)', () => {
         'list_email_domains',
         'get_email_domain',
         'list_email_senders',
-        'list_email_lists',
-              'list_email_suppressions',
+                    'list_email_suppressions',
         'list_email_campaigns',
         'get_email_campaign',
         'get_email_campaign_stats',
@@ -126,6 +123,23 @@ describe('political-comms MCP server (stdio)', () => {
       expect.objectContaining({ type: 'object', additionalProperties: { type: 'string' } }),
     );
     expect(schema.required).not.toContain('merge_values');
+  });
+
+  it('requires confirm on import_contact_list and offers the channel filter on list_contact_lists', async () => {
+    const result = await client.listTools();
+    const importTool = result.tools.find((tool) => tool.name === 'import_contact_list');
+    expect((importTool!.inputSchema as { required: string[] }).required).toEqual(
+      expect.arrayContaining(['confirm', 'source_url', 'list_name']),
+    );
+    const listTool = result.tools.find((tool) => tool.name === 'list_contact_lists');
+    const props = (listTool!.inputSchema as { properties: Record<string, { enum?: string[] }> }).properties;
+    expect(props.channel?.enum).toEqual(['text', 'email', 'all']);
+
+    const refused = await client.callTool({
+      name: 'import_contact_list',
+      arguments: { source_url: 'https://example.com/a.csv', list_name: 'A', email_column: 'Email' },
+    });
+    expect(refused.isError).toBe(true);
   });
 
   it('refuses write tools without confirm: true', async () => {

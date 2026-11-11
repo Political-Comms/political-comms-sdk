@@ -9,7 +9,10 @@ import {
 import {
   PoliticalCommsClient,
   PoliticalCommsError,
-  type EmailListImportConsentSource,
+  type ContactListConsentSource,
+  type ContactListImportPurpose,
+  type ListContactListsQuery,
+  type MergeTagMapping,
   type ScheduleTimezone,
 } from '@political-comms/sdk';
 
@@ -20,8 +23,8 @@ const SERVER_INSTRUCTIONS =
   'schedule compliant political SMS and MMS sends. An API key is required via the ' +
   'POLITICAL_COMMS_API_KEY environment variable (created in the dashboard under Admin > API). ' +
   'The write tools create_project, test_project, schedule_project, reply_to_conversation, ' +
-  'schedule_email_campaign, create_email_template_draft, and ' +
-  'start_email_list_import send real messages, spend money, or write contacts, and require ' +
+  'schedule_email_campaign, and import_contact_list ' +
+  'send real messages, spend money, or write contacts, and require ' +
   'confirm: true. Rate limit per key: 600 requests/minute, bursts up to 600, refilling 10 per second. ' +
   'The email write tools need the email entitlement on the organization and return ' +
   '403 ENTITLEMENT_REQUIRED without it; email reads are open. ' +
@@ -178,11 +181,19 @@ const TOOLS: Tool[] = [
   {
     name: 'list_contact_lists',
     description:
-      'List contact lists with their contact counts and import status. Optionally filter by ' +
-      'organization or brand.',
+      'List contact lists. Each list reports its channels (text, email). Optionally filter by ' +
+      'organization, brand, or channel.',
     inputSchema: {
       type: 'object',
-      properties: { organization_id: orgFilter, brand_id: brandFilter },
+      properties: {
+        organization_id: orgFilter,
+        brand_id: brandFilter,
+        channel: {
+          type: 'string',
+          enum: ['text', 'email', 'all'],
+          description: 'text (the default) lists the lists that hold phone numbers, email the ones that hold addresses, all both.',
+        },
+      },
       additionalProperties: false,
     },
     annotations: { title: 'List Contact Lists', readOnlyHint: true },
@@ -190,7 +201,7 @@ const TOOLS: Tool[] = [
   {
     name: 'get_contact_list',
     description:
-      'Get one contact list by ID, including its available merge tags, import progress and list analysis results when available.',
+      'Get one contact list by ID, including its available merge tags, phone import progress (import), email side status and counts (email), and list analysis results when available.',
     inputSchema: {
       type: 'object',
       properties: { id: idParam },
@@ -627,26 +638,6 @@ const TOOLS: Tool[] = [
     annotations: { title: 'List Email Senders', readOnlyHint: true },
   },
   {
-    name: 'list_email_lists',
-    description:
-      'List email lists with their contact counts and status.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        limit: emailLimit,
-        cursor: emailCursor,
-        search: emailSearch,
-        source_type: {
-          type: 'string',
-          description: 'Filter by where the list came from',
-          enum: ['uploaded', 'segmented', 'winred', 'anedot'],
-        },
-      },
-      additionalProperties: false,
-    },
-    annotations: { title: 'List Email Lists', readOnlyHint: true },
-  },
-  {
     name: 'list_email_suppressions',
     description:
       'List suppressed email addresses at organization, sender identity, or list scope.',
@@ -791,54 +782,54 @@ const TOOLS: Tool[] = [
     annotations: { title: 'Get Email Template', readOnlyHint: true },
   },
   {
-    name: 'start_email_list_import',
+    name: 'import_contact_list',
     description:
-      'Import a CSV of contacts into an email list. The server fetches source_url over https ' +
-      '(50 MB cap) and writes the contacts in one call, so this changes who a campaign will ' +
-      'reach. Omit mapping to let the server recognize a common ESP export; if no email column ' +
-      'is found the call returns 400 with the headers it read, so retry with a mapping. ' +
-      'The consent source records how these people agreed to hear from you and is required. ' +
-      'Requires confirm: true.',
+      'Import a CSV of contacts as a new list of phones, emails, or both. The server fetches ' +
+      'source_url over https (50 MB cap), so this changes who a project or email campaign will ' +
+      'reach. Name phone_column, email_column, or both; there is no automatic email column ' +
+      'detection. consent_source is optional and allowed only for an audience list with an email column. With merge_tags, phones map only the named columns while emails also map every remaining column. purpose ' +
+      'do_not_contact turns phones into an opt-out list and emails into unsubscribes, and ' +
+      'returns no list_id. Poll get_contact_list: import is the phone side and email.status is the email side. Requires confirm: true.',
     inputSchema: {
       type: 'object',
       properties: {
         confirm: confirmParam,
         source_url: { type: 'string', description: 'https URL of the CSV file.' },
-        name: {
+        list_name: { type: 'string', description: 'Name for the new list, 1-255 characters.' },
+        organization_id: { type: 'string', description: 'Target organization. Defaults to the key owner.' },
+        brand_id: { type: 'string', description: 'Scope the list to this brand.' },
+        purpose: {
           type: 'string',
-          description:
-            'Name for the list this file becomes. Defaults to the file name. The file IS the list: an import creates one rather than adding to an existing list.',
+          enum: ['audience', 'do_not_contact'],
+          description: 'audience (the default) makes a list you can send to; do_not_contact makes opt-outs and unsubscribes.',
         },
-        email_domain_id: {
-          type: 'string',
+        phone_column: { type: 'string', description: 'CSV column that holds the phone number.' },
+        email_column: { type: 'string', description: 'CSV column that holds the email address.' },
+        merge_tags: {
+          type: 'object',
           description:
-            'Scope the new list to one sending domain. Omit for an organization-wide list any campaign can use.',
+            'Maps CSV columns to merge fields: first_name, last_name, address, address_line_2, city, ' +
+            'state, zip (each a CSV column name), and custom_fields [{ csv_column, merge_tag }]. Omit ' +
+            'it and every other column gets a merge tag automatically; with it, emails still map every remaining column by default name.',
         },
         consent_source: {
           type: 'string',
-          description: 'How the people in this file consented to hear from you.',
-          enum: [
-            'donation_form',
-            'petition',
-            'signup_form',
-            'event',
-            'purchased',
-            'rented',
-            'other',
-          ],
+          description:
+            'How the people in this file agreed to hear from you. Optional; allowed only for an audience list with an email column, refused otherwise.',
+          enum: ['donation_form', 'petition', 'signup_form', 'event', 'purchased', 'rented', 'other'],
         },
         consent_note: { type: 'string', description: 'Optional detail about the consent, up to 1000 characters.' },
-        mapping: {
-          type: 'object',
-          description: 'CSV header to contact field. Omit to use the server recognizer.',
-          additionalProperties: { type: 'string' },
+        email_domain_id: {
+          type: 'string',
+          description: 'Scope the emails to one sending domain. Omit for the whole organization.',
         },
+        acquired: { type: 'boolean', description: 'Optional, default false. The emails were purchased or rented; the list is sent more gradually.' },
       },
-      required: ['confirm', 'source_url', 'consent_source'],
+      required: ['confirm', 'source_url', 'list_name'],
       additionalProperties: false,
     },
     annotations: {
-      title: 'Start Email List Import',
+      title: 'Import Contact List',
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -853,10 +844,8 @@ const CONFIRM_REQUIRED = new Set([
   // Sends a real SMS and spends money.
   'reply_to_conversation',
   'schedule_email_campaign',
-  // Spends $3.00 per finished draft.
-  'create_email_template_draft',
   // Writes contacts into a list, changing who a campaign reaches.
-  'start_email_list_import',
+  'import_contact_list',
 ]);
 
 function textResult(value: unknown): CallToolResult {
@@ -958,6 +947,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
         await client.listContactLists({
           organization_id: opt(args, 'organization_id'),
           brand_id: opt(args, 'brand_id'),
+          channel: opt(args, 'channel') as ListContactListsQuery['channel'],
         }),
       );
     case 'get_contact_list':
@@ -1079,15 +1069,6 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       return textResult(await client.getEmailDomain(s(args, 'id')));
     case 'list_email_senders':
       return textResult(await client.listEmailSenders());
-    case 'list_email_lists':
-      return textResult(
-        await client.listEmailLists({
-          limit: optNum(args, 'limit'),
-          cursor: opt(args, 'cursor'),
-          search: opt(args, 'search'),
-          source_type: opt(args, 'source_type') as never,
-        }),
-      );
     case 'list_email_suppressions':
       return textResult(
         await client.listEmailSuppressions({
@@ -1127,19 +1108,27 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       );
     case 'get_email_template':
       return textResult(await client.getEmailTemplate(s(args, 'id')));
-    case 'start_email_list_import':
+    case 'import_contact_list':
       return textResult(
-        await client.startEmailListImport({
+        await client.importContactList({
           source_url: s(args, 'source_url'),
-          ...(args.name === undefined ? {} : { name: s(args, 'name') }),
-          ...(args.email_domain_id === undefined
+          list_name: s(args, 'list_name'),
+          organization_id: opt(args, 'organization_id'),
+          brand_id: opt(args, 'brand_id'),
+          purpose: opt(args, 'purpose') as ContactListImportPurpose | undefined,
+          phone_column: opt(args, 'phone_column'),
+          email_column: opt(args, 'email_column'),
+          merge_tags: args.merge_tags as MergeTagMapping | undefined,
+          ...(args.consent_source === undefined
             ? {}
-            : { email_domain_id: s(args, 'email_domain_id') }),
-          consent: {
-            source: s(args, 'consent_source') as EmailListImportConsentSource,
-            ...(args.consent_note === undefined ? {} : { note: s(args, 'consent_note') }),
-          },
-          mapping: args.mapping as Record<string, string> | undefined,
+            : {
+                consent: {
+                  source: s(args, 'consent_source') as ContactListConsentSource,
+                  ...(args.consent_note === undefined ? {} : { note: s(args, 'consent_note') }),
+                },
+              }),
+          email_domain_id: opt(args, 'email_domain_id'),
+          ...(args.acquired === undefined ? {} : { acquired: args.acquired === true }),
         }),
       );
 
@@ -1150,7 +1139,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.18.0' },
+    { name: 'political-comms', version: '0.19.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 
@@ -1165,7 +1154,7 @@ async function start(): Promise<void> {
 
     if (CONFIRM_REQUIRED.has(name) && args.confirm !== true) {
       return errorResult(
-        `Refusing to run ${name}: it stages or sends real political text messages and incurs cost. ` +
+        `Refusing to run ${name}: it sends real messages, spends money, or writes contacts. ` +
           'Ask the user to confirm the exact action, then call the tool again with confirm: true.',
       );
     }

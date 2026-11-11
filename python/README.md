@@ -83,7 +83,7 @@ A conversation is one thread between one of your sending numbers and one
 contact, created by a project send. The API never creates a conversation; it
 replies inside an existing one, from the same number, on the same project.
 `list_conversations` and `list_conversation_messages` are keyset paginated
-like the email lists.
+like the email endpoints.
 
 ```python
 # Reply to an inbound message.replied webhook.
@@ -103,13 +103,13 @@ for conversation in page["data"]:
 ## Email
 
 The `/v1/email` surface is wrapped in full: sending domains, sender identities,
-lists and contacts, list imports, suppressions, templates, and campaigns.
+suppressions, templates, and campaigns.
 Paid and human-driven workflows (AI drafting, result exports)
 and deliverability triage (pausing a live send) run in the dashboard.
 **Write methods need the email entitlement on the organization and return
 `403 ENTITLEMENT_REQUIRED` without it. Reads are open.**
 
-Email lists are keyset paginated: the payload is
+Email endpoints are keyset paginated: the payload is
 `{ data, has_more, next_cursor }`. Page until `next_cursor` is null, and never
 parse or construct a cursor.
 
@@ -148,21 +148,37 @@ set to `"TEMPLATE_IS_DOCUMENT"`.
 
 ### List imports
 
-`start_email_list_import` fetches a CSV you host over https (50 MB cap) and
-commits it in one call. Omit `mapping` to let the server recognize a common ESP
-export; when neither your mapping nor the recognizer finds an email column the
-call is a `400 VALIDATION_ERROR` whose `details["headers"]` lists the headers
-that were read, so you can retry with a mapping instead of guessing. The call
-returns 202; the import's progress is shown on the list in the dashboard.
+`import_contact_list` is the one list import, for phones, emails, or both. The
+server fetches a CSV you host over https (50 MB cap) and returns 202. Name the
+columns: `phone_column`, `email_column`, or both (there is no automatic email
+column detection). `consent` is optional and allowed only for an `audience` list with emails; with `merge_tags`, phones map only the named columns while emails also map every remaining column.
+`purpose="do_not_contact"` turns phones into an opt-out list and emails into
+unsubscribes, and returns no `list_id`. For an audience import, poll
+`get_contact_list(id)`: `import` is the phone side and `email.status` is the
+email side.
 
 ```python
-started = client.start_email_list_import(
+started = client.import_contact_list(
     "https://example.com/donors.csv",
-    "lst_1",
-    {"source": "donation_form", "note": "ActBlue donors, 2026 cycle"},
+    "August donors",
+    phone_column="Phone",
+    email_column="Email",
+    merge_tags={"first_name": "First Name"},
+    consent={"source": "donation_form", "note": "ActBlue donors, 2026 cycle"},
 )["data"]
-print(started["id"])
+if started["purpose"] == "audience":
+    print(started["list_id"], started["channels"])
 ```
+
+`list_contact_lists` returns the lists that hold phone numbers by default; pass
+`channel="email"` or `channel="all"` for the others. Each list reports its
+`channels` and its `email` side (null when it has none).
+`delete_contact_list` removes a list's phone numbers and its emails.
+
+Email addresses reach a list only through `import_contact_list` with `email_column`
+(a CSV import creates the list, with the email side). Poll `get_contact_list` and
+read `email.status` and `email.counts`; read unsubscribes and bounces with
+`list_email_suppressions`.
 
 ## Error handling
 

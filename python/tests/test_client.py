@@ -58,6 +58,74 @@ class TestContactListDownload:
         assert exc.value.status_code == 409
 
 
+class TestContactListImport:
+    def test_email_only_import_sends_consent_and_no_phone_column(self):
+        seen = {}
+
+        def handler(request):
+            seen["url"] = str(request.url)
+            seen["body"] = json.loads(request.content)
+            seen["idem"] = request.headers.get("Idempotency-Key")
+            return httpx.Response(
+                202,
+                json={
+                    "success": True,
+                    "data": {
+                        "list_id": "cl_1",
+                        "purpose": "audience",
+                        "channels": ["email"],
+                        "email_import": {"id": "imp_1", "status": "queued"},
+                    },
+                },
+            )
+
+        client = make_client(handler)
+        data = client.import_contact_list(
+            "https://example.com/donors.csv",
+            "Donors",
+            email_column="Email",
+            consent={"source": "donation_form"},
+            acquired=False,
+        )["data"]
+        assert seen["url"].endswith("/contact-lists/import")
+        assert seen["body"] == {
+            "source_url": "https://example.com/donors.csv",
+            "list_name": "Donors",
+            "email_column": "Email",
+            "consent": {"source": "donation_form"},
+            "acquired": False,
+        }
+        assert UUID_RE.match(seen["idem"])
+        assert data["channels"] == ["email"]
+
+    def test_do_not_contact_import_sends_purpose(self):
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(
+                202, json={"success": True, "data": {"purpose": "do_not_contact", "channels": ["text"]}}
+            )
+
+        client = make_client(handler)
+        data = client.import_contact_list(
+            "https://example.com/dnc.csv", "DNC", "Phone", purpose="do_not_contact"
+        )["data"]
+        assert seen["body"]["purpose"] == "do_not_contact"
+        assert seen["body"]["phone_column"] == "Phone"
+        assert "list_id" not in data
+
+    def test_list_contact_lists_forwards_channel(self):
+        seen = {}
+
+        def handler(request):
+            seen["url"] = str(request.url)
+            return ok_response([])
+
+        make_client(handler).list_contact_lists(channel="all")
+        assert seen["url"].endswith("/contact-lists?channel=all")
+
+
 class TestConstructor:
     def test_missing_key_raises_clear_error(self, monkeypatch):
         monkeypatch.delenv("POLITICAL_COMMS_API_KEY", raising=False)

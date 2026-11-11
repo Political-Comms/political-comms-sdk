@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.19.0] - 2026-11-10
+
+### Breaking
+- Breaking: `startEmailListImport` is removed, with `StartEmailListImportRequest`, `EmailListImport`, and `EmailListImportSummary`, because `POST /email/lists/import` no longer exists. `EmailListImportConsentSource` is now `ContactListConsentSource`. Use `importContactList` instead:
+  - `name` becomes `list_name`, now required.
+  - The `mapping` entry whose value is `email` becomes `email_column`; the email column is no longer detected automatically.
+  - Other `mapping` entries become `merge_tags` (`first_name`, `last_name`, `address`, `address_line_2`, `city`, `state`, `zip`, `custom_fields`).
+  - `email_domain_id` and `acquired` carry over unchanged; `consent` is now optional (allowed only for an audience list with an `email_column`).
+  - Poll `getContactList(list_id)` for both sides: `import` is the phone side and `email.status` is the email side.
+- Breaking: the `/email/lists` family is removed from the API (404, not deprecated), so these methods and types are removed: `listEmailLists`, `getEmailList`, `createEmailList`, `listEmailListContacts`, `addEmailListContacts`, `EmailList`, `EmailListCounts`, `EmailListSourceType`, `EmailConsentAttestation`, `ListEmailListsQuery`, `CreateEmailListRequest`. Migrate to the one list family on `/contact-lists`:
+  - `listEmailLists` becomes `listContactLists({ channel: 'email' })` (or `'all'`); each row's email fields are under `email`.
+  - `getEmailList(id)` becomes `getContactList(id)`; read the email fields under `email` (`email.status`, `email.counts`, `email.quality_grade`).
+  - `createEmailList` and `addEmailListContacts` have no replacement: an email list is a contact list, and addresses reach it only through `importContactList` with `email_column` (a CSV import creates the list). `ListEmailContactsQuery`, `EmailListContact`, `EmailContactInput`, `EmailContactStatus`, `BulkUpsertResult`, and `RemoveEmailContactsResult` are removed with them.
+  - `listEmailListContacts` has no replacement: read the counts with `getContactList(id)` (`email.counts`) and the unsubscribes and bounces with `listEmailSuppressions`.
+- Breaking: `ContactListImportResult` is a union on `purpose`. A `do_not_contact` result has no `list_id` and no `imported_via_api`, so check `purpose` before reading `list_id`.
+
+### Added
+- `importContactList` is the one list import, for phones, emails, or both. `ImportContactListRequest` gains `purpose` (`audience` or `do_not_contact`), `email_column`, `consent`, `email_domain_id`, and `acquired`; `phone_column` is now optional (send it, `email_column`, or both). The result gains `purpose`, `channels`, and `email_import`.
+- `ContactList` and `ContactListDetail` report `channels` (`text`, `email`) and `email` (a `ContactListEmail`, or null when the list has no email side).
+- `listContactLists` accepts `channel` (`text`, the default, `email`, or `all`).
+
+### Changed
+- `deleteContactList` documents that it removes the list's emails too.
+
 ## [0.18.0] - 2026-10-31
 
 ### Added
