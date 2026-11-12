@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.20.0] - 2026-11-12
+
+### Added
+- Triggered projects and email campaigns: items with no contact list whose recipients arrive when a trigger fires. New `Trigger` type (a union on `source`: `api`, `donation`, or `event`), with `TriggerDonation`, `TriggerEvent`, and `TriggerReentry`.
+- `startProject(id)` starts or resumes a triggered project and `endProject(id)` ends it for good (`POST /projects/{id}/start` and `/end`).
+- `addProjectRecipient(id, body)` and `addEmailCampaignRecipient(id, body)` add one recipient and resolve with `AddRecipientResponse`: `queued` (with `send_at`) or `already_entered` (with `reason`). `occurrence_id` makes a retry of the same event a no-op.
+- `createProjectHook(id)` and `createEmailCampaignHook(id)` mint the inbound hook URL (`TriggerHookResponse`); the URL is shown once and replaces any previous one.
+- `endEmailCampaign(id)` ends a triggered email campaign (`POST /email/campaigns/{id}/end`). Start one with `scheduleEmailCampaign(id)` and no `scheduled_at`.
+- `CreateProjectRequest` is now a union: the existing list-based request, or `CreateTriggeredProjectRequest` (`type: 'triggered'`, `trigger`, no list ids). `ProjectType` gains `'triggered'`; `UpdateProjectRequest` and `ProjectDetail` gain `trigger`; `ProjectStatsRow` gains `waiting_recipients` and `skipped_recipients`.
+- `CreateEmailCampaignRequest` gains `trigger`, and `list_ids` is optional when a trigger is given. `EmailCampaign` gains `type` (`broadcast`, `sequence`, or `triggered`) and `trigger`.
+
 ## [0.19.0] - 2026-11-10
 
 ### Breaking

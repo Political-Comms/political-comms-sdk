@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.0] - 2026-11-12
+
+### Added
+- `projects start <id>` starts or resumes a triggered project and `projects end <id>` ends it for good.
+
+### Changed
+- Requires `@political-comms/sdk` ^0.20.0.
+
 ## [0.19.0] - 2026-11-10
 
 ### Breaking

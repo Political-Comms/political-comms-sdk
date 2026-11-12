@@ -1,5 +1,8 @@
 import { PoliticalCommsError } from './error';
 import type {
+  AddEmailCampaignRecipientRequest,
+  AddProjectRecipientRequest,
+  AddRecipientResponse,
   AllProjectStats,
   ApiResponse,
   Brand,
@@ -63,6 +66,9 @@ import type {
   UnscheduleProjectResult,
   PauseProjectRequest,
   PauseProjectResult,
+  StartProjectResult,
+  EndProjectResult,
+  TriggerHookResponse,
   UpdateProjectRequest,
   UpdateProjectResult,
   // Email
@@ -595,6 +601,50 @@ export class PoliticalCommsClient {
   }
 
   /**
+   * POST /projects/{id}/start. Starts or resumes a triggered project (test it
+   * first with `testProject`; stop it with `pauseProject`). Throws a 409
+   * `CONFLICT` for a project that is not triggered.
+   */
+  startProject(id: string, options?: RequestOptions): Promise<ApiResponse<StartProjectResult>> {
+    return this.request('POST', `/projects/${encodeURIComponent(id)}/start`, undefined, undefined, options);
+  }
+
+  /**
+   * POST /projects/{id}/end. Completes a triggered project; final. Recipients
+   * still waiting are not sent. Throws a 409 `CONFLICT` if the project is not
+   * triggered or was never started.
+   */
+  endProject(id: string, options?: RequestOptions): Promise<ApiResponse<EndProjectResult>> {
+    return this.request('POST', `/projects/${encodeURIComponent(id)}/end`, undefined, undefined, options);
+  }
+
+  /**
+   * POST /projects/{id}/recipients. Adds one recipient to an active triggered
+   * project. Resolves with `queued` (202, with `send_at`) or `already_entered`
+   * (200, with `reason`). Throws a 409 `CONTACT_OPTED_OUT`, a 409 `CONFLICT`
+   * (not triggered, or not active, which includes paused), a 422
+   * `VALIDATION_ERROR` (`error.body.details` has `field` and `reason`), or a
+   * 404 `PROJECT_NOT_FOUND`. Send `occurrence_id` so a retry of the same event
+   * is a no-op.
+   */
+  addProjectRecipient(
+    id: string,
+    body: AddProjectRecipientRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<AddRecipientResponse>> {
+    return this.request('POST', `/projects/${encodeURIComponent(id)}/recipients`, undefined, body, options);
+  }
+
+  /**
+   * POST /projects/{id}/hook. Mints the inbound hook URL for a triggered
+   * project (any tool that can POST, such as Zapier, Make, or n8n). The URL is
+   * shown only in this response and any previous URL stops working at once.
+   */
+  createProjectHook(id: string, options?: RequestOptions): Promise<ApiResponse<TriggerHookResponse>> {
+    return this.request('POST', `/projects/${encodeURIComponent(id)}/hook`, undefined, undefined, options);
+  }
+
+  /**
    * POST /projects/{id}/copy. Returns `403 ONBOARDING_INCOMPLETE` if the
    * organization's 14-day setup grace window has passed and the business
    * profile or funding step is still incomplete; see {@link createProject}.
@@ -931,6 +981,33 @@ export class PoliticalCommsClient {
       undefined,
       options,
     );
+  }
+
+  /**
+   * POST /email/campaigns/{id}/end. Completes a triggered campaign; final.
+   * Throws a 409 `CONFLICT` unless it is a triggered campaign that is sending
+   * or paused. To start one, call `scheduleEmailCampaign` with no `scheduled_at`.
+   */
+  endEmailCampaign(id: string, options?: RequestOptions): Promise<ApiResponse<EmailCampaign>> {
+    return this.request('POST', `/email/campaigns/${encodeURIComponent(id)}/end`, undefined, undefined, options);
+  }
+
+  /**
+   * POST /email/campaigns/{id}/recipients. Adds one recipient to a triggered
+   * campaign; same answers as `addProjectRecipient` (422 reasons name why the
+   * address cannot be sent to).
+   */
+  addEmailCampaignRecipient(
+    id: string,
+    body: AddEmailCampaignRecipientRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<AddRecipientResponse>> {
+    return this.request('POST', `/email/campaigns/${encodeURIComponent(id)}/recipients`, undefined, body, options);
+  }
+
+  /** POST /email/campaigns/{id}/hook. Mints the inbound hook URL; see `createProjectHook`. */
+  createEmailCampaignHook(id: string, options?: RequestOptions): Promise<ApiResponse<TriggerHookResponse>> {
+    return this.request('POST', `/email/campaigns/${encodeURIComponent(id)}/hook`, undefined, undefined, options);
   }
 
   /** GET /email/campaigns/{id}/stats. Cached 60s. */

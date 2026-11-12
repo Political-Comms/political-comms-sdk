@@ -73,9 +73,47 @@ client.schedule_project(project_id, "2026-11-03T09:00:00", "America/New_York")
 # )
 ```
 
-One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `get_campaign_throughput`, `list_tracking_domains`, `list_phone_numbers`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `download_contact_list`, `delete_contact_list`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `get_project_survey_results`, `get_project_throughput`, `test_project`, `schedule_project`, `unschedule_project`, `pause_project`, `copy_project`, `list_conversations`, `get_conversation`, `list_conversation_messages`, `reply_to_conversation`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
+One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `get_campaign_throughput`, `list_tracking_domains`, `list_phone_numbers`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `download_contact_list`, `delete_contact_list`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `get_project_survey_results`, `get_project_throughput`, `test_project`, `schedule_project`, `unschedule_project`, `pause_project`, `start_project`, `end_project`, `add_project_recipient`, `create_project_hook`, `copy_project`, `list_conversations`, `get_conversation`, `list_conversation_messages`, `reply_to_conversation`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
 
 Every method returns the parsed JSON response, a dict of the form `{"success": True, "data": ...}`.
+
+## Triggered projects and campaigns
+
+A triggered text project or email campaign has no contact list. Recipients arrive one at a
+time when its `trigger` fires, and each gets its one message, immediately or after
+`delay_minutes`. It stays active until paused or ended. A trigger `source` is `donation`
+(a connected WinRed or Anedot list), `event` (a text link click, text reply, email open,
+email click, or email reply in another project or campaign), or `api` (you add the
+recipient, or a tool POSTs to the inbound hook URL).
+
+```python
+project = client.create_project(
+    "org_1", "Donor thank-you", "sms", "Thanks {first_name}!", ["pn_1"],
+    type="triggered",
+    trigger={
+        "source": "donation",
+        "donation": {"integrations": [{"provider": "winred", "id": "int_1"}]},
+        "delay_minutes": 10,
+        "reentry": {"mode": "once"},
+    },
+)["data"]
+client.test_project(project["project_id"], [{"phone": "+12025550141"}])
+client.start_project(project["project_id"])
+
+# source "api" triggers: add one recipient. occurrence_id makes a retry of the same event a no-op.
+result = client.add_project_recipient(
+    project["project_id"], "+12025550141",
+    fields={"first_name": "Ada", "amount": 25}, occurrence_id="evt_123",
+)["data"]  # {"status": "queued", "send_at": ...} or {"status": "already_entered", "reason": ...}
+
+hook_url = client.create_project_hook(project["project_id"])["data"]["hook_url"]  # shown only once
+client.end_project(project["project_id"])  # final: recipients still waiting are not sent
+```
+
+Email campaigns work the same way: `create_email_campaign(name, sender_identity_id, trigger=...)`
+with no `list_ids`, `schedule_email_campaign(id)` with no `scheduled_at` to start, then
+`add_email_campaign_recipient`, `create_email_campaign_hook`, and `end_email_campaign`. While
+paused, new recipients are refused with a 409, not queued.
 
 ## Conversations
 

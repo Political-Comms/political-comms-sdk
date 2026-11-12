@@ -988,3 +988,174 @@ describe('media usage', () => {
     expect(JSON.parse(init.body as string)).not.toHaveProperty('usage');
   });
 });
+
+describe('triggered projects and campaigns', () => {
+  const base = 'https://api.politicalcomms.com/v1';
+
+  function call(fetchMock: ReturnType<typeof vi.fn>): { url: string; init: RequestInit; headers: Record<string, string> } {
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    return { url, init, headers: init.headers as Record<string, string> };
+  }
+
+  it('POSTs a triggered project with its trigger and no list ids', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ project_id: 'proj_1', type: 'triggered' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.createProject({
+      type: 'triggered',
+      organization_id: 'org_1',
+      phone_number_ids: ['pn_1'],
+      name: 'Thank you',
+      protocol: 'sms',
+      message_text: 'Thanks {first_name}',
+      trigger: {
+        source: 'donation',
+        delay_minutes: 5,
+        reentry: { mode: 'repeat', min_gap_hours: 24 },
+        donation: { integrations: [{ provider: 'winred', id: 'int_1' }], donor: 'first_time' },
+      },
+    });
+    const { url, init } = call(fetchMock);
+    expect(url).toBe(`${base}/projects`);
+    const body = JSON.parse(init.body as string);
+    expect(body.type).toBe('triggered');
+    expect(body.trigger.donation.integrations[0]).toEqual({ provider: 'winred', id: 'int_1' });
+    expect(body).not.toHaveProperty('contact_list_ids');
+  });
+
+  it('PATCHes a trigger on updateProject', async () => {
+    const fetchMock = vi.fn(async () => okResponse({}));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.updateProject('proj_1', { trigger: { source: 'api', delay_minutes: 0, reentry: { mode: 'once' } } });
+    const { init } = call(fetchMock);
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body as string)).toEqual({
+      trigger: { source: 'api', delay_minutes: 0, reentry: { mode: 'once' } },
+    });
+  });
+
+  it('startProject POSTs without a body', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ project_id: 'proj_1', status: 'active', type: 'triggered' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.startProject('proj_1', { idempotencyKey: 'start-1' });
+    const { url, init, headers } = call(fetchMock);
+    expect(url).toBe(`${base}/projects/proj_1/start`);
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect(headers['Idempotency-Key']).toBe('start-1');
+  });
+
+  it('endProject POSTs without a body', async () => {
+    const fetchMock = vi.fn(async () => okResponse({}));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.endProject('proj_1');
+    const { url, init, headers } = call(fetchMock);
+    expect(url).toBe(`${base}/projects/proj_1/end`);
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect(headers['Idempotency-Key']).toMatch(UUID_RE);
+  });
+
+  it('addProjectRecipient POSTs the recipient and returns the queued answer', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ status: 'queued', send_at: '2026-11-13T14:00:00.000Z' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.addProjectRecipient(
+      'proj_1',
+      { phone_number: '+12025550141', fields: { first_name: 'Ada', amount: 25 }, occurrence_id: 'evt_123' },
+      { idempotencyKey: 'add-1' },
+    );
+    const { url, init, headers } = call(fetchMock);
+    expect(url).toBe(`${base}/projects/proj_1/recipients`);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      phone_number: '+12025550141',
+      fields: { first_name: 'Ada', amount: 25 },
+      occurrence_id: 'evt_123',
+    });
+    expect(headers['Idempotency-Key']).toBe('add-1');
+    expect(res.data).toEqual({ status: 'queued', send_at: '2026-11-13T14:00:00.000Z' });
+  });
+
+  it('addProjectRecipient maps a 409 CONTACT_OPTED_OUT to PoliticalCommsError', async () => {
+    const fetchMock = vi.fn(async () => errorResponse(409, 'CONTACT_OPTED_OUT'));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await expect(client.addProjectRecipient('proj_1', { phone_number: '+12025550141' })).rejects.toMatchObject({
+      code: 'CONTACT_OPTED_OUT',
+      statusCode: 409,
+    });
+  });
+
+  it('createProjectHook POSTs without a body', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(201, { success: true, data: { hook_url: 'https://api.politicalcomms.com/webhooks/trigger/text/proj_1/s3cret' } }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.createProjectHook('proj_1');
+    const { url, init, headers } = call(fetchMock);
+    expect(url).toBe(`${base}/projects/proj_1/hook`);
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect(headers['Idempotency-Key']).toMatch(UUID_RE);
+    expect(res.data.hook_url).toContain('/webhooks/trigger/text/proj_1/');
+  });
+
+  it('createEmailCampaign accepts a trigger without list_ids', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ id: 'camp_1', type: 'triggered' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.createEmailCampaign({
+      name: 'Welcome',
+      sender_identity_id: 'sid_1',
+      template_id: 'tpl_1',
+      trigger: {
+        source: 'event',
+        event: { event: 'email_click', sources: { ids: ['camp_0'] }, link_url: 'https://example.org/give' },
+      },
+    });
+    const { url, init } = call(fetchMock);
+    expect(url).toBe(`${base}/email/campaigns`);
+    const body = JSON.parse(init.body as string);
+    expect(body.trigger.event.event).toBe('email_click');
+    expect(body).not.toHaveProperty('list_ids');
+  });
+
+  it('endEmailCampaign POSTs without a body', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ id: 'camp_1', status: 'completed' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.endEmailCampaign('camp_1', { idempotencyKey: 'end-1' });
+    const { url, init, headers } = call(fetchMock);
+    expect(url).toBe(`${base}/email/campaigns/camp_1/end`);
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect(headers['Idempotency-Key']).toBe('end-1');
+  });
+
+  it('addEmailCampaignRecipient POSTs the recipient and returns already_entered', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ status: 'already_entered', reason: 'duplicate' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.addEmailCampaignRecipient(
+      'camp_1',
+      { email: 'ada@example.org', fields: { first_name: 'Ada' }, occurrence_id: 'evt_9' },
+      { idempotencyKey: 'add-2' },
+    );
+    const { url, init, headers } = call(fetchMock);
+    expect(url).toBe(`${base}/email/campaigns/camp_1/recipients`);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      email: 'ada@example.org',
+      fields: { first_name: 'Ada' },
+      occurrence_id: 'evt_9',
+    });
+    expect(headers['Idempotency-Key']).toBe('add-2');
+    expect(res.data).toEqual({ status: 'already_entered', reason: 'duplicate' });
+  });
+
+  it('createEmailCampaignHook POSTs without a body', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(201, { success: true, data: { hook_url: 'https://x/webhooks/trigger/email/camp_1/s' } }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.createEmailCampaignHook('camp_1');
+    const { url, init, headers } = call(fetchMock);
+    expect(url).toBe(`${base}/email/campaigns/camp_1/hook`);
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect(headers['Idempotency-Key']).toMatch(UUID_RE);
+  });
+});

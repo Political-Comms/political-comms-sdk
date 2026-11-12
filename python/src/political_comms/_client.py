@@ -405,6 +405,8 @@ class PoliticalCommsClient:
         link_tracking_param_field: Optional[str] = None,
         link_tracking_fallback_url: Optional[str] = None,
         opt_out_footer_enabled: Optional[bool] = None,
+        type: Optional[str] = None,
+        trigger: Optional[JsonDict] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /projects
@@ -416,6 +418,13 @@ class PoliticalCommsClient:
         ``onboardingUrl``. Returns ``409 SENDING_PAUSED`` if sending is
         paused for the organization or platform-wide; the error's
         ``body["details"]["scope"]`` is ``"organization"`` or ``"platform"``.
+
+        ``type`` is ``"broadcast"`` (default), ``"survey"``, or ``"triggered"``.
+        A triggered project has no contact list: pass ``type="triggered"`` and a
+        ``trigger`` dict (``{"source": "api" | "donation" | "event", ...}``,
+        with optional ``delay_minutes`` and ``reentry``) and leave out
+        ``contact_list_ids`` and ``suppression_list_ids``. Test it with
+        :meth:`test_project`, then :meth:`start_project`.
 
         ``contact_list_ids`` is optional: omitting it creates the project in
         draft status, and it cannot be tested or scheduled until a list is
@@ -455,6 +464,8 @@ class PoliticalCommsClient:
                 "link_tracking_param_field": link_tracking_param_field,
                 "link_tracking_fallback_url": link_tracking_fallback_url,
                 "opt_out_footer_enabled": opt_out_footer_enabled,
+                "type": type,
+                "trigger": trigger,
             }
         )
         return self._request("POST", "/projects", body=body, idempotency_key=idempotency_key)
@@ -512,6 +523,7 @@ class PoliticalCommsClient:
         link_tracking_param_field: Optional[str] = None,
         link_tracking_fallback_url: Optional[str] = None,
         opt_out_footer_enabled: Optional[bool] = None,
+        trigger: Optional[JsonDict] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """PATCH /projects/{id}
@@ -536,7 +548,8 @@ class PoliticalCommsClient:
         ``opt_out_footer_enabled`` toggles the automatic "STOP=END" footer.
         ``link_tracking_fallback_url`` is required whenever
         ``link_tracking_destination_url`` is a whole-URL placeholder such as
-        ``https://{custom_url}``; see ``create_project``.
+        ``https://{custom_url}``; see ``create_project``. ``trigger`` replaces
+        the trigger of a triggered project (triggered projects only).
         """
         body = _compact(
             {
@@ -557,6 +570,7 @@ class PoliticalCommsClient:
                 "link_tracking_param_field": link_tracking_param_field,
                 "link_tracking_fallback_url": link_tracking_fallback_url,
                 "opt_out_footer_enabled": opt_out_footer_enabled,
+                "trigger": trigger,
             }
         )
         return self._request("PATCH", f"/projects/{id}", body=body, idempotency_key=idempotency_key)
@@ -704,6 +718,68 @@ class PoliticalCommsClient:
         return self._request(
             "POST", f"/projects/{id}/pause", body=body, idempotency_key=idempotency_key
         )
+
+    def start_project(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+        """POST /projects/{id}/start
+
+        Starts or resumes a triggered project (test it first with
+        :meth:`test_project`; stop it with :meth:`pause_project`). Raises a 409
+        ``CONFLICT`` for a project that is not triggered.
+        """
+        return self._request("POST", f"/projects/{id}/start", idempotency_key=idempotency_key)
+
+    def end_project(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+        """POST /projects/{id}/end
+
+        Completes a triggered project; final. Recipients still waiting are not
+        sent. Raises a 409 ``CONFLICT`` if the project is not triggered or was
+        never started.
+        """
+        return self._request("POST", f"/projects/{id}/end", idempotency_key=idempotency_key)
+
+    def add_project_recipient(
+        self,
+        id: str,
+        phone_number: str,
+        *,
+        fields: Optional[JsonDict] = None,
+        occurrence_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> JsonDict:
+        """POST /projects/{id}/recipients
+
+        Adds one recipient to an active triggered project. ``phone_number`` is
+        +1 E.164. ``fields`` (up to 50 keys, scalar values) are merge tags in
+        the message and are stored on the recipient. ``occurrence_id`` (up to
+        128 characters) is your id for the event, so a retry of the same event
+        is a no-op.
+
+        ``data`` is ``{"status": "queued", "send_at": ...}`` (202) or
+        ``{"status": "already_entered", "reason": "duplicate" | "already_entered"
+        | "too_soon"}`` (200). Raises a 409 ``CONTACT_OPTED_OUT``, a 409
+        ``CONFLICT`` (not triggered, or not active, which includes paused), a
+        422 ``VALIDATION_ERROR`` (``body["details"]`` has ``field`` and
+        ``reason``), or a 404 ``PROJECT_NOT_FOUND``.
+        """
+        return self._request(
+            "POST",
+            f"/projects/{id}/recipients",
+            body=_compact(
+                {"phone_number": phone_number, "fields": fields, "occurrence_id": occurrence_id}
+            ),
+            idempotency_key=idempotency_key,
+        )
+
+    def create_project_hook(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+        """POST /projects/{id}/hook
+
+        Mints the inbound hook URL for a triggered project (any tool that can
+        POST, such as Zapier, Make, or n8n). ``data["hook_url"]`` carries the
+        secret in its path; ``data["endpoint_url"]`` has none and takes
+        ``data["secret"]`` in an ``X-Hook-Secret`` header. Both are shown only
+        in this response; any previous URL or secret stops working at once.
+        """
+        return self._request("POST", f"/projects/{id}/hook", idempotency_key=idempotency_key)
 
     def copy_project(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
         """POST /projects/{id}/copy
@@ -1025,7 +1101,7 @@ class PoliticalCommsClient:
         self,
         name: str,
         sender_identity_id: str,
-        list_ids: list[str],
+        list_ids: Optional[list[str]] = None,
         *,
         subject: Optional[str] = None,
         preheader: Optional[str] = None,
@@ -1039,9 +1115,17 @@ class PoliticalCommsClient:
         tracking_domain_id: Optional[str] = None,
         require_approval: Optional[bool] = None,
         sequence: Optional[JsonDict] = None,
+        trigger: Optional[JsonDict] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /email/campaigns.
+
+        ``trigger`` makes this a triggered campaign: no list, recipients arrive
+        when the trigger fires (``{"source": "api" | "donation" | "event", ...}``).
+        ``list_ids`` is required unless ``trigger`` is set, and a trigger cannot
+        be combined with ``list_ids`` or ``sequence`` (400). Start it with
+        :meth:`schedule_email_campaign` and no ``scheduled_at``; stop it with
+        :meth:`end_email_campaign`.
 
         ``sequence`` makes this campaign the first email of a sequence:
         ``{"stop_on_reply": True, "thread_replies": False, "steps": [{"template_id": ...,
@@ -1085,6 +1169,7 @@ class PoliticalCommsClient:
                     "tracking_domain_id": tracking_domain_id,
                     "require_approval": require_approval,
                     "sequence": sequence,
+                    "trigger": trigger,
                 }
             ),
             idempotency_key=idempotency_key,
@@ -1130,6 +1215,45 @@ class PoliticalCommsClient:
             f"/email/campaigns/{id}/unschedule",
             idempotency_key=idempotency_key,
         )
+
+    def end_email_campaign(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+        """POST /email/campaigns/{id}/end.
+
+        Completes a triggered campaign; final. Raises a 409 ``CONFLICT`` unless
+        it is a triggered campaign that is sending or paused.
+        """
+        return self._request("POST", f"/email/campaigns/{id}/end", idempotency_key=idempotency_key)
+
+    def add_email_campaign_recipient(
+        self,
+        id: str,
+        email: str,
+        *,
+        fields: Optional[JsonDict] = None,
+        occurrence_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> JsonDict:
+        """POST /email/campaigns/{id}/recipients.
+
+        Adds one recipient to a triggered campaign; same answers as
+        :meth:`add_project_recipient` (422 reasons name why the address cannot
+        be sent to).
+        """
+        return self._request(
+            "POST",
+            f"/email/campaigns/{id}/recipients",
+            body=_compact({"email": email, "fields": fields, "occurrence_id": occurrence_id}),
+            idempotency_key=idempotency_key,
+        )
+
+    def create_email_campaign_hook(
+        self, id: str, *, idempotency_key: Optional[str] = None
+    ) -> JsonDict:
+        """POST /email/campaigns/{id}/hook.
+
+        Mints the inbound hook URL; see :meth:`create_project_hook`.
+        """
+        return self._request("POST", f"/email/campaigns/{id}/hook", idempotency_key=idempotency_key)
 
     def get_email_campaign_stats(self, id: str) -> JsonDict:
         """GET /email/campaigns/{id}/stats.

@@ -26,6 +26,10 @@ const EXPECTED_TOOLS = [
   'schedule_project',
   'unschedule_project',
   'pause_project',
+  'start_project',
+  'end_project',
+  'add_project_recipient',
+  'create_project_hook',
   'copy_project',
   'list_conversations',
   'get_conversation',
@@ -42,6 +46,9 @@ const EXPECTED_TOOLS = [
   'get_email_campaign_stats',
   'schedule_email_campaign',
   'unschedule_email_campaign',
+  'end_email_campaign',
+  'add_email_campaign_recipient',
+  'create_email_campaign_hook',
   'list_email_templates',
   'get_email_template',
 ];
@@ -155,5 +162,30 @@ describe('political-comms MCP server (stdio)', () => {
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? '';
     expect(text).toContain('confirm: true');
+  });
+
+  it('refuses the triggered write tools that send without confirm: true', async () => {
+    for (const [name, args] of [
+      ['start_project', { confirm: false, id: 'proj_1' }],
+      ['add_project_recipient', { confirm: false, id: 'proj_1', phone_number: '+12025550141' }],
+      ['add_email_campaign_recipient', { confirm: false, id: 'camp_1', email: 'ada@example.org' }],
+    ] as const) {
+      const result = await client.callTool({ name, arguments: args });
+      expect(result.isError, name).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? '';
+      expect(text, name).toContain('confirm: true');
+    }
+  });
+
+  it('offers type and trigger on create_project and no longer requires contact_list_ids', async () => {
+    const result = await client.listTools();
+    const tool = result.tools.find((t) => t.name === 'create_project');
+    const schema = tool!.inputSchema as {
+      properties: Record<string, { enum?: string[] }>;
+      required: string[];
+    };
+    expect(schema.properties.type?.enum).toEqual(['broadcast', 'survey', 'triggered']);
+    expect(schema.properties.trigger).toBeTruthy();
+    expect(schema.required).not.toContain('contact_list_ids');
   });
 });

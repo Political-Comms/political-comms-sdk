@@ -33,6 +33,8 @@ projects test <id>               Send a test message (--phone, repeatable)
 projects schedule <id>           Schedule a send (--send-at, --timezone)
 projects unschedule <id>         Remove a schedule
 projects pause <id>              Pause a running or scheduled send ([--reason])
+projects start <id>              Start or resume a triggered project
+projects end <id>                End a triggered project (final)
 projects copy <id>               Copy a project (drops lists, schedule, stats)
 contact-lists list               List contact lists (--channel text|email|all;
                                  default text)

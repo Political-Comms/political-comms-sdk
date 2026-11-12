@@ -77,7 +77,54 @@ await client.scheduleProject(projectId, {
 });
 ```
 
-One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `getCampaignThroughput`, `listTrackingDomains`, `listPhoneNumbers`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `downloadContactList`, `deleteContactList`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `getProjectSurveyResults`, `getProjectThroughput`, `testProject`, `scheduleProject`, `unscheduleProject`, `pauseProject`, `copyProject`, `listConversations`, `getConversation`, `listConversationMessages`, `replyToConversation`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
+One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `getCampaignThroughput`, `listTrackingDomains`, `listPhoneNumbers`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `downloadContactList`, `deleteContactList`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `getProjectSurveyResults`, `getProjectThroughput`, `testProject`, `scheduleProject`, `unscheduleProject`, `pauseProject`, `startProject`, `endProject`, `addProjectRecipient`, `createProjectHook`, `copyProject`, `listConversations`, `getConversation`, `listConversationMessages`, `replyToConversation`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
+
+## Triggered projects and campaigns
+
+A triggered text project or email campaign has no contact list. Recipients arrive one at a
+time when its `trigger` fires, and each gets its one message, immediately or after
+`delay_minutes`. It stays active until paused or ended. A trigger `source` is `donation`
+(a connected WinRed or Anedot list), `event` (a text link click, text reply, email open,
+email click, or email reply in another project or campaign), or `api` (you add the
+recipient, or a tool POSTs to the inbound hook URL).
+
+```ts
+const { data: project } = await client.createProject({
+  type: 'triggered',
+  organization_id: 'org_1',
+  phone_number_ids: ['pn_1'],
+  name: 'Donor thank-you',
+  protocol: 'sms',
+  message_text: 'Thanks {first_name}, your ${amount} gift matters.',
+  trigger: {
+    source: 'donation',
+    donation: { integrations: [{ provider: 'winred', id: 'int_1' }], gift: 'one_time' },
+    delay_minutes: 10,
+    reentry: { mode: 'once' },
+  },
+});
+
+await client.testProject(project!.project_id!, { test_contacts: [{ phone: '+12025550141' }] });
+await client.startProject(project!.project_id!);
+
+// source: 'api' triggers: add one recipient. occurrence_id makes a retry of the same event a no-op.
+const { data } = await client.addProjectRecipient(id, {
+  phone_number: '+12025550141',
+  fields: { first_name: 'Ada', amount: 25 },
+  occurrence_id: 'evt_123',
+});
+if (data.status === 'queued') console.log('sends at', data.send_at);
+else console.log('skipped:', data.reason); // duplicate | already_entered | too_soon
+
+const { data: hook } = await client.createProjectHook(id); // hook.hook_url (or hook.endpoint_url + hook.secret in X-Hook-Secret), shown only once
+await client.endProject(id); // final: recipients still waiting are not sent
+```
+
+Email campaigns work the same way: `createEmailCampaign({ ..., trigger })` with no `list_ids`,
+`scheduleEmailCampaign(id)` with no `scheduled_at` to start, then `addEmailCampaignRecipient`,
+`createEmailCampaignHook`, and `endEmailCampaign`. While paused, new recipients are refused
+with a 409, not queued. Opted-out phone numbers and suppressed addresses are never sent to
+(409 `CONTACT_OPTED_OUT` or a 422).
 
 ## Conversations
 

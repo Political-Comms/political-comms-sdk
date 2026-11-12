@@ -686,9 +686,118 @@ export interface DeleteMediaResult {
 
 export type ProjectChannel = "10dlc" | "toll-free" | "short-code";
 export type ProjectProtocol = "sms" | "mms";
-export type ProjectType = "broadcast" | "survey";
+export type ProjectType = "broadcast" | "survey" | "triggered";
 export type ProjectStatsStatusFilter =
   "draft" | "active" | "completed" | "paused" | "all";
+
+/** How often one person can enter a triggered project or campaign. */
+export type TriggerReentry =
+  | { mode: "once" }
+  | { mode: "repeat"; /** 1-8760. */ min_gap_hours: number };
+
+export type TriggerDonationProvider = "winred" | "anedot";
+
+export interface TriggerDonation {
+  /** 1-20 connected WinRed or Anedot lists. */
+  integrations: Array<{ provider: TriggerDonationProvider; id: string }>;
+  /** Default `any`. `first_time` means no earlier gift on record for the organization. */
+  donor?: "any" | "first_time" | "returning";
+  /** Default `any`. */
+  gift?: "any" | "one_time" | "recurring";
+  /** Dollars, inclusive. */
+  amount_min?: number | null;
+  amount_max?: number | null;
+  /** Case-insensitive exact match; empty means any. */
+  page_names?: string[];
+  source_codes?: string[];
+}
+
+export type TriggerEventName =
+  | "text_link_click"
+  | "text_reply"
+  | "email_open"
+  | "email_click"
+  | "email_reply";
+
+export interface TriggerEvent {
+  event: TriggerEventName;
+  /**
+   * `any`, or the ids of the projects (`text_*` events) or email campaigns
+   * (`email_*` events) to watch. `any` never includes another triggered item.
+   */
+  sources: "any" | { ids: string[] };
+  /** `email_click` only. */
+  link_url?: string;
+}
+
+interface TriggerBase {
+  /** 0-43200. Default 0 (immediately). */
+  delay_minutes?: number;
+  reentry?: TriggerReentry;
+}
+
+/**
+ * When a triggered project or email campaign adds a recipient. Same shape for
+ * text and email. `api` recipients arrive through `addProjectRecipient` /
+ * `addEmailCampaignRecipient` or the inbound hook URL.
+ */
+export type Trigger =
+  | (TriggerBase & { source: "api" })
+  | (TriggerBase & { source: "donation"; donation: TriggerDonation })
+  | (TriggerBase & { source: "event"; event: TriggerEvent });
+
+/** Body for POST /projects/{id}/recipients. */
+export interface AddProjectRecipientRequest {
+  /** +1 E.164. */
+  phone_number: string;
+  /** Up to 50 keys, scalar values, each stored as a string up to 1024 chars. Merge tags in the message. */
+  fields?: Record<string, string | number | boolean>;
+  /** Up to 128 chars: your id for the event, so a retry of the same event is a no-op. */
+  occurrence_id?: string;
+}
+
+/** Body for POST /email/campaigns/{id}/recipients. */
+export interface AddEmailCampaignRecipientRequest {
+  email: string;
+  fields?: Record<string, string | number | boolean>;
+  occurrence_id?: string;
+}
+
+/**
+ * 202 `queued` (`send_at` is when it will send) or 200 `already_entered`
+ * (`reason`: `duplicate`, `already_entered`, or `too_soon`). A paused item
+ * answers 409 `CONFLICT`, an opted-out number 409 `CONTACT_OPTED_OUT`.
+ */
+export type AddRecipientResponse =
+  | { status: "queued"; send_at: string }
+  | {
+      status: "already_entered";
+      reason: "duplicate" | "already_entered" | "too_soon";
+    };
+
+/** 201 Created. The URL is shown only in this response; a new one replaces the old. */
+export interface TriggerHookResponse {
+  /** The hook with the secret in its path, for tools that can only be given a URL. */
+  hook_url: string;
+  /** The same hook with no secret in it; send `secret` in an `X-Hook-Secret` header. */
+  endpoint_url: string;
+  /** The hook secret. Shown only in this response. */
+  secret: string;
+}
+
+/** Result of POST /projects/{id}/start. */
+export interface StartProjectResult {
+  project_id: string;
+  status: "active";
+  type: "triggered";
+}
+
+/** Result of POST /projects/{id}/end. Final. */
+export interface EndProjectResult {
+  project_id: string;
+  status: "completed";
+  type: ProjectType;
+}
 
 /** List item returned by GET /projects. */
 export interface Project {
@@ -803,6 +912,8 @@ export interface ProjectDetail {
   updated_at?: string;
   /** Survey projects only; absent on broadcast projects. */
   questions?: SurveyQuestion[];
+  /** The trigger of a triggered project; null otherwise. */
+  trigger?: Trigger | null;
   [key: string]: unknown;
 }
 
@@ -813,7 +924,7 @@ export interface ListProjectsQuery {
   type?: ProjectType;
 }
 
-export interface CreateProjectRequest {
+interface CreateProjectBase {
   organization_id: string;
   /** Messaging channel. Defaults to 10dlc. */
   channel?: ProjectChannel;
@@ -839,13 +950,6 @@ export interface CreateProjectRequest {
   phone_number_id?: string;
   name: string;
   protocol: ProjectProtocol;
-  /**
-   * Contact list IDs to send to. Optional: omitting it creates the project
-   * in draft status, and it cannot be tested or scheduled until a list is
-   * attached via PATCH /projects/{id}. An explicitly empty array is rejected.
-   */
-  contact_list_ids?: string[];
-  suppression_list_ids?: string[];
   message_text: string;
   media_ids?: string[];
   link_tracking_enabled?: boolean;
@@ -887,6 +991,31 @@ export interface CreateProjectRequest {
    */
   opt_out_footer_enabled?: boolean;
 }
+
+/** A project that sends to contact lists (the default type). */
+export interface CreateListProjectRequest extends CreateProjectBase {
+  type?: "broadcast" | "survey";
+  /**
+   * Contact list IDs to send to. Optional: omitting it creates the project
+   * in draft status, and it cannot be tested or scheduled until a list is
+   * attached via PATCH /projects/{id}. An explicitly empty array is rejected.
+   */
+  contact_list_ids?: string[];
+  suppression_list_ids?: string[];
+}
+
+/**
+ * A triggered project has no contact list: recipients arrive when `trigger`
+ * fires. `contact_list_ids` and `suppression_list_ids` are not accepted.
+ * Test with `testProject`, then start with `startProject`.
+ */
+export interface CreateTriggeredProjectRequest extends CreateProjectBase {
+  type: "triggered";
+  trigger: Trigger;
+}
+
+export type CreateProjectRequest =
+  CreateListProjectRequest | CreateTriggeredProjectRequest;
 
 /** 201 Created. */
 export interface CreateProjectResult {
@@ -957,6 +1086,8 @@ export interface UpdateProjectRequest {
   link_tracking_fallback_url?: string | null;
   /** Whether the "STOP=END" opt-out footer is appended to outbound messages. */
   opt_out_footer_enabled?: boolean;
+  /** Triggered projects only. */
+  trigger?: Trigger;
 }
 
 /** PATCH returns the full project object, same shape as GET /projects/{id}. */
@@ -1216,6 +1347,10 @@ export interface ScheduleProjectResult {
   scheduled_timezone?: string;
   /** The persisted bypass setting, so you can confirm what took effect. */
   daily_cap_bypass?: boolean;
+  /** Triggered projects only: enrolled, not yet sent. */
+  waiting_recipients?: number;
+  /** Triggered projects only: reason to count, e.g. `{ "opted_out": 2 }`. */
+  skipped_recipients?: Record<string, number>;
   [key: string]: unknown;
 }
 
@@ -1701,9 +1836,15 @@ export interface EmailCampaignCounts {
 export type EmailCampaignApprovalStatus =
   "not_required" | "pending" | "approved" | "rejected";
 
+export type EmailCampaignType = "broadcast" | "sequence" | "triggered";
+
 export interface EmailCampaign {
   id: string;
   name: string;
+  /** Fixed at creation. */
+  type?: EmailCampaignType;
+  /** The trigger of a triggered campaign; null otherwise. */
+  trigger?: Trigger | null;
   status: EmailCampaignStatus;
   sender_identity_id: string;
   list_ids?: string[];
@@ -1777,8 +1918,8 @@ export interface CreateEmailSequenceRequest {
 export interface CreateEmailCampaignRequest {
   name: string;
   sender_identity_id: string;
-  /** 1-50 list ids. */
-  list_ids: string[];
+  /** 1-50 list ids. Required unless `trigger` is set; cannot be combined with `trigger`. */
+  list_ids?: string[];
   suppression_list_ids?: string[];
   template_id?: string;
   subject?: string;
@@ -1806,6 +1947,13 @@ export interface CreateEmailCampaignRequest {
    * them all; one test send tests every email.
    */
   sequence?: CreateEmailSequenceRequest;
+  /**
+   * Makes this a triggered campaign: no list, recipients arrive when the
+   * trigger fires. Cannot be combined with `list_ids` or `sequence`. Start it
+   * with `scheduleEmailCampaign` and no `scheduled_at`; stop it with
+   * `endEmailCampaign`.
+   */
+  trigger?: Trigger;
 }
 
 export interface TestEmailCampaignResult {

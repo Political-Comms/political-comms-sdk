@@ -12,7 +12,9 @@ import {
   type ContactListConsentSource,
   type ContactListImportPurpose,
   type ListContactListsQuery,
+  type CreateProjectRequest,
   type MergeTagMapping,
+  type Trigger,
   type ScheduleTimezone,
 } from '@political-comms/sdk';
 
@@ -22,8 +24,9 @@ const SERVER_INSTRUCTIONS =
   'organizations, projects, contact lists, analytics, and billing, and to create, test, and ' +
   'schedule compliant political SMS and MMS sends. An API key is required via the ' +
   'POLITICAL_COMMS_API_KEY environment variable (created in the dashboard under Admin > API). ' +
-  'The write tools create_project, test_project, schedule_project, reply_to_conversation, ' +
-  'schedule_email_campaign, and import_contact_list ' +
+  'The write tools create_project, test_project, schedule_project, start_project, ' +
+  'add_project_recipient, reply_to_conversation, schedule_email_campaign, ' +
+  'add_email_campaign_recipient, and import_contact_list ' +
   'send real messages, spend money, or write contacts, and require ' +
   'confirm: true. Rate limit per key: 600 requests/minute, bursts up to 600, refilling 10 per second. ' +
   'The email write tools need the email entitlement on the organization and return ' +
@@ -44,6 +47,101 @@ const confirmParam = {
   type: 'boolean',
   description:
     'Must be true to run this write operation. Set it only after the user has explicitly confirmed.',
+} as const;
+
+const triggerParam = {
+  type: 'object',
+  description:
+    'When a triggered project or campaign adds a recipient. source "api": recipients arrive from ' +
+    'add_project_recipient / add_email_campaign_recipient or the inbound hook URL. source "donation": ' +
+    'a gift from a connected WinRed or Anedot list (donation.integrations is required). source "event": ' +
+    'something that happens in another project or campaign (event.event and event.sources are required). ' +
+    'delay_minutes (0-43200) delays each send; reentry is {mode: "once"} (default) or ' +
+    '{mode: "repeat", min_gap_hours: 1-8760}.',
+  properties: {
+    source: { type: 'string', enum: ['api', 'donation', 'event'] },
+    delay_minutes: { type: 'number', minimum: 0, maximum: 43200 },
+    reentry: {
+      type: 'object',
+      properties: {
+        mode: { type: 'string', enum: ['once', 'repeat'] },
+        min_gap_hours: { type: 'number', minimum: 1, maximum: 8760, description: 'Required with mode repeat' },
+      },
+      required: ['mode'],
+      additionalProperties: false,
+    },
+    donation: {
+      type: 'object',
+      description: 'Required when source is donation',
+      properties: {
+        integrations: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 20,
+          items: {
+            type: 'object',
+            properties: {
+              provider: { type: 'string', enum: ['winred', 'anedot'] },
+              id: { type: 'string', description: 'Integration ID' },
+            },
+            required: ['provider', 'id'],
+            additionalProperties: false,
+          },
+        },
+        donor: { type: 'string', enum: ['any', 'first_time', 'returning'], description: 'Default any' },
+        gift: { type: 'string', enum: ['any', 'one_time', 'recurring'], description: 'Default any' },
+        amount_min: { type: ['number', 'null'], description: 'Dollars, inclusive' },
+        amount_max: { type: ['number', 'null'], description: 'Dollars, inclusive' },
+        page_names: { type: 'array', items: { type: 'string' } },
+        source_codes: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['integrations'],
+      additionalProperties: false,
+    },
+    event: {
+      type: 'object',
+      description: 'Required when source is event',
+      properties: {
+        event: {
+          type: 'string',
+          enum: ['text_link_click', 'text_reply', 'email_open', 'email_click', 'email_reply'],
+        },
+        sources: {
+          description:
+            '"any" (never includes another triggered item) or {ids: [...]}: project IDs for text_* ' +
+            'events, email campaign IDs for email_* events',
+          anyOf: [
+            { type: 'string', enum: ['any'] },
+            {
+              type: 'object',
+              properties: { ids: { type: 'array', items: { type: 'string' } } },
+              required: ['ids'],
+              additionalProperties: false,
+            },
+          ],
+        },
+        link_url: { type: 'string', description: 'email_click only' },
+      },
+      required: ['event', 'sources'],
+      additionalProperties: false,
+    },
+  },
+  required: ['source'],
+  additionalProperties: false,
+} as const;
+
+const recipientFields = {
+  type: 'object',
+  description:
+    'Optional merge-tag values for this recipient (up to 50 keys, scalar values). They are stored on ' +
+    'the recipient and appear in reports, exports, and webhook contact.custom_fields.',
+  additionalProperties: { type: ['string', 'number', 'boolean'] },
+} as const;
+
+const occurrenceIdParam = {
+  type: 'string',
+  maxLength: 128,
+  description: 'Your id for the event, so a retry of the same event is a no-op',
 } as const;
 
 const emailLimit = {
@@ -267,6 +365,9 @@ const TOOLS: Tool[] = [
     description:
       'Create a new messaging project (a draft send). Requires the owning organization, a name, ' +
       'protocol (sms or mms), sending phone number IDs, contact list IDs, and the message text. ' +
+      'For a triggered project (no contact list; each recipient gets one message when the trigger ' +
+      'fires) pass type "triggered" and a trigger instead of contact_list_ids; start it with ' +
+      'start_project after test_project. ' +
       'For channel=10dlc also pass brand_id and campaign_id; for channel=toll-free pass ' +
       'toll_free_verification_id. Creating a project does not send messages by itself. A 409 ' +
       '`LIST_ANALYSIS_IN_PROGRESS` means a contact list is still being analyzed; wait until ' +
@@ -276,6 +377,12 @@ const TOOLS: Tool[] = [
       properties: {
         confirm: confirmParam,
         organization_id: { type: 'string', description: 'Owning organization ID' },
+        type: {
+          type: 'string',
+          enum: ['broadcast', 'survey', 'triggered'],
+          description: 'Project type. Defaults to broadcast. Triggered requires trigger and takes no list IDs.',
+        },
+        trigger: triggerParam,
         name: { type: 'string', description: 'Project name' },
         protocol: { type: 'string', enum: ['sms', 'mms'], description: 'Message protocol' },
         message_text: { type: 'string', description: 'The message body to send' },
@@ -287,7 +394,7 @@ const TOOLS: Tool[] = [
         contact_list_ids: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Contact list IDs to send to',
+          description: 'Contact list IDs to send to. Required unless type is triggered.',
         },
         channel: {
           type: 'string',
@@ -337,7 +444,6 @@ const TOOLS: Tool[] = [
         'protocol',
         'message_text',
         'phone_number_ids',
-        'contact_list_ids',
       ],
       additionalProperties: false,
     },
@@ -477,6 +583,89 @@ const TOOLS: Tool[] = [
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
+    },
+  },
+  {
+    name: 'start_project',
+    description:
+      'Start or resume a triggered project so it begins sending to recipients as its trigger fires. ' +
+      'Test it first with test_project. This commits real sends. A 409 CONFLICT means the project ' +
+      'is not triggered. Pause with pause_project.',
+    inputSchema: {
+      type: 'object',
+      properties: { confirm: confirmParam, id: idParam },
+      required: ['confirm', 'id'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Start Project',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    },
+  },
+  {
+    name: 'end_project',
+    description:
+      'End a triggered project. This is final: recipients still waiting are not sent and the ' +
+      'project cannot be restarted. A 409 CONFLICT means it is not triggered or was never started. ' +
+      'Use pause_project to stop temporarily.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'End Project',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    },
+  },
+  {
+    name: 'add_project_recipient',
+    description:
+      'Add one recipient to an active triggered project. The person gets the project message, now or ' +
+      'after its delay (held until 8 AM if it comes due between 10 PM and 8 AM their time). This sends ' +
+      'a real text. Answers queued with send_at, or already_entered with a reason (duplicate, ' +
+      'already_entered, too_soon). A paused project returns 409 CONFLICT; an opted-out number ' +
+      'returns 409 CONTACT_OPTED_OUT.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        confirm: confirmParam,
+        id: idParam,
+        phone_number: { type: 'string', description: 'US phone number in +1 E.164 format' },
+        fields: recipientFields,
+        occurrence_id: occurrenceIdParam,
+      },
+      required: ['confirm', 'id', 'phone_number'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Add Project Recipient',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    },
+  },
+  {
+    name: 'create_project_hook',
+    description:
+      'Mint the inbound hook URL for a triggered project, for tools that can POST (Zapier, Make, n8n). ' +
+      'The URL is shown only in this result, and any previous URL stops working at once.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Create Project Hook',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
     },
   },
   {
@@ -756,6 +945,69 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'end_email_campaign',
+    description:
+      'End a triggered email campaign. This is final: recipients still waiting are not sent. A 409 ' +
+      'CONFLICT means it is not a triggered campaign that is sending or paused. To start a triggered ' +
+      'campaign, call schedule_email_campaign without scheduled_at.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'End Email Campaign',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    },
+  },
+  {
+    name: 'add_email_campaign_recipient',
+    description:
+      'Add one recipient to a triggered email campaign. The person gets the campaign email, now or ' +
+      'after its delay. This sends a real email. Answers queued with send_at, or already_entered with ' +
+      'a reason (duplicate, already_entered, too_soon). A paused campaign returns 409 CONFLICT; a ' +
+      'suppressed address returns 422 with the reason.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        confirm: confirmParam,
+        id: idParam,
+        email: { type: 'string', description: 'Recipient email address' },
+        fields: recipientFields,
+        occurrence_id: occurrenceIdParam,
+      },
+      required: ['confirm', 'id', 'email'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Add Email Campaign Recipient',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    },
+  },
+  {
+    name: 'create_email_campaign_hook',
+    description:
+      'Mint the inbound hook URL for a triggered email campaign, for tools that can POST (Zapier, ' +
+      'Make, n8n). The URL is shown only in this result, and any previous URL stops working at once.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Create Email Campaign Hook',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    },
+  },
+  {
     name: 'list_email_templates',
     description:
       'List saved email templates with their subject line and last-updated time. The HTML body ' +
@@ -844,6 +1096,10 @@ const CONFIRM_REQUIRED = new Set([
   // Sends a real SMS and spends money.
   'reply_to_conversation',
   'schedule_email_campaign',
+  // Each of these sends to one person the moment it is called, or commits a triggered item to send.
+  'start_project',
+  'add_project_recipient',
+  'add_email_campaign_recipient',
   // Writes contacts into a list, changing who a campaign reaches.
   'import_contact_list',
 ]);
@@ -918,6 +1174,36 @@ function optNum(args: Args, key: string): number | undefined {
   return args[key] === undefined ? undefined : Number(args[key]);
 }
 
+function createProjectRequest(args: Args): CreateProjectRequest {
+  const base = {
+    organization_id: s(args, 'organization_id'),
+    channel: opt(args, 'channel') as '10dlc' | 'toll-free' | undefined,
+    brand_id: opt(args, 'brand_id'),
+    campaign_id: opt(args, 'campaign_id'),
+    toll_free_verification_id: opt(args, 'toll_free_verification_id'),
+    phone_number_ids: (args.phone_number_ids as string[]) ?? [],
+    name: s(args, 'name'),
+    protocol: s(args, 'protocol') as 'sms' | 'mms',
+    media_ids: args.media_ids as string[] | undefined,
+    message_text: s(args, 'message_text'),
+    link_tracking_enabled: args.link_tracking_enabled as boolean | undefined,
+    link_tracking_destination_url: opt(args, 'link_tracking_destination_url'),
+    link_tracking_domain_id: opt(args, 'link_tracking_domain_id'),
+    link_tracking_param_field: opt(args, 'link_tracking_param_field'),
+    link_tracking_fallback_url: opt(args, 'link_tracking_fallback_url'),
+    opt_out_footer_enabled: args.opt_out_footer_enabled as boolean | undefined,
+  };
+  if (args.type === 'triggered') {
+    return { ...base, type: 'triggered', trigger: args.trigger as Trigger };
+  }
+  return {
+    ...base,
+    type: opt(args, 'type') as 'broadcast' | 'survey' | undefined,
+    contact_list_ids: (args.contact_list_ids as string[]) ?? [],
+    suppression_list_ids: args.suppression_list_ids as string[] | undefined,
+  };
+}
+
 async function callTool(client: PoliticalCommsClient, name: string, args: Args): Promise<CallToolResult> {
   switch (name) {
     case 'list_organizations':
@@ -979,28 +1265,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
         }),
       );
     case 'create_project':
-      return textResult(
-        await client.createProject({
-          organization_id: s(args, 'organization_id'),
-          channel: opt(args, 'channel') as '10dlc' | 'toll-free' | undefined,
-          brand_id: opt(args, 'brand_id'),
-          campaign_id: opt(args, 'campaign_id'),
-          toll_free_verification_id: opt(args, 'toll_free_verification_id'),
-          phone_number_ids: (args.phone_number_ids as string[]) ?? [],
-          name: s(args, 'name'),
-          protocol: s(args, 'protocol') as 'sms' | 'mms',
-          contact_list_ids: (args.contact_list_ids as string[]) ?? [],
-          suppression_list_ids: args.suppression_list_ids as string[] | undefined,
-          media_ids: args.media_ids as string[] | undefined,
-          message_text: s(args, 'message_text'),
-          link_tracking_enabled: args.link_tracking_enabled as boolean | undefined,
-          link_tracking_destination_url: opt(args, 'link_tracking_destination_url'),
-          link_tracking_domain_id: opt(args, 'link_tracking_domain_id'),
-          link_tracking_param_field: opt(args, 'link_tracking_param_field'),
-          link_tracking_fallback_url: opt(args, 'link_tracking_fallback_url'),
-          opt_out_footer_enabled: args.opt_out_footer_enabled as boolean | undefined,
-        }),
-      );
+      return textResult(await client.createProject(createProjectRequest(args)));
     case 'test_project': {
       const phones = (args.phones as string[]) ?? [];
       const mergeValues = args.merge_values as Record<string, string> | undefined;
@@ -1026,6 +1291,20 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       const reason = opt(args, 'reason');
       return textResult(await client.pauseProject(s(args, 'id'), reason ? { reason } : undefined));
     }
+    case 'start_project':
+      return textResult(await client.startProject(s(args, 'id')));
+    case 'end_project':
+      return textResult(await client.endProject(s(args, 'id')));
+    case 'add_project_recipient':
+      return textResult(
+        await client.addProjectRecipient(s(args, 'id'), {
+          phone_number: s(args, 'phone_number'),
+          fields: args.fields as Record<string, string | number | boolean> | undefined,
+          occurrence_id: opt(args, 'occurrence_id'),
+        }),
+      );
+    case 'create_project_hook':
+      return textResult(await client.createProjectHook(s(args, 'id')));
     case 'copy_project':
       return textResult(await client.copyProject(s(args, 'project_id')));
 
@@ -1098,6 +1377,18 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       );
     case 'unschedule_email_campaign':
       return textResult(await client.unscheduleEmailCampaign(s(args, 'id')));
+    case 'end_email_campaign':
+      return textResult(await client.endEmailCampaign(s(args, 'id')));
+    case 'add_email_campaign_recipient':
+      return textResult(
+        await client.addEmailCampaignRecipient(s(args, 'id'), {
+          email: s(args, 'email'),
+          fields: args.fields as Record<string, string | number | boolean> | undefined,
+          occurrence_id: opt(args, 'occurrence_id'),
+        }),
+      );
+    case 'create_email_campaign_hook':
+      return textResult(await client.createEmailCampaignHook(s(args, 'id')));
     case 'list_email_templates':
       return textResult(
         await client.listEmailTemplates({
@@ -1139,7 +1430,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.19.0' },
+    { name: 'political-comms', version: '0.20.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

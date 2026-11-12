@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.20.0] - 2026-11-12
+
+### Added
+- Triggered projects and email campaigns (no contact list; each recipient gets one message when a trigger fires). New tools: `start_project`, `end_project`, `add_project_recipient`, `create_project_hook`, `end_email_campaign`, `add_email_campaign_recipient`, and `create_email_campaign_hook`.
+- `start_project`, `add_project_recipient`, and `add_email_campaign_recipient` send real messages and require `confirm: true`. `end_project`, `end_email_campaign`, and the two hook tools are annotated destructive because ending is final and a new hook URL replaces the old one.
+- `create_project` accepts `type` (`broadcast`, `survey`, or `triggered`) and `trigger`.
+
+### Changed
+- `create_project` no longer lists `contact_list_ids` as required, because a triggered project takes none. Other project types still need it.
+- Requires `@political-comms/sdk` ^0.20.0.
+
 ## [0.19.0] - 2026-11-10
 
 ### Breaking

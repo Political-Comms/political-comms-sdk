@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.19.0] - 2026-11-12
+
+### Added
+- Triggered projects and email campaigns: items with no contact list whose recipients arrive when a trigger fires.
+- `start_project(id)`, `end_project(id)`, `add_project_recipient(id, phone_number, fields=, occurrence_id=)`, and `create_project_hook(id)`.
+- `end_email_campaign(id)`, `add_email_campaign_recipient(id, email, fields=, occurrence_id=)`, and `create_email_campaign_hook(id)`. Start a triggered campaign with `schedule_email_campaign(id)` and no `scheduled_at`.
+- `create_project` and `update_project` accept `trigger`, and `create_project` accepts `type` (`"triggered"` takes no list ids).
+- `create_email_campaign` accepts `trigger`, and `list_ids` is now optional (required unless a trigger is given).
+
 ## [0.18.0] - 2026-11-10
 
 ### Breaking

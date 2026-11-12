@@ -17,6 +17,8 @@ export type CliClient = Pick<
   | 'scheduleProject'
   | 'unscheduleProject'
   | 'pauseProject'
+  | 'startProject'
+  | 'endProject'
   | 'copyProject'
   | 'listContactLists'
   | 'getContactList'
@@ -74,6 +76,8 @@ Commands:
                                    [--daily-cap-bypass])
   projects unschedule <id>         Remove a schedule
   projects pause <id>              Pause a running or scheduled send ([--reason])
+  projects start <id>              Start or resume a triggered project
+  projects end <id>                End a triggered project (final)
   projects copy <id>               Copy a project (drops lists, schedule, stats)
   contact-lists list               List contact lists (--channel text|email|all;
                                    default text)
@@ -601,7 +605,7 @@ async function projectsCommand(
   flags: Flags,
   io: CliIO,
 ): Promise<number> {
-  requireSub(sub, ['list', 'get', 'stats', 'survey-results', 'throughput', 'create', 'test', 'schedule', 'unschedule', 'pause', 'copy'], 'projects');
+  requireSub(sub, ['list', 'get', 'stats', 'survey-results', 'throughput', 'create', 'test', 'schedule', 'unschedule', 'pause', 'start', 'end', 'copy'], 'projects');
 
   switch (sub) {
     case 'list': {
@@ -742,8 +746,24 @@ async function projectsCommand(
       if (flags.json) return printJson(io, result);
       io.out(
         `Paused project ${id} (reason: ${str(result.data?.pause_reason) || 'manual'}). ` +
-          'Resume with `projects schedule`.',
+          'Resume with `projects schedule` (`projects start` for a triggered project).',
       );
+      return 0;
+    }
+
+    case 'start': {
+      const id = requireArg(arg, 'projects start <id>');
+      const result = await client.startProject(id);
+      if (flags.json) return printJson(io, result);
+      io.out(`Started project ${id} (status: ${str(result.data?.status)}).`);
+      return 0;
+    }
+
+    case 'end': {
+      const id = requireArg(arg, 'projects end <id>');
+      const result = await client.endProject(id);
+      if (flags.json) return printJson(io, result);
+      io.out(`Ended project ${id} (status: ${str(result.data?.status)}). Recipients still waiting are not sent.`);
       return 0;
     }
 

@@ -928,3 +928,124 @@ class TestMediaUsage:
         with make_client(handler) as client:
             client.import_media("https://example.com/rally.jpg", brand_id="brand_1")
         assert "usage" not in seen["body"]
+
+
+class TestTriggered:
+    def _capture(self, data=None):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["path"] = request.url.path
+            seen["content"] = request.content
+            seen["idem"] = request.headers.get("Idempotency-Key")
+            return ok_response(data if data is not None else {})
+
+        return seen, handler
+
+    def test_create_project_sends_type_and_trigger(self):
+        seen, handler = self._capture({"project_id": "proj_1", "type": "triggered"})
+        trigger = {"source": "api", "delay_minutes": 0, "reentry": {"mode": "once"}}
+        with make_client(handler) as client:
+            client.create_project(
+                "org_1", "Thanks", "sms", "Hi {first_name}", ["pn_1"], type="triggered", trigger=trigger
+            )
+        body = json.loads(seen["content"])
+        assert seen["path"] == "/v1/projects"
+        assert body["type"] == "triggered"
+        assert body["trigger"] == trigger
+        assert "contact_list_ids" not in body
+
+    def test_update_project_sends_trigger(self):
+        seen, handler = self._capture()
+        with make_client(handler) as client:
+            client.update_project("proj_1", trigger={"source": "api"})
+        assert seen["method"] == "PATCH"
+        assert json.loads(seen["content"]) == {"trigger": {"source": "api"}}
+
+    @pytest.mark.parametrize(
+        ("method", "path"),
+        [
+            ("start_project", "/v1/projects/proj_1/start"),
+            ("end_project", "/v1/projects/proj_1/end"),
+            ("create_project_hook", "/v1/projects/proj_1/hook"),
+        ],
+    )
+    def test_project_posts_without_body(self, method, path):
+        seen, handler = self._capture()
+        with make_client(handler) as client:
+            getattr(client, method)("proj_1", idempotency_key="key-1")
+        assert seen["method"] == "POST"
+        assert seen["path"] == path
+        assert seen["content"] == b""
+        assert seen["idem"] == "key-1"
+
+    def test_add_project_recipient(self):
+        seen, handler = self._capture({"status": "queued", "send_at": "2026-11-13T14:00:00.000Z"})
+        with make_client(handler) as client:
+            result = client.add_project_recipient(
+                "proj_1",
+                "+12025550141",
+                fields={"first_name": "Ada", "amount": 25},
+                occurrence_id="evt_123",
+                idempotency_key="add-1",
+            )
+        assert seen["method"] == "POST"
+        assert seen["path"] == "/v1/projects/proj_1/recipients"
+        assert json.loads(seen["content"]) == {
+            "phone_number": "+12025550141",
+            "fields": {"first_name": "Ada", "amount": 25},
+            "occurrence_id": "evt_123",
+        }
+        assert seen["idem"] == "add-1"
+        assert result["data"]["status"] == "queued"
+
+    def test_add_project_recipient_opted_out_raises(self):
+        def handler(request):
+            return error_response(409, "CONTACT_OPTED_OUT")
+
+        with make_client(handler) as client:
+            with pytest.raises(PoliticalCommsError) as exc:
+                client.add_project_recipient("proj_1", "+12025550141")
+        assert exc.value.code == "CONTACT_OPTED_OUT"
+
+    def test_create_email_campaign_with_trigger_omits_list_ids(self):
+        seen, handler = self._capture({"id": "camp_1", "type": "triggered"})
+        trigger = {"source": "event", "event": {"event": "email_open", "sources": "any"}}
+        with make_client(handler) as client:
+            client.create_email_campaign("Welcome", "sid_1", template_id="tpl_1", trigger=trigger)
+        body = json.loads(seen["content"])
+        assert seen["path"] == "/v1/email/campaigns"
+        assert body["trigger"] == trigger
+        assert "list_ids" not in body
+
+    @pytest.mark.parametrize(
+        ("method", "path"),
+        [
+            ("end_email_campaign", "/v1/email/campaigns/camp_1/end"),
+            ("create_email_campaign_hook", "/v1/email/campaigns/camp_1/hook"),
+        ],
+    )
+    def test_email_campaign_posts_without_body(self, method, path):
+        seen, handler = self._capture()
+        with make_client(handler) as client:
+            getattr(client, method)("camp_1", idempotency_key="key-2")
+        assert seen["method"] == "POST"
+        assert seen["path"] == path
+        assert seen["content"] == b""
+        assert seen["idem"] == "key-2"
+
+    def test_add_email_campaign_recipient(self):
+        seen, handler = self._capture({"status": "already_entered", "reason": "duplicate"})
+        with make_client(handler) as client:
+            result = client.add_email_campaign_recipient(
+                "camp_1", "ada@example.org", fields={"first_name": "Ada"}, occurrence_id="evt_9"
+            )
+        assert seen["path"] == "/v1/email/campaigns/camp_1/recipients"
+        assert json.loads(seen["content"]) == {
+            "email": "ada@example.org",
+            "fields": {"first_name": "Ada"},
+            "occurrence_id": "evt_9",
+        }
+        assert UUID_RE.match(seen["idem"])
+        assert result["data"]["reason"] == "duplicate"

@@ -49,6 +49,8 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     scheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'scheduled', scheduled_at: '2026-11-03T09:00:00' })),
     unscheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'draft' })),
     pauseProject: vi.fn(() => ok({ project_id: 'proj_1', status: 'paused', pause_reason: 'manual' })),
+    startProject: vi.fn(() => ok({ project_id: 'proj_1', status: 'active', type: 'triggered' })),
+    endProject: vi.fn(() => ok({ project_id: 'proj_1', status: 'completed', type: 'triggered' })),
     copyProject: vi.fn(() => ok({ project_id: 'proj_2', name: 'GOTV_v2', status: 'draft' })),
     listContactLists: vi.fn(() =>
       ok([{ id: 'cl_1', name: 'Voters', channels: ['text', 'email'], created_at: '2026-11-01T00:00:00Z' }]),
@@ -355,6 +357,17 @@ describe('commands', () => {
     expect(code).toBe(0);
     expect(client.getProjectThroughput).toHaveBeenCalledWith('proj_1');
     expect(out.join('\n')).toContain('carrier_metered');
+  });
+
+  it('projects start and end call the triggered-project lifecycle', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    expect(await main(['projects', 'start', 'proj_1'], deps(client, io))).toBe(0);
+    expect(client.startProject).toHaveBeenCalledWith('proj_1');
+    expect(await main(['projects', 'end', 'proj_1'], deps(client, io))).toBe(0);
+    expect(client.endProject).toHaveBeenCalledWith('proj_1');
+    expect(out.join('\n')).toContain('Started project proj_1 (status: active)');
+    expect(out.join('\n')).toContain('Ended project proj_1 (status: completed)');
   });
 
   it('projects schedule omits daily_cap_bypass unless the flag is passed', async () => {

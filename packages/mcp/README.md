@@ -64,20 +64,27 @@ Read only:
 | `list_email_templates` | Saved email templates with subject and last-updated time. |
 | `get_email_template` | One template including its full HTML body. |
 
-Write (each is annotated as non read-only; `create_project`, `test_project`, `schedule_project`, `reply_to_conversation`, `schedule_email_campaign`, and `import_contact_list` additionally require `confirm: true` because they send real messages or write contacts):
+Write (each is annotated as non read-only; `create_project`, `test_project`, `schedule_project`, `start_project`, `add_project_recipient`, `reply_to_conversation`, `schedule_email_campaign`, `add_email_campaign_recipient`, and `import_contact_list` additionally require `confirm: true` because they send real messages or write contacts):
 
 | Tool | Description |
 |------|-------------|
 | `import_contact_list` | Import a CSV as a new list of phones, emails, or both, or as a do-not-contact list. Requires `confirm: true`. |
-| `create_project` | Create a draft messaging project. |
+| `create_project` | Create a draft messaging project, or a triggered project (`type: triggered` with a `trigger`, no contact list). |
 | `test_project` | Send real test messages to explicit phone numbers. |
 | `schedule_project` | Commit a bulk send at a specific date and time. |
 | `unschedule_project` | Remove a project's schedule. |
 | `pause_project` | Pause a running or scheduled send; resume with `schedule_project`. |
+| `start_project` | Start or resume a triggered project. Requires `confirm: true`. |
+| `end_project` | End a triggered project. Final: recipients still waiting are not sent. |
+| `add_project_recipient` | Add one recipient to an active triggered project; sends a real text. Requires `confirm: true`. |
+| `create_project_hook` | Mint the inbound hook URL (Zapier, Make, n8n) for a triggered project; replaces any previous URL. |
 | `copy_project` | Copy a project into a new draft (drops lists, schedule, and stats). |
 | `reply_to_conversation` | Send a real reply (text, one `media_ids` entry for MMS, or both) inside an existing conversation. Requires `confirm: true`. |
 | `schedule_email_campaign` | Commit an email send. Requires `confirm: true`. |
 | `unschedule_email_campaign` | Return a scheduled campaign to a draft state. |
+| `end_email_campaign` | End a triggered email campaign. Final. |
+| `add_email_campaign_recipient` | Add one recipient to a triggered email campaign; sends a real email. Requires `confirm: true`. |
+| `create_email_campaign_hook` | Mint the inbound hook URL for a triggered email campaign; replaces any previous URL. |
 
 The server deliberately exposes no delete operations.
 
