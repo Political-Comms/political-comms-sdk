@@ -895,7 +895,7 @@ export interface ProjectDetail {
    * the sending window closes: 10 PM in the time zone of most recipients, or
    * 10 PM Pacific when no zone holds a majority; restart manually once the
    * window opens),
-   * `carrier_block_rate`, `unregistered_campaign`, `provider_error`,
+   * `carrier_block_rate`, `unregistered_campaign`,
    * `insufficient_funds_auto_recharge_failed`, `insufficient_funds_ancestor`,
    * `shared_phone_revoked`, `phone_released`, `organization_deleted`, and
    * `manual` or a short free-text reason (up to 100 characters) set by a user
@@ -1864,7 +1864,14 @@ export interface EmailCampaign {
   stop_on_reply?: boolean;
   audience_count?: number | null;
   counts?: EmailCampaignCounts;
+  /**
+   * Why the campaign is paused. `api` is a pause made with `pauseEmailCampaign`;
+   * `manual` is the dashboard; `provider_refused` waits for a person. Other
+   * values are platform pauses that clear on their own once the cause does.
+   */
   pause_reason?: string | null;
+  /** When a planned resume will happen (set by `resumeEmailCampaign` with a future `resume_at`). `null` otherwise. */
+  resume_at?: string | null;
   /** Tracking domain serving this campaign's `/e/*` URLs. `null` = the platform link host. */
   tracking_domain_id?: string | null;
   /**
@@ -1965,6 +1972,11 @@ export interface TestEmailCampaignResult {
 export interface ScheduleEmailCampaignRequest {
   /** ISO 8601 date-time. Omit to send now. */
   scheduled_at?: string;
+}
+
+export interface ResumeEmailCampaignInput {
+  /** ISO 8601 date-time (Z or offset). Omit or `null` to resume now; more than a minute ahead plans the resume. */
+  resume_at?: string | null;
 }
 
 export interface EmailCampaignStats {

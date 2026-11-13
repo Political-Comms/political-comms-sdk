@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.21.0] - 2026-11-13
+
+### Added
+- `pause_email_campaign` pauses a scheduled, compiling, or sending email campaign (`pause_reason: api`). It does not need `confirm`: like `pause_project`, it only stops sending.
+- `resume_email_campaign` resumes a paused campaign now, or at `resume_at`. It sends mail, so it requires `confirm: true`.
+
+### Changed
+- Requires `@political-comms/sdk` ^0.21.0.
+
 ## [0.20.0] - 2026-11-12
 
 ### Added

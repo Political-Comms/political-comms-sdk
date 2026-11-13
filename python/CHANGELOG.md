@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0] - 2026-11-13
+
+### Added
+- `pause_email_campaign(id)` pauses a scheduled, compiling, or sending email campaign (`pause_reason` is `api`; the platform never resumes it).
+- `resume_email_campaign(id, resume_at=None)` resumes a paused campaign now, or at `resume_at` when it is more than a minute ahead. It can raise `409 SENDING_PAUSED` or `409 EMAIL_CAMPAIGN_TEST_REQUIRED`.
+- Email campaigns carry a new `resume_at` field.
+
 ## [0.19.0] - 2026-11-12
 
 ### Added

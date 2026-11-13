@@ -1216,6 +1216,48 @@ class PoliticalCommsClient:
             idempotency_key=idempotency_key,
         )
 
+    def pause_email_campaign(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+        """POST /email/campaigns/{id}/pause.
+
+        Pauses a ``scheduled``, ``compiling`` or ``sending`` campaign with
+        ``pause_reason`` ``"api"`` and ``resume_at`` null; the platform never
+        resumes an ``api`` pause by itself. Messages already handed off still
+        deliver. An already paused campaign returns 200 with its own
+        ``pause_reason`` kept and any planned resume cancelled. Any other
+        status raises a 409 ``CONFLICT``. Works even while sending is
+        suspended. Takes no body; the reason is always ``api``.
+        """
+        return self._request(
+            "POST", f"/email/campaigns/{id}/pause", idempotency_key=idempotency_key
+        )
+
+    def resume_email_campaign(
+        self,
+        id: str,
+        resume_at: Optional[str] = None,
+        *,
+        idempotency_key: Optional[str] = None,
+    ) -> JsonDict:
+        """POST /email/campaigns/{id}/resume.
+
+        Clears any pause reason and sends now, or, with ``resume_at`` (ISO 8601)
+        more than a minute ahead, keeps the campaign paused and resumes it at
+        that time (the campaign's ``resume_at`` shows the plan; a later pause
+        cancels it). If the cause still holds the platform pauses it again.
+        A ``resume_at`` more than a minute in the past is a 400
+        ``VALIDATION_ERROR``. Raises ``409 SENDING_PAUSED`` if sending is
+        suspended, ``409 EMAIL_CAMPAIGN_TEST_REQUIRED`` if content changed
+        during the pause and was not tested since, and a 409 ``CONFLICT`` for
+        ``draft``, ``awaiting_test``, ``awaiting_approval``, ``ready`` or
+        ``completed``. An already running campaign returns 200 unchanged.
+        """
+        return self._request(
+            "POST",
+            f"/email/campaigns/{id}/resume",
+            body=_compact({"resume_at": resume_at}),
+            idempotency_key=idempotency_key,
+        )
+
     def end_email_campaign(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
         """POST /email/campaigns/{id}/end.
 

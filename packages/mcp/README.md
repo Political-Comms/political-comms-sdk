@@ -64,7 +64,7 @@ Read only:
 | `list_email_templates` | Saved email templates with subject and last-updated time. |
 | `get_email_template` | One template including its full HTML body. |
 
-Write (each is annotated as non read-only; `create_project`, `test_project`, `schedule_project`, `start_project`, `add_project_recipient`, `reply_to_conversation`, `schedule_email_campaign`, `add_email_campaign_recipient`, and `import_contact_list` additionally require `confirm: true` because they send real messages or write contacts):
+Write (each is annotated as non read-only; `create_project`, `test_project`, `schedule_project`, `start_project`, `add_project_recipient`, `reply_to_conversation`, `schedule_email_campaign`, `resume_email_campaign`, `add_email_campaign_recipient`, and `import_contact_list` additionally require `confirm: true` because they send real messages or write contacts):
 
 | Tool | Description |
 |------|-------------|
@@ -82,6 +82,8 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, `sc
 | `reply_to_conversation` | Send a real reply (text, one `media_ids` entry for MMS, or both) inside an existing conversation. Requires `confirm: true`. |
 | `schedule_email_campaign` | Commit an email send. Requires `confirm: true`. |
 | `unschedule_email_campaign` | Return a scheduled campaign to a draft state. |
+| `pause_email_campaign` | Pause a scheduled, compiling, or sending email campaign (`pause_reason: api`); the platform never resumes it. Safe to repeat. |
+| `resume_email_campaign` | Resume a paused email campaign now, or at `resume_at`; sends mail. Requires `confirm: true`. |
 | `end_email_campaign` | End a triggered email campaign. Final. |
 | `add_email_campaign_recipient` | Add one recipient to a triggered email campaign; sends a real email. Requires `confirm: true`. |
 | `create_email_campaign_hook` | Mint the inbound hook URL for a triggered email campaign; replaces any previous URL. |
@@ -92,9 +94,10 @@ The server deliberately exposes no delete operations.
 
 Email write tools need the email entitlement on the organization and return
 `403 ENTITLEMENT_REQUIRED` without it; reads are open. Paid and human-driven email workflows (AI
-drafting, result exports) and deliverability triage (pausing
-and resuming a live send) are dashboard features rather than tools: they cost
-money or need a human watching a send. There is no inbound email or inbox
+drafting, result exports) are dashboard features rather than tools: they cost
+money or need a human watching a send. Pausing and resuming a live send are tools
+(`pause_email_campaign`, `resume_email_campaign`); a resume that returns
+`EMAIL_CAMPAIGN_TEST_REQUIRED` needs a test send from the dashboard first. There is no inbound email or inbox
 surface.
 
 ## Errors

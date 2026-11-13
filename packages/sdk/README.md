@@ -152,8 +152,7 @@ for (const conversation of page.data) console.log(conversation.conversation_id, 
 
 The `/v1/email` surface is wrapped in full: sending domains, sender identities,
 suppressions, templates, and campaigns. Paid
-and human-driven workflows (AI drafting, result exports) and
-deliverability triage (pausing a live send) run in the dashboard.
+and human-driven workflows (AI drafting, result exports) run in the dashboard.
 **Write methods need the email entitlement on the organization and return
 `403 ENTITLEMENT_REQUIRED` without it. Reads are open.**
 
@@ -179,6 +178,25 @@ if (campaign?.blocked?.length) {
 } else {
   await client.scheduleEmailCampaign(id, { scheduled_at: '2026-09-05T15:00:00Z' });
 }
+```
+
+### Pause and resume
+
+`pauseEmailCampaign(id)` pauses a `scheduled`, `compiling`, or `sending` campaign
+with `pause_reason: 'api'`; the platform never resumes an `api` pause by itself.
+`resumeEmailCampaign(id, { resume_at })` resumes it now, or with a `resume_at`
+more than a minute ahead keeps it paused and resumes it at that time (the
+campaign's `resume_at` shows the plan; a later pause cancels it). Resume clears
+any pause reason, but if the cause still holds the platform pauses it again.
+Only `api`, `manual`, and `provider_refused` pauses wait for a person; the rest
+resume on their own once the cause clears. Resume returns `409 SENDING_PAUSED`
+while sending is suspended, and `409 EMAIL_CAMPAIGN_TEST_REQUIRED` when content
+changed during the pause (send a test from the dashboard, then resume).
+
+```ts
+await client.pauseEmailCampaign(id);
+await client.resumeEmailCampaign(id); // now
+await client.resumeEmailCampaign(id, { resume_at: '2026-12-01T15:00:00Z' }); // planned
 ```
 
 ### Templates

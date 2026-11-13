@@ -26,7 +26,7 @@ const SERVER_INSTRUCTIONS =
   'POLITICAL_COMMS_API_KEY environment variable (created in the dashboard under Admin > API). ' +
   'The write tools create_project, test_project, schedule_project, start_project, ' +
   'add_project_recipient, reply_to_conversation, schedule_email_campaign, ' +
-  'add_email_campaign_recipient, and import_contact_list ' +
+  'resume_email_campaign, add_email_campaign_recipient, and import_contact_list ' +
   'send real messages, spend money, or write contacts, and require ' +
   'confirm: true. Rate limit per key: 600 requests/minute, bursts up to 600, refilling 10 per second. ' +
   'The email write tools need the email entitlement on the organization and return ' +
@@ -945,6 +945,63 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'pause_email_campaign',
+    description:
+      'Pause a scheduled, compiling, or sending email campaign. Messages already handed off still ' +
+      'deliver; nothing more is sent. The pause_reason is always api, and the platform never resumes ' +
+      'an api pause by itself: resume with resume_email_campaign. Safe to call repeatedly: an already ' +
+      'paused campaign returns its own pause_reason (which may be one the platform set) and any planned ' +
+      'resume_at is cancelled. A 409 CONFLICT means the campaign is a draft, awaiting test or approval, ' +
+      'ready, or completed. Works even while sending is suspended. Pausing an email in a sequence holds ' +
+      'its follow-ups; a paused triggered campaign refuses new recipients.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Pause Email Campaign',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+    },
+  },
+  {
+    name: 'resume_email_campaign',
+    description:
+      'Resume a paused email campaign. This sends real mail. Clears any pause reason and returns the ' +
+      'campaign to the status it was paused from; if the cause still holds, the platform pauses it ' +
+      'again (provider_refused after one more refused batch, balance or sender problems at the next ' +
+      'batch). With resume_at more than a minute ahead the campaign stays paused and resumes at that ' +
+      'time; resume_at is null otherwise, and a later pause_email_campaign cancels the plan. Only api, ' +
+      'manual, and provider_refused pauses need this call; the others resume on their own once the cause ' +
+      'clears. Errors: 409 SENDING_PAUSED (sending is suspended), 409 EMAIL_CAMPAIGN_TEST_REQUIRED ' +
+      '(content changed during the pause: a human must send a test from the dashboard, then resume), ' +
+      '409 CONFLICT (draft, awaiting test or approval, ready, or completed), 400 for a past resume_at. ' +
+      'An already running campaign returns 200 unchanged.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        confirm: confirmParam,
+        id: idParam,
+        resume_at: {
+          type: 'string',
+          description:
+            'ISO 8601 date-time (Z or offset) to resume at. Omit to resume now. More than a minute in the past is rejected.',
+        },
+      },
+      required: ['confirm', 'id'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Resume Email Campaign',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    },
+  },
+  {
     name: 'end_email_campaign',
     description:
       'End a triggered email campaign. This is final: recipients still waiting are not sent. A 409 ' +
@@ -1096,6 +1153,8 @@ const CONFIRM_REQUIRED = new Set([
   // Sends a real SMS and spends money.
   'reply_to_conversation',
   'schedule_email_campaign',
+  // Resuming sends the rest of the campaign.
+  'resume_email_campaign',
   // Each of these sends to one person the moment it is called, or commits a triggered item to send.
   'start_project',
   'add_project_recipient',
@@ -1377,6 +1436,14 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       );
     case 'unschedule_email_campaign':
       return textResult(await client.unscheduleEmailCampaign(s(args, 'id')));
+    case 'pause_email_campaign':
+      return textResult(await client.pauseEmailCampaign(s(args, 'id')));
+    case 'resume_email_campaign':
+      return textResult(
+        await client.resumeEmailCampaign(s(args, 'id'), {
+          ...(args.resume_at === undefined ? {} : { resume_at: s(args, 'resume_at') }),
+        }),
+      );
     case 'end_email_campaign':
       return textResult(await client.endEmailCampaign(s(args, 'id')));
     case 'add_email_campaign_recipient':
@@ -1430,7 +1497,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.20.0' },
+    { name: 'political-comms', version: '0.21.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

@@ -92,6 +92,7 @@ import type {
   ListEmailTemplatesQuery,
   RemoveEmailSuppressionsRequest,
   RemoveEmailSuppressionsResult,
+  ResumeEmailCampaignInput,
   ScheduleEmailCampaignRequest,
   TestEmailCampaignResult,
 } from './types';
@@ -981,6 +982,38 @@ export class PoliticalCommsClient {
       undefined,
       options,
     );
+  }
+
+  /**
+   * POST /email/campaigns/{id}/pause. Pauses a `scheduled`, `compiling`, or
+   * `sending` campaign with `pause_reason: 'api'` and no `resume_at`; the
+   * platform never resumes an `api` pause by itself. Already paused returns
+   * 200 with its own `pause_reason` kept and cancels a planned resume. Any
+   * other status is a 409 `CONFLICT`. Works even while sending is suspended.
+   * Takes no body; the reason is always `api`.
+   */
+  pauseEmailCampaign(id: string, options?: RequestOptions): Promise<ApiResponse<EmailCampaign>> {
+    return this.request('POST', `/email/campaigns/${encodeURIComponent(id)}/pause`, undefined, undefined, options);
+  }
+
+  /**
+   * POST /email/campaigns/{id}/resume. Clears any pause reason and sends now,
+   * or, with `resume_at` more than a minute ahead, keeps the campaign paused
+   * and resumes it at that time (a later `pauseEmailCampaign` cancels the
+   * plan). If the cause still holds the platform pauses it again (a
+   * `provider_refused` pause returns after one more refused batch). Returns
+   * `409 SENDING_PAUSED` if sending is suspended, `409
+   * EMAIL_CAMPAIGN_TEST_REQUIRED` if content changed during the pause and was
+   * not tested since, a 409 `CONFLICT` for `draft`, `awaiting_test`,
+   * `awaiting_approval`, `ready`, or `completed`, and 400 `VALIDATION_ERROR`
+   * for a `resume_at` in the past. Already running returns 200 unchanged.
+   */
+  resumeEmailCampaign(
+    id: string,
+    body: ResumeEmailCampaignInput = {},
+    options?: RequestOptions,
+  ): Promise<ApiResponse<EmailCampaign>> {
+    return this.request('POST', `/email/campaigns/${encodeURIComponent(id)}/resume`, undefined, body, options);
   }
 
   /**

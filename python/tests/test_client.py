@@ -1023,6 +1023,7 @@ class TestTriggered:
         ("method", "path"),
         [
             ("end_email_campaign", "/v1/email/campaigns/camp_1/end"),
+            ("pause_email_campaign", "/v1/email/campaigns/camp_1/pause"),
             ("create_email_campaign_hook", "/v1/email/campaigns/camp_1/hook"),
         ],
     )
@@ -1034,6 +1035,25 @@ class TestTriggered:
         assert seen["path"] == path
         assert seen["content"] == b""
         assert seen["idem"] == "key-2"
+
+    def test_resume_email_campaign_with_resume_at(self):
+        seen, handler = self._capture({"status": "paused", "resume_at": "2026-12-01T15:00:00Z"})
+        with make_client(handler) as client:
+            result = client.resume_email_campaign(
+                "camp_1", resume_at="2026-12-01T15:00:00Z", idempotency_key="key-3"
+            )
+        assert seen["method"] == "POST"
+        assert seen["path"] == "/v1/email/campaigns/camp_1/resume"
+        assert json.loads(seen["content"]) == {"resume_at": "2026-12-01T15:00:00Z"}
+        assert seen["idem"] == "key-3"
+        assert result["data"]["resume_at"] == "2026-12-01T15:00:00Z"
+
+    def test_resume_email_campaign_now_sends_no_resume_at(self):
+        seen, handler = self._capture()
+        with make_client(handler) as client:
+            client.resume_email_campaign("camp_1")
+        assert seen["path"] == "/v1/email/campaigns/camp_1/resume"
+        assert b"resume_at" not in seen["content"]
 
     def test_add_email_campaign_recipient(self):
         seen, handler = self._capture({"status": "already_entered", "reason": "duplicate"})

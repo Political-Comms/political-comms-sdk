@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.21.0] - 2026-11-13
+
+### Changed
+- Requires `@political-comms/sdk` ^0.21.0. No new commands: the email surface stays read-only.
+
 ## [0.20.0] - 2026-11-12
 
 ### Added

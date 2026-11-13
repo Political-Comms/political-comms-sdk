@@ -46,6 +46,8 @@ const EXPECTED_TOOLS = [
   'get_email_campaign_stats',
   'schedule_email_campaign',
   'unschedule_email_campaign',
+  'pause_email_campaign',
+  'resume_email_campaign',
   'end_email_campaign',
   'add_email_campaign_recipient',
   'create_email_campaign_hook',
@@ -169,12 +171,21 @@ describe('political-comms MCP server (stdio)', () => {
       ['start_project', { confirm: false, id: 'proj_1' }],
       ['add_project_recipient', { confirm: false, id: 'proj_1', phone_number: '+12025550141' }],
       ['add_email_campaign_recipient', { confirm: false, id: 'camp_1', email: 'ada@example.org' }],
+      ['resume_email_campaign', { confirm: false, id: 'camp_1' }],
     ] as const) {
       const result = await client.callTool({ name, arguments: args });
       expect(result.isError, name).toBe(true);
       const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? '';
       expect(text, name).toContain('confirm: true');
     }
+  });
+
+  it('requires confirm on resume_email_campaign but not pause_email_campaign', async () => {
+    const result = await client.listTools();
+    const required = (name: string) =>
+      (result.tools.find((t) => t.name === name)!.inputSchema as { required: string[] }).required;
+    expect(required('resume_email_campaign')).toEqual(expect.arrayContaining(['confirm', 'id']));
+    expect(required('pause_email_campaign')).toEqual(['id']);
   });
 
   it('offers type and trigger on create_project and no longer requires contact_list_ids', async () => {

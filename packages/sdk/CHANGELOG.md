@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.21.0] - 2026-11-13
+
+### Added
+- `pauseEmailCampaign(id)` pauses a scheduled, compiling, or sending email campaign (`POST /email/campaigns/{id}/pause`). The `pause_reason` is `api`, and the platform never resumes an `api` pause by itself.
+- `resumeEmailCampaign(id, { resume_at }?)` resumes a paused campaign now, or at `resume_at` when it is more than a minute ahead (`POST /email/campaigns/{id}/resume`). It can return `409 SENDING_PAUSED` or `409 EMAIL_CAMPAIGN_TEST_REQUIRED`.
+- `ResumeEmailCampaignInput` type, and `EmailCampaign` gains `resume_at` (the time a planned resume will happen, or `null`).
+
+### Changed
+- The `pause_reason` doc comment no longer lists `provider_error`; the API no longer returns it.
+
 ## [0.20.0] - 2026-11-12
 
 ### Added

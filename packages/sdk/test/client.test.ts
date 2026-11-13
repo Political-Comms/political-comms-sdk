@@ -1128,6 +1128,41 @@ describe('triggered projects and campaigns', () => {
     expect(headers['Idempotency-Key']).toBe('end-1');
   });
 
+  it('pauseEmailCampaign POSTs without a body', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ id: 'camp_1', status: 'paused', pause_reason: 'api' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.pauseEmailCampaign('camp_1', { idempotencyKey: 'pause-1' });
+    const { url, init, headers } = call(fetchMock);
+    expect(url).toBe(`${base}/email/campaigns/camp_1/pause`);
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect(headers['Idempotency-Key']).toBe('pause-1');
+    expect(res.data.pause_reason).toBe('api');
+  });
+
+  it('resumeEmailCampaign POSTs resume_at and generates an idempotency key', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({ id: 'camp_1', status: 'paused', resume_at: '2026-12-01T15:00:00Z' }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.resumeEmailCampaign('camp_1', { resume_at: '2026-12-01T15:00:00Z' });
+    const { url, init, headers } = call(fetchMock);
+    expect(url).toBe(`${base}/email/campaigns/camp_1/resume`);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ resume_at: '2026-12-01T15:00:00Z' });
+    expect(headers['Idempotency-Key']).toMatch(UUID_RE);
+    expect(res.data.resume_at).toBe('2026-12-01T15:00:00Z');
+  });
+
+  it('resumeEmailCampaign with no body sends an empty object and honors idempotencyKey', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ id: 'camp_1', status: 'sending', resume_at: null }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.resumeEmailCampaign('camp_1', undefined, { idempotencyKey: 'resume-1' });
+    const { init, headers } = call(fetchMock);
+    expect(JSON.parse(init.body as string)).toEqual({});
+    expect(headers['Idempotency-Key']).toBe('resume-1');
+  });
+
   it('addEmailCampaignRecipient POSTs the recipient and returns already_entered', async () => {
     const fetchMock = vi.fn(async () => okResponse({ status: 'already_entered', reason: 'duplicate' }));
     const client = makeClient(fetchMock as unknown as typeof fetch);
