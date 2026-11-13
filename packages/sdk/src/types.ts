@@ -1723,6 +1723,38 @@ export interface ListEmailDomainsQuery extends EmailPageQuery {
   search?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Webhook endpoints (read-only; created and edited in the dashboard)
+// ---------------------------------------------------------------------------
+
+/** An outbound webhook endpoint of your organization. The signing secret is never returned. */
+export interface WebhookEndpoint {
+  id: string;
+  name: string;
+  url: string;
+  /** False when you or the platform switched the endpoint off. */
+  enabled: boolean;
+  /** Event names the endpoint is subscribed to, for example "message.delivered". */
+  event_types: string[];
+  /** Start of the current unbroken run of failed deliveries (ISO 8601); null while healthy. */
+  failing_since: string | null;
+  /**
+   * Why the platform switched the endpoint off. Currently only
+   * "consecutive_failures" (failing for 3 days with no successful delivery).
+   * Null otherwise, and cleared when the endpoint is re-enabled.
+   */
+  disabled_reason: 'consecutive_failures' | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListWebhookEndpointsQuery {
+  /** Rows per page, 1-200. Defaults to 50. */
+  limit?: number;
+  /** Cursor from the previous page's `next_cursor`. */
+  cursor?: string;
+}
+
 /** Status of this address in Google's Gmail Verified Sender Program, submitted through Campaign Verify. Read-only. */
 export interface GmailVerifiedSender {
   status:

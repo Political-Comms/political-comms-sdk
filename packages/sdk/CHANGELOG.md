@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.22.0] - 2026-11-13
+
+### Added
+- `listWebhookEndpoints({ limit?, cursor? })` and `getWebhookEndpoint(id)` read your organization's outbound webhook endpoints (`GET /webhook-endpoints`, `GET /webhook-endpoints/{id}`). Read-only: endpoints and their signing secret are managed in the dashboard. The list is keyset paginated (`{ data, has_more, next_cursor }`) and needs an API key with the `public:read` scope.
+- `WebhookEndpoint` and `ListWebhookEndpointsQuery` types. `failing_since` is the start of the current run of failed deliveries (`null` while healthy); `disabled_reason` is `consecutive_failures` after 3 days with no successful delivery, and is cleared when the endpoint is re-enabled.
+
 ## [0.21.0] - 2026-11-13
 
 ### Added

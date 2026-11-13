@@ -35,6 +35,8 @@ const EXPECTED_TOOLS = [
   'get_conversation',
   'list_conversation_messages',
   'reply_to_conversation',
+  'list_webhook_endpoints',
+  'get_webhook_endpoint',
   // Email. Reads and the campaign lifecycle; no delete_* tools, so the
   // surface stays non-destructive.
   'list_email_domains',
@@ -106,6 +108,8 @@ describe('political-comms MCP server (stdio)', () => {
         'list_conversations',
         'get_conversation',
         'list_conversation_messages',
+        'list_webhook_endpoints',
+        'get_webhook_endpoint',
         // Email reads.
         'list_email_domains',
         'get_email_domain',

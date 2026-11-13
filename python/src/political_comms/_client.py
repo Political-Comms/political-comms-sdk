@@ -957,6 +957,28 @@ class PoliticalCommsClient:
             },
         )
 
+    # -- webhook endpoints -----------------------------------------------
+    #
+    # Read-only: endpoints and their signing secret are created and edited in the
+    # dashboard. The list payload is {"data": [...], "has_more": bool, "next_cursor": str | None}.
+
+    def list_webhook_endpoints(
+        self,
+        *,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> JsonDict:
+        """GET /webhook-endpoints."""
+        return self._request(
+            "GET",
+            "/webhook-endpoints",
+            query={"limit": limit, "cursor": cursor},
+        )
+
+    def get_webhook_endpoint(self, id: str) -> JsonDict:
+        """GET /webhook-endpoints/{id}."""
+        return self._request("GET", f"/webhook-endpoints/{id}")
+
     # -- email ------------------------------------------------------------
     #
     # Write methods need the email entitlement on the organization and return

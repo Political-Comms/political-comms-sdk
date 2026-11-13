@@ -962,6 +962,65 @@ describe('conversations', () => {
   });
 });
 
+describe('webhook endpoints', () => {
+  const endpoint = {
+    id: 'a1b2c3d4-0000-4000-8000-000000000001',
+    name: 'CRM sync',
+    url: 'https://example.org/hooks',
+    enabled: false,
+    event_types: ['message.delivered'],
+    failing_since: '2026-11-10T00:00:00Z',
+    disabled_reason: 'consecutive_failures',
+    created_at: '2026-10-01T00:00:00Z',
+    updated_at: '2026-11-13T00:00:00Z',
+  };
+
+  it('serializes the list query and unwraps the cursor page', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({ data: [endpoint], has_more: true, next_cursor: 'cursor_2' }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.listWebhookEndpoints({ limit: 25, cursor: 'cursor_1' });
+
+    const parsed = new URL((fetchMock.mock.calls[0] as unknown as [string])[0]);
+    expect(parsed.pathname).toBe('/v1/webhook-endpoints');
+    expect(parsed.searchParams.get('limit')).toBe('25');
+    expect(parsed.searchParams.get('cursor')).toBe('cursor_1');
+    expect(res.data.data[0]!.disabled_reason).toBe('consecutive_failures');
+    expect(res.data.next_cursor).toBe('cursor_2');
+  });
+
+  it('omits unset list query params', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ data: [], has_more: false, next_cursor: null }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.listWebhookEndpoints();
+
+    const parsed = new URL((fetchMock.mock.calls[0] as unknown as [string])[0]);
+    expect(parsed.searchParams.has('limit')).toBe(false);
+    expect(parsed.searchParams.has('cursor')).toBe(false);
+  });
+
+  it('encodes the id and unwraps the endpoint on get', async () => {
+    const fetchMock = vi.fn(async () => okResponse(endpoint));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.getWebhookEndpoint('a/b');
+
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
+      'https://api.politicalcomms.com/v1/webhook-endpoints/a%2Fb',
+    );
+    expect(res.data.event_types).toEqual(['message.delivered']);
+  });
+
+  it('maps a 404 on get to PoliticalCommsError', async () => {
+    const fetchMock = vi.fn(async () => errorResponse(404, 'NOT_FOUND'));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await expect(client.getWebhookEndpoint('missing')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      statusCode: 404,
+    });
+  });
+});
+
 describe('media usage', () => {
   it('sends usage: email_asset for an image an email template will reference', async () => {
     const fetchMock = vi.fn(async () => okResponse({ media_id: 'media_1', status: 'optimizing' }));

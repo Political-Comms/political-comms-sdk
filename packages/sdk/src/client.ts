@@ -88,6 +88,8 @@ import type {
   EmailTemplateWithLint,
   ListEmailCampaignsQuery,
   ListEmailDomainsQuery,
+  ListWebhookEndpointsQuery,
+  WebhookEndpoint,
   ListEmailSuppressionsQuery,
   ListEmailTemplatesQuery,
   RemoveEmailSuppressionsRequest,
@@ -796,6 +798,38 @@ export class PoliticalCommsClient {
         endDate: query.endDate,
         organizationId: query.organizationId,
       },
+      undefined,
+      options,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Webhook endpoints
+  //
+  // Read-only: endpoints (and their signing secret) are created and edited in
+  // the dashboard. Keyset paginated like the email lists.
+  // -------------------------------------------------------------------------
+
+  /** GET /webhook-endpoints. */
+  listWebhookEndpoints(
+    query: ListWebhookEndpointsQuery = {},
+    options?: RequestOptions,
+  ): Promise<ApiResponse<CursorPage<WebhookEndpoint>>> {
+    return this.request(
+      'GET',
+      '/webhook-endpoints',
+      { limit: query.limit, cursor: query.cursor },
+      undefined,
+      options,
+    );
+  }
+
+  /** GET /webhook-endpoints/{id}. */
+  getWebhookEndpoint(id: string, options?: RequestOptions): Promise<ApiResponse<WebhookEndpoint>> {
+    return this.request(
+      'GET',
+      `/webhook-endpoints/${encodeURIComponent(id)}`,
+      undefined,
       undefined,
       options,
     );

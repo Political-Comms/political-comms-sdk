@@ -73,7 +73,9 @@ client.schedule_project(project_id, "2026-11-03T09:00:00", "America/New_York")
 # )
 ```
 
-One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `get_campaign_throughput`, `list_tracking_domains`, `list_phone_numbers`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `download_contact_list`, `delete_contact_list`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `get_project_survey_results`, `get_project_throughput`, `test_project`, `schedule_project`, `unschedule_project`, `pause_project`, `start_project`, `end_project`, `add_project_recipient`, `create_project_hook`, `copy_project`, `list_conversations`, `get_conversation`, `list_conversation_messages`, `reply_to_conversation`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
+A test, or any send, can also target a test phone number such as `+12025550101` (any number ending 555-0100 through 555-0199) to get a fixed delivered or failed outcome without texting a real phone. See [Test phone numbers](https://docs.politicalcomms.com/api-reference/testing).
+
+One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `get_campaign_throughput`, `list_tracking_domains`, `list_phone_numbers`, `list_webhook_endpoints`, `get_webhook_endpoint`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `download_contact_list`, `delete_contact_list`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `get_project_survey_results`, `get_project_throughput`, `test_project`, `schedule_project`, `unschedule_project`, `pause_project`, `start_project`, `end_project`, `add_project_recipient`, `create_project_hook`, `copy_project`, `list_conversations`, `get_conversation`, `list_conversation_messages`, `reply_to_conversation`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
 
 Every method returns the parsed JSON response, a dict of the form `{"success": True, "data": ...}`.
 
@@ -136,6 +138,22 @@ client.reply_to_conversation(conversation_id, "Here is the flyer", media_ids=[me
 page = client.list_conversations(updated_since=last_seen_at)["data"]
 for conversation in page["data"]:
     print(conversation["conversation_id"], conversation["status"])
+```
+
+## Webhook endpoints
+
+`list_webhook_endpoints` and `get_webhook_endpoint` read the outbound webhook endpoints of
+your organization. They are read-only: endpoints and their signing secret are created and
+edited in the dashboard. `failing_since` is the start of the current run of failed deliveries
+(`None` while healthy), and `disabled_reason` is `"consecutive_failures"` when the platform
+switched an endpoint off after 3 days with no successful delivery. The list is keyset
+paginated: page until `next_cursor` is `None`. The API key needs the `public:read` scope.
+
+```python
+page = client.list_webhook_endpoints(limit=100)["data"]
+for endpoint in page["data"]:
+    if not endpoint["enabled"] or endpoint["failing_since"]:
+        print(endpoint["name"], endpoint["disabled_reason"])
 ```
 
 ## Email

@@ -458,7 +458,8 @@ const TOOLS: Tool[] = [
     name: 'test_project',
     description:
       'Send real test messages for a project to up to 50 explicit phone numbers. This delivers ' +
-      'actual SMS or MMS to those recipients and incurs cost.',
+      'actual SMS or MMS to those recipients and incurs cost. Numbers ending 555-0100 to 555-0199 are ' +
+      'test phone numbers that never reach a phone and return a fixed outcome.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -788,6 +789,33 @@ const TOOLS: Tool[] = [
       destructiveHint: false,
       idempotentHint: false,
     },
+  },
+  {
+    name: 'list_webhook_endpoints',
+    description:
+      'List the organization outbound webhook endpoints, with health: enabled, failing_since ' +
+      '(start of the current run of failed deliveries, null while healthy), and disabled_reason ' +
+      '("consecutive_failures" when the platform switched it off after 3 days without a ' +
+      'successful delivery). Read-only: endpoints and signing secrets are managed in the dashboard.',
+    inputSchema: {
+      type: 'object',
+      properties: { limit: emailLimit, cursor: emailCursor },
+      additionalProperties: false,
+    },
+    annotations: { title: 'List Webhook Endpoints', readOnlyHint: true },
+  },
+  {
+    name: 'get_webhook_endpoint',
+    description:
+      'Get one webhook endpoint: URL, subscribed event types, enabled flag, and delivery health ' +
+      '(failing_since, disabled_reason). The signing secret is never returned.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: { title: 'Get Webhook Endpoint', readOnlyHint: true },
   },
   // -------------------------------------------------------------------------
   // Email. Write tools need the email entitlement on the organization
@@ -1394,6 +1422,16 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
         }),
       );
 
+    case 'list_webhook_endpoints':
+      return textResult(
+        await client.listWebhookEndpoints({
+          limit: optNum(args, 'limit'),
+          cursor: opt(args, 'cursor'),
+        }),
+      );
+    case 'get_webhook_endpoint':
+      return textResult(await client.getWebhookEndpoint(s(args, 'id')));
+
     // Email.
     case 'list_email_domains':
       return textResult(
@@ -1497,7 +1535,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.21.0' },
+    { name: 'political-comms', version: '0.22.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

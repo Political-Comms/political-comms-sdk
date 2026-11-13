@@ -1069,3 +1069,49 @@ class TestTriggered:
         }
         assert UUID_RE.match(seen["idem"])
         assert result["data"]["reason"] == "duplicate"
+
+
+class TestWebhookEndpoints:
+    ENDPOINT = {
+        "id": "ep_1",
+        "name": "CRM sync",
+        "url": "https://example.org/hooks",
+        "enabled": False,
+        "event_types": ["message.delivered"],
+        "failing_since": "2026-11-10T00:00:00Z",
+        "disabled_reason": "consecutive_failures",
+        "created_at": "2026-10-01T00:00:00Z",
+        "updated_at": "2026-11-13T00:00:00Z",
+    }
+
+    def test_list_serializes_query_and_omits_unset(self):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["url"] = request.url
+            return ok_response({"data": [self.ENDPOINT], "has_more": True, "next_cursor": "c2"})
+
+        with make_client(handler) as client:
+            result = client.list_webhook_endpoints(limit=25)
+            client.list_webhook_endpoints(cursor="c1")
+        assert seen["method"] == "GET"
+        assert seen["url"].path == "/v1/webhook-endpoints"
+        assert seen["url"].params["cursor"] == "c1"
+        assert "limit" not in seen["url"].params
+        assert result["data"]["next_cursor"] == "c2"
+        assert result["data"]["data"][0]["disabled_reason"] == "consecutive_failures"
+
+    def test_get_reads_one_endpoint(self):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["path"] = request.url.path
+            return ok_response(self.ENDPOINT)
+
+        with make_client(handler) as client:
+            result = client.get_webhook_endpoint("ep_1")
+        assert seen["method"] == "GET"
+        assert seen["path"] == "/v1/webhook-endpoints/ep_1"
+        assert result["data"]["event_types"] == ["message.delivered"]

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.0] - 2026-11-13
+
+### Added
+- `webhooks endpoints list` (`--limit`, `--cursor`) and `webhooks endpoints get <id>` show webhook endpoints and their delivery health. Read-only.
+
+### Changed
+- Requires `@political-comms/sdk` ^0.22.0.
+
 ## [0.21.0] - 2026-11-13
 
 ### Changed

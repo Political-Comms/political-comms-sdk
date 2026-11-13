@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.22.0] - 2026-11-13
+
+### Added
+- The `test_project` tool description now says numbers ending 555-0100 to 555-0199 are test phone numbers that never reach a phone and return a fixed outcome.
+- `list_webhook_endpoints` and `get_webhook_endpoint` read the organization's outbound webhook endpoints and their delivery health (`enabled`, `failing_since`, `disabled_reason`). Both are read-only; the signing secret is never returned.
+
+### Changed
+- Requires `@political-comms/sdk` ^0.22.0.
+
 ## [0.21.0] - 2026-11-13
 
 ### Added

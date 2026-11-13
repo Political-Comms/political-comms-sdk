@@ -51,6 +51,8 @@ media get <id>                   Show one media file
 media delete <id>                Delete an unused media file
 stats messages                   Message stats (--from, --to; default last 30 days)
 usage                            Billing usage (--from, --to; default last 30 days)
+webhooks endpoints list          List webhook endpoints (--limit, --cursor)
+webhooks endpoints get <id>      Show one webhook endpoint
 email domains list               List email sending domains
 email senders list               List email sender identities
 email suppressions list          List email suppressions (--scope)
@@ -99,6 +101,10 @@ npx @political-comms/cli projects schedule proj_123 \
 # the project, and rejected messages are still billed)
 npx @political-comms/cli projects schedule proj_123 \
   --send-at 2026-11-03T09:00:00 --timezone America/New_York --daily-cap-bypass
+
+# Rehearse a failure without texting a real phone: a test phone number
+# (555-0100 through 555-0199 in any area code) never reaches a carrier
+npx @political-comms/cli projects test proj_123 --phone +12025550101
 
 # Message stats for June
 npx @political-comms/cli stats messages --from 2026-06-01 --to 2026-06-30 --json

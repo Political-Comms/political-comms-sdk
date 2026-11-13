@@ -77,7 +77,9 @@ await client.scheduleProject(projectId, {
 });
 ```
 
-One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `getCampaignThroughput`, `listTrackingDomains`, `listPhoneNumbers`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `downloadContactList`, `deleteContactList`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `getProjectSurveyResults`, `getProjectThroughput`, `testProject`, `scheduleProject`, `unscheduleProject`, `pauseProject`, `startProject`, `endProject`, `addProjectRecipient`, `createProjectHook`, `copyProject`, `listConversations`, `getConversation`, `listConversationMessages`, `replyToConversation`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
+A test, or any send, can also target a test phone number such as `+12025550101` (any number ending 555-0100 through 555-0199) to get a fixed delivered or failed outcome without texting a real phone. See [Test phone numbers](https://docs.politicalcomms.com/api-reference/testing).
+
+One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `getCampaignThroughput`, `listTrackingDomains`, `listPhoneNumbers`, `listWebhookEndpoints`, `getWebhookEndpoint`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `downloadContactList`, `deleteContactList`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `getProjectSurveyResults`, `getProjectThroughput`, `testProject`, `scheduleProject`, `unscheduleProject`, `pauseProject`, `startProject`, `endProject`, `addProjectRecipient`, `createProjectHook`, `copyProject`, `listConversations`, `getConversation`, `listConversationMessages`, `replyToConversation`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
 
 ## Triggered projects and campaigns
 
@@ -125,6 +127,23 @@ Email campaigns work the same way: `createEmailCampaign({ ..., trigger })` with 
 `createEmailCampaignHook`, and `endEmailCampaign`. While paused, new recipients are refused
 with a 409, not queued. Opted-out phone numbers and suppressed addresses are never sent to
 (409 `CONTACT_OPTED_OUT` or a 422).
+
+## Webhook endpoints
+
+`listWebhookEndpoints` and `getWebhookEndpoint` read the outbound webhook endpoints of your
+organization. They are read-only: endpoints and their signing secret are created and edited
+in the dashboard. Use them to check delivery health from a script. `failing_since` is the
+start of the current run of failed deliveries (`null` while healthy), and `disabled_reason`
+is `consecutive_failures` when the platform switched an endpoint off after 3 days with no
+successful delivery. Re-enabling the endpoint clears both. The list is keyset paginated:
+page until `next_cursor` is null. The API key needs the `public:read` scope.
+
+```ts
+const { data: page } = await client.listWebhookEndpoints({ limit: 100 });
+for (const endpoint of page.data) {
+  if (!endpoint.enabled || endpoint.failing_since) console.log(endpoint.name, endpoint.disabled_reason);
+}
+```
 
 ## Conversations
 

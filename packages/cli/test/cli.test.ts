@@ -99,6 +99,30 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     deleteMedia: vi.fn(() => ok({ media_id: 'media_1', name: 'rally-photo.jpg', deleted: true })),
     getMessageStats: vi.fn(() => ok({ totals: { sent: 10 }, daily: [] })),
     getLedgerUsage: vi.fn(() => ok({ organization_name: 'Civic Action Fund', totals: { total_cost: 12.5 } })),
+    listWebhookEndpoints: vi.fn(() =>
+      ok({ data: [{
+  id: 'ep_1',
+  name: 'CRM sync',
+  url: 'https://example.org/hooks',
+  enabled: false,
+  event_types: ['message.delivered', 'message.failed'],
+  failing_since: '2026-11-10T00:00:00Z',
+  disabled_reason: 'consecutive_failures',
+  created_at: '2026-10-01T00:00:00Z',
+  updated_at: '2026-11-13T00:00:00Z',
+}], has_more: true, next_cursor: 'cur_2' }),
+    ),
+    getWebhookEndpoint: vi.fn(() => ok({
+  id: 'ep_1',
+  name: 'CRM sync',
+  url: 'https://example.org/hooks',
+  enabled: false,
+  event_types: ['message.delivered', 'message.failed'],
+  failing_since: '2026-11-10T00:00:00Z',
+  disabled_reason: 'consecutive_failures',
+  created_at: '2026-10-01T00:00:00Z',
+  updated_at: '2026-11-13T00:00:00Z',
+})),
     listEmailTemplates: vi.fn(() =>
       ok({
         data: [
@@ -643,6 +667,45 @@ describe('formatting helpers', () => {
 
   it('kv aligns keys', () => {
     expect(kv({ id: 'x', list_name: 'Voters' }).split('\n')).toEqual(['id         x', 'list_name  Voters']);
+  });
+});
+
+describe('webhooks endpoints commands', () => {
+  it('list passes limit and cursor and prints health columns and the next cursor', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['webhooks', 'endpoints', 'list', '--limit', '10', '--cursor', 'cur_1'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.listWebhookEndpoints).toHaveBeenCalledWith({ limit: 10, cursor: 'cur_1' });
+    const text = out.join('\n');
+    expect(text).toContain('DISABLED REASON');
+    expect(text).toContain('consecutive_failures');
+    expect(text).toContain('--cursor cur_2');
+  });
+
+  it('get prints the endpoint with its event types joined', async () => {
+    const { io, out } = makeIO();
+    const code = await main(['webhooks', 'endpoints', 'get', 'ep_1'], deps(makeClient(), io));
+
+    expect(code).toBe(0);
+    expect(out.join('\n')).toContain('message.delivered,message.failed');
+  });
+
+  it('exits 2 when get is missing the id', async () => {
+    const { io, err } = makeIO();
+    const code = await main(['webhooks', 'endpoints', 'get'], deps(makeClient(), io));
+
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('webhooks endpoints get <id>');
+  });
+
+  it('exits 2 on a write subcommand: endpoints are managed in the dashboard', async () => {
+    const { io, err } = makeIO();
+    const code = await main(['webhooks', 'endpoints', 'create'], deps(makeClient(), io));
+
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('webhooks endpoints <list|get>');
   });
 });
 

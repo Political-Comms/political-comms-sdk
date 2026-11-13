@@ -34,6 +34,8 @@ export type CliClient = Pick<
   | 'getMessageStats'
   | 'getLedgerUsage'
   | 'listEmailDomains'
+  | 'listWebhookEndpoints'
+  | 'getWebhookEndpoint'
   | 'listEmailSenders'
   | 'listEmailSuppressions'
   | 'listEmailCampaigns'
@@ -97,6 +99,8 @@ Commands:
   media delete <id>                Delete an unused media file
   stats messages                   Message stats (--from, --to; default last 30 days)
   usage                            Billing usage (--from, --to; default last 30 days)
+  webhooks endpoints list          List webhook endpoints (--limit, --cursor)
+  webhooks endpoints get <id>      Show one webhook endpoint
   email domains list               List email sending domains
   email senders list               List email sender identities
   email suppressions list          List email suppressions (--scope)
@@ -408,12 +412,61 @@ async function dispatch(client: CliClient, positionals: string[], flags: Flags, 
       return 0;
     }
 
+    case 'webhooks':
+      return webhooksCommand(client, sub, arg, arg2, flags, io);
+
     case 'email':
       return emailCommand(client, sub, arg, arg2, flags, io);
 
     default:
       throw new UsageError(`Unknown command: ${command}`);
   }
+}
+
+/** Read-only: endpoints and their signing secret are managed in the dashboard. */
+async function webhooksCommand(
+  client: CliClient,
+  sub: string | undefined,
+  arg: string | undefined,
+  arg2: string | undefined,
+  flags: Flags,
+  io: CliIO,
+): Promise<number> {
+  requireSub(sub, ['endpoints'], 'webhooks');
+  requireSub(arg, ['list', 'get'], 'webhooks endpoints');
+
+  if (arg === 'get') {
+    const id = requireArg(arg2, 'webhooks endpoints get <id>');
+    const result = await client.getWebhookEndpoint(id);
+    if (flags.json) return printJson(io, result);
+    io.out(kv({ ...result.data, event_types: result.data?.event_types?.join(',') }));
+    return 0;
+  }
+
+  const limit = flags.limit === undefined ? undefined : Number(flags.limit);
+  if (limit !== undefined && !Number.isInteger(limit)) {
+    throw new UsageError('--limit must be an integer');
+  }
+  const result = await client.listWebhookEndpoints({ limit, cursor: flags.cursor });
+  if (flags.json) return printJson(io, result);
+  io.out(
+    table(
+      (result.data?.data ?? []).map((endpoint) => ({
+        ...endpoint,
+        event_types: endpoint.event_types.join(','),
+      })),
+      [
+        { key: 'id', header: 'ID' },
+        { key: 'name', header: 'NAME' },
+        { key: 'url', header: 'URL' },
+        { key: 'enabled', header: 'ENABLED' },
+        { key: 'failing_since', header: 'FAILING SINCE' },
+        { key: 'disabled_reason', header: 'DISABLED REASON' },
+      ],
+    ),
+  );
+  if (result.data?.has_more) io.out(`More results: --cursor ${str(result.data.next_cursor)}`);
+  return 0;
 }
 
 /**

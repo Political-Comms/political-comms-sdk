@@ -54,6 +54,8 @@ Read only:
 | `list_conversations` | Conversations with at least one inbound message, sorted by last inbound message. |
 | `get_conversation` | One conversation: status, contact, message counts, last activity. |
 | `list_conversation_messages` | Messages in one conversation, newest first. |
+| `list_webhook_endpoints` | Outbound webhook endpoints with delivery health (`enabled`, `failing_since`, `disabled_reason`). Read-only. |
+| `get_webhook_endpoint` | One webhook endpoint: URL, event types, and delivery health. The signing secret is never returned. |
 | `list_email_domains` | Email sending domains and their DNS verification status. |
 | `get_email_domain` | One sending domain, including the DNS records to publish. |
 | `list_email_senders` | Email sender identities (From addresses). |
@@ -70,7 +72,7 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, `sc
 |------|-------------|
 | `import_contact_list` | Import a CSV as a new list of phones, emails, or both, or as a do-not-contact list. Requires `confirm: true`. |
 | `create_project` | Create a draft messaging project, or a triggered project (`type: triggered` with a `trigger`, no contact list). |
-| `test_project` | Send real test messages to explicit phone numbers. |
+| `test_project` | Send real test messages to explicit phone numbers. Numbers ending 555-0100 to 555-0199 are [test phone numbers](https://docs.politicalcomms.com/api-reference/testing) that never reach a phone and return a fixed outcome. |
 | `schedule_project` | Commit a bulk send at a specific date and time. |
 | `unschedule_project` | Remove a project's schedule. |
 | `pause_project` | Pause a running or scheduled send; resume with `schedule_project`. |
