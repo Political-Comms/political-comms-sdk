@@ -147,7 +147,7 @@ your organization. They are read-only: endpoints and their signing secret are cr
 edited in the dashboard. `failing_since` is the start of the current run of failed deliveries
 (`None` while healthy), and `disabled_reason` is `"consecutive_failures"` when the platform
 switched an endpoint off after 3 days with no successful delivery. The list is keyset
-paginated: page until `next_cursor` is `None`. The API key needs the `public:read` scope.
+paginated: page until `next_cursor` is `None`. The API key needs the `public:read` permission.
 
 ```python
 page = client.list_webhook_endpoints(limit=100)["data"]
@@ -246,7 +246,7 @@ if started["purpose"] == "audience":
 `list_contact_lists` returns the lists that hold phone numbers by default; pass
 `channel="email"` or `channel="all"` for the others. Each list reports its
 `channels` and its `email` side (null when it has none).
-`delete_contact_list` removes a list's phone numbers and its emails.
+`delete_contact_list` removes a list's phone numbers and its emails. The three delete methods (`delete_contact_list`, `delete_media`, `remove_email_suppressions`) need an API key with the `public:delete` permission, which is opt-in when the key is created and requires `public:write`; other keys get a 403.
 
 Email addresses reach a list only through `import_contact_list` with `email_column`
 (a CSV import creates the list, with the email side). Poll `get_contact_list` and

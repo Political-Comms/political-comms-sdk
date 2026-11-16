@@ -365,7 +365,10 @@ export class PoliticalCommsClient {
     return response.text();
   }
 
-  /** DELETE /contact-lists/{id}. Removes the list's phone numbers and its emails. */
+  /**
+   * DELETE /contact-lists/{id}. Removes the list's phone numbers and its emails.
+   * Needs an API key with the `public:delete` permission (and `public:write`); other keys get a 403.
+   */
   deleteContactList(
     id: string,
     options?: RequestOptions,
@@ -407,7 +410,7 @@ export class PoliticalCommsClient {
     return this.request('GET', `/media/${encodeURIComponent(id)}`, undefined, undefined, options);
   }
 
-  /** DELETE /media/{id} */
+  /** DELETE /media/{id}. Needs an API key with the `public:delete` permission (and `public:write`); other keys get a 403. */
   deleteMedia(id: string, options?: RequestOptions): Promise<ApiResponse<DeleteMediaResult>> {
     return this.request('DELETE', `/media/${encodeURIComponent(id)}`, undefined, undefined, options);
   }
@@ -919,7 +922,8 @@ export class PoliticalCommsClient {
 
   /**
    * DELETE /email/suppressions.
-   * Removing an address that was not suppressed is not an error. Once GA,
+   * Needs an API key with the `public:delete` permission (and `public:write`);
+   * other keys get a 403. Removing an address that was not suppressed is not an error. Once GA,
    * also returns `403 ENTITLEMENT_REQUIRED` if the organization is not
    * entitled to email; `error.body.details.entitlement` is `'email'`.
    */

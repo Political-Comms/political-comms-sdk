@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- `contact-lists delete` and `media delete` need an API key with the `public:delete` permission (and `public:write`); other keys get a 403.
+
 ## [0.22.0] - 2026-11-13
 
 ### Added

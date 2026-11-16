@@ -299,6 +299,9 @@ class PoliticalCommsClient:
     def delete_contact_list(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
         """DELETE /contact-lists/{id}
 
+        Needs an API key with the `public:delete` permission (and `public:write`);
+        other keys get a 403.
+
         Removes the list's phone numbers and its emails. A list referenced by any project cannot be deleted; the API returns
         409 CONTACT_LIST_IN_USE with the referencing projects in the details.
         """
@@ -353,6 +356,9 @@ class PoliticalCommsClient:
 
     def delete_media(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
         """DELETE /media/{id}
+
+        Needs an API key with the `public:delete` permission (and `public:write`);
+        other keys get a 403.
 
         A file referenced by any project cannot be deleted; the API returns
         409 MEDIA_IN_USE with the referencing projects in the details.
@@ -1071,7 +1077,8 @@ class PoliticalCommsClient:
     ) -> JsonDict:
         """DELETE /email/suppressions.
 
-        Removing an address that was not suppressed is not an error.
+        Needs an API key with the `public:delete` permission (and `public:write`);
+        other keys get a 403. Removing an address that was not suppressed is not an error.
 
         Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
         organization is not entitled to email; the error's

@@ -136,7 +136,7 @@ in the dashboard. Use them to check delivery health from a script. `failing_sinc
 start of the current run of failed deliveries (`null` while healthy), and `disabled_reason`
 is `consecutive_failures` when the platform switched an endpoint off after 3 days with no
 successful delivery. Re-enabling the endpoint clears both. The list is keyset paginated:
-page until `next_cursor` is null. The API key needs the `public:read` scope.
+page until `next_cursor` is null. The API key needs the `public:read` permission.
 
 ```ts
 const { data: page } = await client.listWebhookEndpoints({ limit: 100 });
@@ -253,7 +253,7 @@ if (started.purpose === 'audience') console.log(started.list_id, started.channel
 
 `listContactLists` returns the lists that hold phone numbers by default; pass
 `channel: 'email'` or `channel: 'all'` for the others. Each list reports its
-`channels` and its `email` side (null when it has none). `deleteContactList` removes a list's phone numbers and its emails.
+`channels` and its `email` side (null when it has none). `deleteContactList` removes a list's phone numbers and its emails. The three delete methods (`deleteContactList`, `deleteMedia`, `removeEmailSuppressions`) need an API key with the `public:delete` permission, which is opt-in when the key is created and requires `public:write`; other keys get a 403.
 
 Email addresses reach a list only through `importContactList` with `email_column`
 (a CSV import creates the list, with the email side). Poll `getContactList` and

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.22.1] - 2026-11-16
+
+### Changed
+- `deleteContactList`, `deleteMedia`, and `removeEmailSuppressions` need an API key with the `public:delete` permission (and `public:write`); other keys get a 403. Keys created before this change keep working. Documentation only: no runtime change.
+
 ## [0.22.0] - 2026-11-13
 
 ### Added
