@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.21.2] - 2026-11-16
+
+### Changed
+- `get_project_stats(id)` documents the new `cost_breakdown` list: the project's cost per product (`code`, `messages`, `segments`, `cost`), net of refunds and summing to the project total. Documentation only: the client returns the response as-is.
+
 ## [0.21.1] - 2026-11-16
 
 ### Changed

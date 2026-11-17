@@ -253,7 +253,9 @@ const TOOLS: Tool[] = [
     description:
       'Get delivery and engagement stats for one project: sent, delivered, undeliverable, replies, ' +
       'opt outs, clicks, and the derived rates. The response also carries a `test` object with ' +
-      'test-send activity tracked separately from the production metrics.',
+      'test-send activity tracked separately from the production metrics, and `cost_breakdown`: ' +
+      'messages, segments, and cost per product (outbound and inbound SMS and MMS), summing to ' +
+      'the project total.',
     inputSchema: {
       type: 'object',
       properties: { id: idParam },
@@ -371,7 +373,8 @@ const TOOLS: Tool[] = [
       'For channel=10dlc also pass brand_id and campaign_id; for channel=toll-free pass ' +
       'toll_free_verification_id. Creating a project does not send messages by itself. A 409 ' +
       '`LIST_ANALYSIS_IN_PROGRESS` means a contact list is still being analyzed; wait until ' +
-      '`get_contact_list` shows `analysis.status` `complete`, then retry.',
+      '`get_contact_list` shows `analysis.status` `complete`, then retry. A 409 `LIST_ARCHIVED` ' +
+      'names a list whose contacts were removed 12 months after upload; choose another list.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -498,7 +501,10 @@ const TOOLS: Tool[] = [
       'Schedule a project to send to its full contact lists at a specific date and time. This ' +
       'commits a real bulk send to every contact on the lists once the scheduled time arrives. A 409 ' +
       '`LIST_ANALYSIS_IN_PROGRESS` means a contact list is still being analyzed; wait until ' +
-      '`get_contact_list` shows `analysis.status` `complete`, then retry.',
+      '`get_contact_list` shows `analysis.status` `complete`, then retry. A 409 `LIST_ARCHIVED` ' +
+      'names a list whose contacts were removed 12 months after upload, and a 409 ' +
+      '`NO_SENDABLE_CONTACTS` means the lists hold no contact that can receive a text; choose ' +
+      'another list.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1535,7 +1541,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.22.0' },
+    { name: 'political-comms', version: '0.22.1' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

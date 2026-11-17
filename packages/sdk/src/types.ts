@@ -1123,7 +1123,30 @@ export interface ProjectStats {
     clicks_unique?: number;
     [key: string]: unknown;
   };
+  /**
+   * The project's cost split by product, one entry per product with
+   * activity, outbound before inbound. Net of refunds; the entries sum to the
+   * project's total cost.
+   */
+  cost_breakdown?: ProjectCostBreakdownEntry[];
   [key: string]: unknown;
+}
+
+/** One product's share of a project's cost in `ProjectStats.cost_breakdown`. */
+export interface ProjectCostBreakdownEntry {
+  code:
+    | 'sms_outbound'
+    | 'mms_outbound'
+    | 'rcs_outbound'
+    | 'sms_inbound'
+    | 'mms_inbound'
+    | 'rcs_inbound';
+  /** Messages billed; `null` when the billing record cannot state a count. */
+  messages: number | null;
+  /** Billed units: segments for SMS, messages for MMS (so MMS `messages` equals `segments`). */
+  segments: number;
+  /** Cost in USD. */
+  cost: number;
 }
 
 /** One answer option of a survey question. */
@@ -1156,9 +1179,16 @@ export interface ProjectSurveyResults {
   name: string;
   status: string;
   total_recipients: number;
-  /** Percentage of responding conversations that reached the final question. */
-  completion_rate: number;
-  dropoff_rate: number;
+  /**
+   * Percentage of responding conversations that reached the final question.
+   * Null for a survey past 12 months, whose results come from the archived snapshot.
+   */
+  completion_rate: number | null;
+  dropoff_rate: number | null;
+  /** Present when the survey is past 12 months: individual responses are kept 12 months. */
+  data_notice?: string;
+  /** When the archived snapshot behind these results was captured; present with `data_notice`. */
+  snapshot_at?: string | null;
   /** One entry per question, ordered by sequence. */
   results: SurveyQuestionResult[];
 }

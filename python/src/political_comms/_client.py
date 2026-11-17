@@ -438,6 +438,8 @@ class PoliticalCommsClient:
 
         Raises a 409 ``LIST_ANALYSIS_IN_PROGRESS`` while a contact list on the
         project is being analyzed; wait for ``analysis.status`` ``complete``.
+        A 409 ``LIST_ARCHIVED`` names a list whose contacts were removed 12
+        months after upload; choose another list or upload the file again.
 
         ``opt_out_footer_enabled`` controls the automatic "STOP=END" footer
         (default ``True``). ``link_tracking_destination_url`` may embed the
@@ -536,6 +538,8 @@ class PoliticalCommsClient:
 
         Raises a 409 ``LIST_ANALYSIS_IN_PROGRESS`` while a contact list on the
         project is being analyzed; wait for ``analysis.status`` ``complete``.
+        A 409 ``LIST_ARCHIVED`` names a list whose contacts were removed 12
+        months after upload; choose another list or upload the file again.
 
         Editable in ``draft``, ``awaiting_test``, ``ready``, and ``paused``;
         any edit moves the project to ``awaiting_test``. To resume a paused
@@ -589,6 +593,10 @@ class PoliticalCommsClient:
         clicks) tracked separately - ``metrics`` excludes test traffic. The
         test counters form a pipeline: ``sent`` holds only tests awaiting a
         delivery outcome and moves into ``delivered``/``failed`` on the DLR.
+        ``cost_breakdown`` lists the project's cost per product (``code`` such as
+        ``sms_outbound`` or ``mms_inbound``, with ``messages``, ``segments`` and
+        ``cost``), net of refunds and summing to the project total; ``messages``
+        is ``None`` when the billing record cannot state a count.
         """
         return self._request("GET", f"/projects/{id}/stats")
 
@@ -676,6 +684,10 @@ class PoliticalCommsClient:
 
         Raises a 409 ``LIST_ANALYSIS_IN_PROGRESS`` while a contact list on the
         project is being analyzed; wait for ``analysis.status`` ``complete``.
+        A 409 ``LIST_ARCHIVED`` names a list whose contacts were removed 12
+        months after upload; choose another list or upload the file again.
+        A 409 ``NO_SENDABLE_CONTACTS`` means the lists hold no contact that
+        can receive a text.
 
         To resume a project paused with ``pause_reason`` ``brand_daily_cap``,
         schedule it for the next day during sending hours (the project's window:

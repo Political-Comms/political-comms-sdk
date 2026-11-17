@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.22.1] - 2026-11-16
+
+### Changed
+- The `get_project_stats` tool description mentions `cost_breakdown`: messages, segments, and cost per product, summing to the project total.
+
 ## [0.22.0] - 2026-11-13
 
 ### Added

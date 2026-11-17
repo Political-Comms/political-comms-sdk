@@ -443,7 +443,9 @@ export class PoliticalCommsClient {
    * `409 SENDING_PAUSED` if sending is paused for the organization or
    * platform-wide; `error.body.details.scope` is `'organization' | 'platform'`.
    * Throws a 409 `LIST_ANALYSIS_IN_PROGRESS` while a contact list on the
-   * project is being analyzed; wait for `analysis.status` `complete`.
+   * project is being analyzed; wait for `analysis.status` `complete`. A 409
+   * `LIST_ARCHIVED` names a list whose contacts were removed 12 months after
+   * upload; choose another list or upload the file again.
    */
   createProject(
     body: CreateProjectRequest,
@@ -483,7 +485,8 @@ export class PoliticalCommsClient {
   /**
    * PATCH /projects/{id}. Throws a 409 `LIST_ANALYSIS_IN_PROGRESS` while a
    * contact list on the project is being analyzed; wait for `analysis.status`
-   * `complete`. Editable in `draft`, `awaiting_test`, `ready`, and `paused`;
+   * `complete`. A 409 `LIST_ARCHIVED` names a list whose contacts were removed
+   * 12 months after upload. Editable in `draft`, `awaiting_test`, `ready`, and `paused`;
    * any edit moves the project to `awaiting_test`. To resume a paused project
    * after an edit: `updateProject`, then `testProject`, then `scheduleProject`.
    * Changing the sending setup (`channel`, `brand_id`, `campaign_id`,
@@ -561,7 +564,10 @@ export class PoliticalCommsClient {
    * to try T-Mobile again at the reduced rate. `daily_cap_bypass: true` skips
    * the reduced rate; a carrier rejection still pauses the project.
    * Throws a 409 `LIST_ANALYSIS_IN_PROGRESS` while a contact list on the
-   * project is being analyzed; wait for `analysis.status` `complete`.
+   * project is being analyzed; wait for `analysis.status` `complete`. A 409
+   * `LIST_ARCHIVED` names a list whose contacts were removed 12 months after
+   * upload, and a 409 `NO_SENDABLE_CONTACTS` means the lists hold no contact
+   * that can receive a text; both change nothing.
    */
   scheduleProject(
     id: string,

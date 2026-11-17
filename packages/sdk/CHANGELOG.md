@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.23.0] - 2026-11-16
+
+### Added
+- `ProjectStats.cost_breakdown` and the `ProjectCostBreakdownEntry` type: `getProjectStats(id)` returns the project's cost per product (`sms_outbound`, `mms_outbound`, `sms_inbound`, `mms_inbound`, and RCS when used), each with `messages`, `segments`, and `cost`, net of refunds and summing to the project total. `messages` is `null` when the billing record cannot state a count.
+
 ## [0.22.1] - 2026-11-16
 
 ### Changed
