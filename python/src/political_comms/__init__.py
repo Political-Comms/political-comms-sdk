@@ -3,7 +3,7 @@
 from ._client import PoliticalCommsClient, RateLimitState
 from ._errors import PoliticalCommsError
 
-__version__ = "0.21.2"
+__version__ = "0.22.0"
 
 __all__ = [
     "PoliticalCommsClient",

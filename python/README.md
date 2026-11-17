@@ -75,7 +75,7 @@ client.schedule_project(project_id, "2026-11-03T09:00:00", "America/New_York")
 
 A test, or any send, can also target a test phone number such as `+12025550101` (any number ending 555-0100 through 555-0199) to get a fixed delivered or failed outcome without texting a real phone. See [Test phone numbers](https://docs.politicalcomms.com/api-reference/testing).
 
-One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `get_campaign_throughput`, `list_tracking_domains`, `list_phone_numbers`, `list_webhook_endpoints`, `get_webhook_endpoint`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `download_contact_list`, `delete_contact_list`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `get_project_survey_results`, `get_project_throughput`, `test_project`, `schedule_project`, `unschedule_project`, `pause_project`, `start_project`, `end_project`, `add_project_recipient`, `create_project_hook`, `copy_project`, `list_conversations`, `get_conversation`, `list_conversation_messages`, `reply_to_conversation`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
+One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `get_campaign_throughput`, `list_tracking_domains`, `list_phone_numbers`, `list_webhook_endpoints`, `get_webhook_endpoint`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `download_contact_list`, `delete_contact_list`, `list_tags`, `create_tag`, `rename_tag`, `delete_tag`, `add_tag_contacts`, `remove_tag_contacts`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `get_project_survey_results`, `get_project_throughput`, `test_project`, `schedule_project`, `unschedule_project`, `pause_project`, `start_project`, `end_project`, `add_project_recipient`, `create_project_hook`, `copy_project`, `list_conversations`, `get_conversation`, `list_conversation_messages`, `reply_to_conversation`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
 
 Every method returns the parsed JSON response, a dict of the form `{"success": True, "data": ...}`.
 
@@ -139,6 +139,39 @@ page = client.list_conversations(updated_since=last_seen_at)["data"]
 for conversation in page["data"]:
     print(conversation["conversation_id"], conversation["status"])
 ```
+
+## Tags
+
+A tag labels a contact (a phone number or an email address) inside one organization.
+Manual tags have members you add and remove; activity tags (`donated`, `clicked`,
+`responded`, `sent`, optionally within the last `within_days` days) apply by themselves
+and are evaluated when a send compiles.
+
+```python
+tag = client.create_tag("Volunteers")["data"]
+client.add_tag_contacts(tag["id"], ["(202) 555-0101", "ada@example.org"])
+client.add_tag_contacts(tag["id"], contact_list_id=list_id)  # every active phone and subscribed address
+donors = client.create_tag(activity_event="donated", within_days=90)["data"]
+
+client.create_project(
+    org_id, "Volunteer call", "sms", "Shifts open Saturday.", [phone_number_id],
+    [list_id],
+    brand_id=brand_id,
+    campaign_id=campaign_id,
+    tag_ids=[tag["id"]],              # also send to contacts carrying ANY of these
+    require_tag_ids=[donors["id"]],   # keep only contacts carrying ALL of these
+    suppression_tag_ids=[staff_tag_id],  # leave these out of this send
+)
+```
+
+`create_project`, `update_project`, and `create_email_campaign` take the three tag
+fields; a campaign needs `list_ids` or `tag_ids`. A tagged contact is only sent to
+through a list row the sender can use: a tagged phone must be on a live list the
+project's sender can use (unscoped, or scoped to the project's own brand, toll-free
+number, or short code), and a tagged address must be subscribed on a list the sending
+domain can use. Opt-outs and unsubscribes always apply. `import_contact_list` can tag an
+`audience` import with `tag_ids`, `tag_names`, or `tags_column`. A 409 `TAG_IN_USE` from
+`delete_tag` lists the live sends using the tag in `error.body["details"]`.
 
 ## Webhook endpoints
 
@@ -246,7 +279,7 @@ if started["purpose"] == "audience":
 `list_contact_lists` returns the lists that hold phone numbers by default; pass
 `channel="email"` or `channel="all"` for the others. Each list reports its
 `channels` and its `email` side (null when it has none).
-`delete_contact_list` removes a list's phone numbers and its emails. The three delete methods (`delete_contact_list`, `delete_media`, `remove_email_suppressions`) need an API key with the `public:delete` permission, which is opt-in when the key is created and requires `public:write`; other keys get a 403.
+`delete_contact_list` removes a list's phone numbers and its emails. The delete methods (`delete_contact_list`, `delete_media`, `delete_tag`, `remove_tag_contacts`, `remove_email_suppressions`) need an API key with the `public:delete` permission, which is opt-in when the key is created and requires `public:write`; other keys get a 403.
 
 Email addresses reach a list only through `import_contact_list` with `email_column`
 (a CSV import creates the list, with the email side). Poll `get_contact_list` and

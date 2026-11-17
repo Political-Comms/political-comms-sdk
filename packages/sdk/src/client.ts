@@ -71,6 +71,14 @@ import type {
   TriggerHookResponse,
   UpdateProjectRequest,
   UpdateProjectResult,
+  AddTagContactsResult,
+  CreateTagRequest,
+  DeleteTagResult,
+  ListTagsQuery,
+  RemoveTagContactsResult,
+  RenameTagRequest,
+  Tag,
+  TagContactsRequest,
   // Email
   AddEmailSuppressionsRequest,
   AddEmailSuppressionsResult,
@@ -380,6 +388,64 @@ export class PoliticalCommsClient {
       undefined,
       options,
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // Tags
+  // -------------------------------------------------------------------------
+
+  /** GET /tags. Every tag of one organization, sorted by name; not paginated. */
+  listTags(query: ListTagsQuery = {}, options?: RequestOptions): Promise<ApiResponse<Tag[]>> {
+    return this.request('GET', '/tags', { organization_id: query.organization_id }, undefined, options);
+  }
+
+  /**
+   * POST /tags. A manual tag by `name`, or an activity tag by
+   * `activity_event` and optional `within_days`. Creating an activity tag
+   * that already exists returns it (200 instead of 201). A taken name is a
+   * 409 `TAG_NAME_TAKEN`.
+   */
+  createTag(body: CreateTagRequest, options?: RequestOptions): Promise<ApiResponse<Tag>> {
+    return this.request('POST', '/tags', undefined, body, options);
+  }
+
+  /** PATCH /tags/{id}. Manual tags only (400 `TAG_NOT_MANUAL`); 409 `TAG_NAME_TAKEN` on a clash. */
+  renameTag(id: string, body: RenameTagRequest, options?: RequestOptions): Promise<ApiResponse<Tag>> {
+    return this.request('PATCH', `/tags/${encodeURIComponent(id)}`, undefined, body, options);
+  }
+
+  /**
+   * DELETE /tags/{id}. Needs an API key with the `public:delete` permission
+   * (and `public:write`). A 409 `TAG_IN_USE` carries `TagInUseDetails` in
+   * `error.body.details`: the live sends still using the tag.
+   */
+  deleteTag(id: string, options?: RequestOptions): Promise<ApiResponse<DeleteTagResult>> {
+    return this.request('DELETE', `/tags/${encodeURIComponent(id)}`, undefined, undefined, options);
+  }
+
+  /**
+   * POST /tags/{id}/contacts. Manual tags only (400 `TAG_NOT_MANUAL`). A 409
+   * `TAG_BUSY` means an import is writing the same contacts; retry in about a
+   * minute.
+   */
+  addTagContacts(
+    id: string,
+    body: TagContactsRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<AddTagContactsResult>> {
+    return this.request('POST', `/tags/${encodeURIComponent(id)}/contacts`, undefined, body, options);
+  }
+
+  /**
+   * DELETE /tags/{id}/contacts, with the same body as `addTagContacts`.
+   * Needs an API key with the `public:delete` permission (and `public:write`).
+   */
+  removeTagContacts(
+    id: string,
+    body: TagContactsRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<RemoveTagContactsResult>> {
+    return this.request('DELETE', `/tags/${encodeURIComponent(id)}/contacts`, undefined, body, options);
   }
 
   // -------------------------------------------------------------------------

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.23.0] - 2026-11-17
+
+### Added
+- `list_tags`, `create_tag`, `rename_tag`, and `add_tag_contacts` (by `identifiers` or `contact_list_id`; requires `confirm: true` because it changes who a send reaches). Deleting a tag and untagging contacts are not tools: the server exposes no delete operations.
+- `create_project` takes `tag_ids` (send to contacts carrying ANY of these tags, in union with the lists), `require_tag_ids` (keep only contacts carrying ALL of them), and `suppression_tag_ids`. Its description states the consent rule: a tagged contact is only sent to through a list row the sender can use.
+- `import_contact_list` takes `tag_ids`, `tag_names`, and `tags_column` for an audience import.
+- `POLITICAL_COMMS_BASE_URL` points the server at another API host.
+
+### Fixed
+- `create_project` without `contact_list_ids` sent an empty array, which the API refuses; it now leaves the field out, so a draft or a tags-only project can be created.
+
+### Changed
+- Requires `@political-comms/sdk` ^0.24.0.
+
 ## [0.22.1] - 2026-11-16
 
 ### Changed

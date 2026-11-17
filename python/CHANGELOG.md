@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.22.0] - 2026-11-17
+
+### Added
+- Contact tags: `list_tags(organization_id=)`, `create_tag(name)` or `create_tag(activity_event=, within_days=)`, `rename_tag(id, name)`, `delete_tag(id)`, `add_tag_contacts(id, identifiers)` or `add_tag_contacts(id, contact_list_id=)`, and `remove_tag_contacts` with the same arguments (`GET /tags`, `POST /tags`, `PATCH /tags/{id}`, `DELETE /tags/{id}`, `POST /tags/{id}/contacts`, `DELETE /tags/{id}/contacts`). `delete_tag` and `remove_tag_contacts` need an API key with the `public:delete` permission. A 409 `TAG_IN_USE` from `delete_tag` lists the live sends using the tag in `body["details"]`.
+- `tag_ids` (send to contacts carrying ANY of these tags, in union with the lists), `require_tag_ids` (keep only contacts carrying ALL of them), and `suppression_tag_ids` on `create_project`, `update_project`, and `create_email_campaign`. A tagged contact is only sent to through a list row the sender can use.
+- `tag_ids`, `tag_names`, and `tags_column` on `import_contact_list` tag every contact of an `audience` import.
+
+### Changed
+- `update_project` sends an empty `contact_list_ids`, `suppression_list_ids`, or `media_ids` list instead of dropping it, so `[]` clears the field (`contact_list_ids=[]` is accepted while the project keeps a tag). `None` still leaves a field unchanged.
+- `create_email_campaign` no longer needs `list_ids` when `tag_ids` is set.
+
 ## [0.21.2] - 2026-11-16
 
 ### Changed

@@ -1,8 +1,16 @@
 # Changelog
 
-## [Unreleased]
+## [0.23.0] - 2026-11-17
+
+### Added
+- `tags list`, `tags create` (`--name`, or `--activity donated|clicked|responded|sent` with optional `--within-days`), `tags rename <id> --name`, `tags delete <id>`, `tags add <id>`, and `tags remove <id>` (`--identifier`, repeatable, or one `--contact-list-id`). `tags delete` and `tags remove` need an API key with the `public:delete` permission.
+- `projects create` takes `--tag-id` (send to contacts carrying ANY of these tags, in union with the lists), `--require-tag-id` (keep only contacts carrying ALL of them), and `--suppression-tag-id`, each repeatable. `--contact-list-id` is no longer required when `--tag-id` is given.
+
+### Fixed
+- `projects create` printed an empty id; it now prints the new project's `project_id`.
 
 ### Changed
+- Requires `@political-comms/sdk` ^0.24.0.
 - `contact-lists delete` and `media delete` need an API key with the `public:delete` permission (and `public:write`); other keys get a 403.
 
 ## [0.22.0] - 2026-11-13

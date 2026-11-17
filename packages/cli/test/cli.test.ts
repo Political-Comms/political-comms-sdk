@@ -44,7 +44,7 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
       }),
     ),
     getProjectThroughput: vi.fn(() => ok({ project_id: 'proj_1', carrier_metered: false })),
-    createProject: vi.fn(() => ok({ id: 'proj_9', status: 'draft' })),
+    createProject: vi.fn(() => ok({ project_id: 'proj_9', status: 'draft' })),
     testProject: vi.fn(() => ok({ project_id: 'proj_1', tests_sent: 1 })),
     scheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'scheduled', scheduled_at: '2026-11-03T09:00:00' })),
     unscheduleProject: vi.fn(() => ok({ id: 'proj_1', status: 'draft' })),
@@ -58,6 +58,17 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     getContactList: vi.fn(() => ok({ id: 'cl_1', list_name: 'Voters' })),
     downloadContactList: vi.fn(async () => 'Phone Number,Original Row\n+15555550100,1\n'),
     deleteContactList: vi.fn(() => ok({ list_id: 'cl_1', name: 'Voters', deleted: true })),
+    listTags: vi.fn(() =>
+      ok([
+        { id: 'tag_1', name: 'Volunteers', kind: 'manual', activity_event: null, within_days: null, member_count: 10000, member_count_capped: true },
+        { id: 'tag_2', name: 'Recent donors', kind: 'activity', activity_event: 'donated', within_days: 90, member_count: null, member_count_capped: false },
+      ]),
+    ),
+    createTag: vi.fn(() => ok({ id: 'tag_3', name: 'Walkers', kind: 'manual' })),
+    renameTag: vi.fn(() => ok({ id: 'tag_1', name: 'Core volunteers', kind: 'manual' })),
+    deleteTag: vi.fn(() => ok({ id: 'tag_1', deleted: true })),
+    addTagContacts: vi.fn(() => ok({ added: 2, invalid: 1 })),
+    removeTagContacts: vi.fn(() => ok({ removed: 1, not_tagged: 1, invalid: 0 })),
     listConversations: vi.fn(() =>
       ok({
         data: [
@@ -753,5 +764,161 @@ describe('email read commands', () => {
 
     expect(code).toBe(2);
     expect(err.join('\n')).toContain('email templates <list|get>');
+  });
+});
+
+describe('tags commands', () => {
+  it('list passes the organization and shows the rule and a capped member count', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['tags', 'list', '--organization-id', 'org_2'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.listTags).toHaveBeenCalledWith({ organization_id: 'org_2' });
+    const text = out.join('\n');
+    expect(text).toContain('10000+');
+    expect(text).toContain('donated in 90 days');
+  });
+
+  it('create sends a manual tag by name', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['tags', 'create', '--name', 'Walkers'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.createTag).toHaveBeenCalledWith({ name: 'Walkers', organization_id: undefined });
+    expect(out.join('\n')).toContain('tag_3');
+  });
+
+  it('create sends an activity tag with its window as a number', async () => {
+    const client = makeClient();
+    const { io } = makeIO();
+    const code = await main(
+      ['tags', 'create', '--activity', 'clicked', '--within-days', '30', '--organization-id', 'org_2'],
+      deps(client, io),
+    );
+
+    expect(code).toBe(0);
+    expect(client.createTag).toHaveBeenCalledWith({ activity_event: 'clicked', within_days: 30, organization_id: 'org_2' });
+  });
+
+  it.each([
+    [['tags', 'create'], '--name <name> or --activity'],
+    [['tags', 'create', '--activity', 'opened'], '--name <name> or --activity'],
+    [['tags', 'create', '--name', 'A', '--activity', 'sent'], 'not both'],
+    [['tags', 'create', '--activity', 'sent', '--within-days', '0'], '1 to 365'],
+    [['tags', 'create', '--name', 'A', '--within-days', '5'], '--activity tags only'],
+    [['tags', 'rename', 'tag_1'], '--name'],
+    [['tags', 'add', 'tag_1'], '--identifier'],
+    [['tags', 'add', 'tag_1', '--identifier', 'a@example.org', '--contact-list-id', 'cl_1'], '--identifier'],
+    [['tags', 'remove', 'tag_1', '--contact-list-id', 'cl_1', '--contact-list-id', 'cl_2'], 'one --contact-list-id'],
+  ])('exits 2 on %j', async (argv, message) => {
+    const client = makeClient();
+    const { io, err } = makeIO();
+    const code = await main(argv, deps(client, io));
+
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain(message);
+    expect(client.createTag).not.toHaveBeenCalled();
+    expect(client.addTagContacts).not.toHaveBeenCalled();
+    expect(client.removeTagContacts).not.toHaveBeenCalled();
+  });
+
+  it('rename sends the new name', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['tags', 'rename', 'tag_1', '--name', 'Core volunteers'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.renameTag).toHaveBeenCalledWith('tag_1', { name: 'Core volunteers' });
+    expect(out.join('\n')).toContain('Core volunteers');
+  });
+
+  it('delete calls deleteTag', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['tags', 'delete', 'tag_1'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.deleteTag).toHaveBeenCalledWith('tag_1');
+    expect(out.join('\n')).toContain('Deleted tag tag_1');
+  });
+
+  it('delete exits 1 with the API message on TAG_IN_USE', async () => {
+    const client = makeClient({
+      deleteTag: vi.fn(() =>
+        Promise.reject(new PoliticalCommsError('This tag is used by a send that is scheduled, sending or paused ("GOTV").', 'TAG_IN_USE', 409, {})),
+      ),
+    });
+    const { io, err } = makeIO();
+    const code = await main(['tags', 'delete', 'tag_1'], deps(client, io));
+
+    expect(code).toBe(1);
+    expect(err.join('\n')).toContain('TAG_IN_USE');
+    expect(err.join('\n')).toContain('"GOTV"');
+  });
+
+  it('add sends repeated identifiers and prints the counts', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(
+      ['tags', 'add', 'tag_1', '--identifier', '(202) 555-0101', '--identifier', 'ada@example.org', '--identifier', 'nope'],
+      deps(client, io),
+    );
+
+    expect(code).toBe(0);
+    expect(client.addTagContacts).toHaveBeenCalledWith('tag_1', { identifiers: ['(202) 555-0101', 'ada@example.org', 'nope'] });
+    expect(out.join('\n')).toContain('Tagged 2 contact(s); 1 invalid.');
+  });
+
+  it('remove sends one contact list as the source', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['tags', 'remove', 'tag_1', '--contact-list-id', 'cl_1'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.removeTagContacts).toHaveBeenCalledWith('tag_1', { contact_list_id: 'cl_1' });
+    expect(out.join('\n')).toContain('1 were not tagged');
+  });
+});
+
+describe('projects create with tags', () => {
+  const setup = [
+    'projects', 'create',
+    '--name', 'Tagged',
+    '--organization-id', 'org_1',
+    '--protocol', 'sms',
+    '--phone-number-id', 'pn_1',
+    '--body', 'Hi',
+  ];
+
+  it('accepts --tag-id in place of --contact-list-id and maps all three tag flags', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(
+      [...setup, '--tag-id', 't1', '--tag-id', 't2', '--require-tag-id', 't3', '--suppression-tag-id', 't4'],
+      deps(client, io),
+    );
+
+    expect(code).toBe(0);
+    expect(client.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contact_list_ids: undefined,
+        tag_ids: ['t1', 't2'],
+        require_tag_ids: ['t3'],
+        suppression_tag_ids: ['t4'],
+      }),
+    );
+    expect(out.join('\n')).toContain('Created project proj_9 (status: draft)');
+  });
+
+  it('exits 2 without a contact list or a tag', async () => {
+    const client = makeClient();
+    const { io, err } = makeIO();
+    const code = await main([...setup, '--require-tag-id', 't3'], deps(client, io));
+
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('--contact-list-id or --tag-id');
+    expect(client.createProject).not.toHaveBeenCalled();
   });
 });

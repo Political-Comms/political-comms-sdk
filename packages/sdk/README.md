@@ -79,7 +79,7 @@ await client.scheduleProject(projectId, {
 
 A test, or any send, can also target a test phone number such as `+12025550101` (any number ending 555-0100 through 555-0199) to get a fixed delivered or failed outcome without texting a real phone. See [Test phone numbers](https://docs.politicalcomms.com/api-reference/testing).
 
-One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `getCampaignThroughput`, `listTrackingDomains`, `listPhoneNumbers`, `listWebhookEndpoints`, `getWebhookEndpoint`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `downloadContactList`, `deleteContactList`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `getProjectSurveyResults`, `getProjectThroughput`, `testProject`, `scheduleProject`, `unscheduleProject`, `pauseProject`, `startProject`, `endProject`, `addProjectRecipient`, `createProjectHook`, `copyProject`, `listConversations`, `getConversation`, `listConversationMessages`, `replyToConversation`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
+One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `getCampaignThroughput`, `listTrackingDomains`, `listPhoneNumbers`, `listWebhookEndpoints`, `getWebhookEndpoint`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `downloadContactList`, `deleteContactList`, `listTags`, `createTag`, `renameTag`, `deleteTag`, `addTagContacts`, `removeTagContacts`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `getProjectSurveyResults`, `getProjectThroughput`, `testProject`, `scheduleProject`, `unscheduleProject`, `pauseProject`, `startProject`, `endProject`, `addProjectRecipient`, `createProjectHook`, `copyProject`, `listConversations`, `getConversation`, `listConversationMessages`, `replyToConversation`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
 
 ## Triggered projects and campaigns
 
@@ -127,6 +127,38 @@ Email campaigns work the same way: `createEmailCampaign({ ..., trigger })` with 
 `createEmailCampaignHook`, and `endEmailCampaign`. While paused, new recipients are refused
 with a 409, not queued. Opted-out phone numbers and suppressed addresses are never sent to
 (409 `CONTACT_OPTED_OUT` or a 422).
+
+## Tags
+
+A tag labels a contact (a phone number or an email address) inside one organization.
+Manual tags have members you add and remove; activity tags (`donated`, `clicked`,
+`responded`, `sent`, optionally within the last `within_days` days) apply by themselves
+and are evaluated when a send compiles.
+
+```ts
+const { data: tag } = await client.createTag({ name: 'Volunteers' });
+await client.addTagContacts(tag.id, { identifiers: ['(202) 555-0101', 'ada@example.org'] });
+await client.addTagContacts(tag.id, { contact_list_id: listId }); // every active phone and subscribed address
+const { data: donors } = await client.createTag({ activity_event: 'donated', within_days: 90 });
+
+await client.createProject({
+  ...projectSetup, // organization_id, name, protocol, message_text, phone_number_ids, brand_id, campaign_id
+  contact_list_ids: [listId],
+  tag_ids: [tag.id],               // also send to contacts carrying ANY of these
+  require_tag_ids: [donors.id],    // keep only contacts carrying ALL of these
+  suppression_tag_ids: [staffTagId], // leave these out of this send
+});
+```
+
+`createProject`, `updateProject`, and `createEmailCampaign` take the three tag fields; a
+campaign needs `list_ids` or `tag_ids`. A tagged contact is only sent to through a list
+row the sender can use: a tagged phone must be on a live list the project's sender can use
+(unscoped, or scoped to the project's own brand, toll-free number, or short code), and a
+tagged address must be subscribed on a list the sending domain can use. Opt-outs and
+unsubscribes always apply. `importContactList` can tag an `audience` import with
+`tag_ids`, `tag_names`, or `tags_column`. `deleteTag` and `removeTagContacts` need the
+`public:delete` permission; a 409 `TAG_IN_USE` from `deleteTag` lists the live sends using
+the tag in `error.body.details` (`TagInUseDetails`).
 
 ## Webhook endpoints
 
@@ -253,7 +285,7 @@ if (started.purpose === 'audience') console.log(started.list_id, started.channel
 
 `listContactLists` returns the lists that hold phone numbers by default; pass
 `channel: 'email'` or `channel: 'all'` for the others. Each list reports its
-`channels` and its `email` side (null when it has none). `deleteContactList` removes a list's phone numbers and its emails. The three delete methods (`deleteContactList`, `deleteMedia`, `removeEmailSuppressions`) need an API key with the `public:delete` permission, which is opt-in when the key is created and requires `public:write`; other keys get a 403.
+`channels` and its `email` side (null when it has none). `deleteContactList` removes a list's phone numbers and its emails. The delete methods (`deleteContactList`, `deleteMedia`, `deleteTag`, `removeTagContacts`, `removeEmailSuppressions`) need an API key with the `public:delete` permission, which is opt-in when the key is created and requires `public:write`; other keys get a 403.
 
 Email addresses reach a list only through `importContactList` with `email_column`
 (a CSV import creates the list, with the email side). Poll `getContactList` and

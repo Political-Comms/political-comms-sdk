@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.24.0] - 2026-11-17
+
+### Added
+- Contact tags: `listTags({ organization_id? })`, `createTag(body)` (a manual tag by `name`, or an activity tag by `activity_event` and optional `within_days`), `renameTag(id, { name })`, `deleteTag(id)`, `addTagContacts(id, body)`, and `removeTagContacts(id, body)` (`GET /tags`, `POST /tags`, `PATCH /tags/{id}`, `DELETE /tags/{id}`, `POST /tags/{id}/contacts`, `DELETE /tags/{id}/contacts`). Contacts are added or removed by `identifiers` (US phone numbers or email addresses, up to 10000) or by `contact_list_id`. `deleteTag` and `removeTagContacts` need an API key with the `public:delete` permission.
+- `Tag`, `TagKind`, `TagActivityEvent`, `ListTagsQuery`, `CreateTagRequest` (`CreateManualTagRequest | CreateActivityTagRequest`), `RenameTagRequest`, `TagContactsRequest`, `AddTagContactsResult`, `RemoveTagContactsResult`, `DeleteTagResult`, `TagInUseDetails`, `TagInUseSend`, `ProjectTagRef`, and `SendTagFields` types. A 409 `TAG_IN_USE` from `deleteTag` carries `TagInUseDetails` in `error.body.details`.
+- `tag_ids` (send to contacts carrying ANY of these tags, in union with the lists), `require_tag_ids` (keep only contacts carrying ALL of them), and `suppression_tag_ids` on `CreateProjectRequest`, `UpdateProjectRequest`, `ProjectDetail`, `Project` (which also names them in `source_tags`, `required_tags`, and `suppression_tags`), `CreateEmailCampaignRequest`, and `EmailCampaign`. A tagged contact is only sent to through a list row the sender can use.
+- `tag_ids`, `tag_names`, and `tags_column` on `ImportContactListRequest` tag every contact of an `audience` import.
+
+### Changed
+- `CreateEmailCampaignRequest.list_ids` is documented as optional when `tag_ids` is set, and `UpdateProjectRequest.contact_list_ids` accepts `[]` while the project keeps a tag.
+
 ## [0.23.0] - 2026-11-16
 
 ### Added

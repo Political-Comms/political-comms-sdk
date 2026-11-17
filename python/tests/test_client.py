@@ -1115,3 +1115,178 @@ class TestWebhookEndpoints:
         assert seen["method"] == "GET"
         assert seen["path"] == "/v1/webhook-endpoints/ep_1"
         assert result["data"]["event_types"] == ["message.delivered"]
+
+
+class TestTags:
+    TAG = {
+        "id": "tag_1",
+        "name": "Volunteers",
+        "kind": "manual",
+        "activity_event": None,
+        "within_days": None,
+        "member_count": 10000,
+        "member_count_capped": True,
+        "organization_id": "org_1",
+        "created_at": "2026-11-17T00:00:00Z",
+    }
+
+    @staticmethod
+    def record(seen, data):
+        def handler(request):
+            seen["method"] = request.method
+            seen["url"] = request.url
+            seen["body"] = json.loads(request.content) if request.content else None
+            seen["idem"] = request.headers.get("Idempotency-Key")
+            return ok_response(data)
+
+        return handler
+
+    def test_list_tags_passes_the_organization(self):
+        seen = {}
+        with make_client(self.record(seen, [self.TAG])) as client:
+            result = client.list_tags(organization_id="org_2")
+        assert seen["method"] == "GET"
+        assert seen["url"].path == "/v1/tags"
+        assert seen["url"].params["organization_id"] == "org_2"
+        assert result["data"][0]["member_count_capped"] is True
+
+    def test_list_tags_omits_an_unset_organization(self):
+        seen = {}
+        with make_client(self.record(seen, [])) as client:
+            client.list_tags()
+        assert "organization_id" not in seen["url"].params
+
+    def test_create_manual_tag(self):
+        seen = {}
+        with make_client(self.record(seen, self.TAG)) as client:
+            result = client.create_tag("Volunteers")
+        assert seen["method"] == "POST"
+        assert seen["url"].path == "/v1/tags"
+        assert seen["body"] == {"name": "Volunteers"}
+        assert UUID_RE.match(seen["idem"])
+        assert result["data"]["kind"] == "manual"
+
+    def test_create_activity_tag(self):
+        seen = {}
+        with make_client(self.record(seen, {**self.TAG, "kind": "activity"})) as client:
+            client.create_tag(activity_event="donated", within_days=90, organization_id="org_2")
+        assert seen["body"] == {"activity_event": "donated", "within_days": 90, "organization_id": "org_2"}
+
+    def test_rename_tag(self):
+        seen = {}
+        with make_client(self.record(seen, {**self.TAG, "name": "Core"})) as client:
+            result = client.rename_tag("tag_1", "Core", idempotency_key="rename-1")
+        assert seen["method"] == "PATCH"
+        assert seen["url"].path == "/v1/tags/tag_1"
+        assert seen["body"] == {"name": "Core"}
+        assert seen["idem"] == "rename-1"
+        assert result["data"]["name"] == "Core"
+
+    def test_delete_tag_sends_no_body_and_no_generated_key(self):
+        seen = {}
+        with make_client(self.record(seen, {"id": "tag_1", "deleted": True})) as client:
+            result = client.delete_tag("tag_1")
+        assert seen["method"] == "DELETE"
+        assert seen["url"].path == "/v1/tags/tag_1"
+        assert seen["body"] is None
+        assert seen["idem"] is None
+        assert result["data"]["deleted"] is True
+
+    def test_delete_tag_in_use_exposes_the_blocking_sends(self):
+        details = {
+            "projects": [{"id": "proj_1", "name": "GOTV", "status": "scheduled"}],
+            "emailCampaigns": [],
+        }
+
+        def handler(request):
+            return httpx.Response(
+                409,
+                json={"success": False, "error": "in use", "code": "TAG_IN_USE", "details": details},
+            )
+
+        with make_client(handler) as client:
+            with pytest.raises(PoliticalCommsError) as exc:
+                client.delete_tag("tag_1")
+        assert exc.value.code == "TAG_IN_USE"
+        assert exc.value.body["details"] == details
+
+    def test_add_tag_contacts_by_identifiers(self):
+        seen = {}
+        with make_client(self.record(seen, {"added": 2, "invalid": 1})) as client:
+            result = client.add_tag_contacts("tag_1", ("(202) 555-0101", "ada@example.org", "nope"))
+        assert seen["method"] == "POST"
+        assert seen["url"].path == "/v1/tags/tag_1/contacts"
+        assert seen["body"] == {"identifiers": ["(202) 555-0101", "ada@example.org", "nope"]}
+        assert UUID_RE.match(seen["idem"])
+        assert result["data"] == {"added": 2, "invalid": 1}
+
+    def test_remove_tag_contacts_is_a_delete_with_a_body(self):
+        seen = {}
+        with make_client(self.record(seen, {"removed": 3, "not_tagged": 0, "invalid": 0})) as client:
+            result = client.remove_tag_contacts("tag_1", contact_list_id="cl_1", idempotency_key="untag-1")
+        assert seen["method"] == "DELETE"
+        assert seen["url"].path == "/v1/tags/tag_1/contacts"
+        assert seen["body"] == {"contact_list_id": "cl_1"}
+        assert seen["idem"] == "untag-1"
+        assert result["data"]["removed"] == 3
+
+    @pytest.mark.parametrize("kwargs", [{}, {"identifiers": ["a@example.org"], "contact_list_id": "cl_1"}])
+    def test_tag_contacts_need_exactly_one_source(self, kwargs):
+        calls = []
+        with make_client(lambda request: calls.append(request) or ok_response({})) as client:
+            with pytest.raises(ValueError):
+                client.add_tag_contacts("tag_1", **kwargs)
+        assert calls == []
+
+    def test_create_project_sends_tags_without_a_list(self):
+        seen = {}
+        with make_client(self.record(seen, {"project_id": "proj_1"})) as client:
+            client.create_project(
+                "org_1", "Tagged", "sms", "Hi", ["pn_1"],
+                tag_ids=["t1"], require_tag_ids=["t2"], suppression_tag_ids=["t3"],
+            )
+        assert seen["body"]["tag_ids"] == ["t1"]
+        assert seen["body"]["require_tag_ids"] == ["t2"]
+        assert seen["body"]["suppression_tag_ids"] == ["t3"]
+        assert "contact_list_ids" not in seen["body"]
+
+    def test_update_project_sends_empty_lists_to_clear_fields(self):
+        seen = {}
+        with make_client(self.record(seen, {"project_id": "proj_1"})) as client:
+            client.update_project("proj_1", contact_list_ids=[], tag_ids=["t1"], suppression_tag_ids=[])
+        assert seen["method"] == "PATCH"
+        assert seen["body"] == {"contact_list_ids": [], "tag_ids": ["t1"], "suppression_tag_ids": []}
+
+    def test_create_email_campaign_with_tags_and_no_lists(self):
+        seen = {}
+        with make_client(self.record(seen, {"id": "camp_1", "tag_ids": ["t1"]})) as client:
+            result = client.create_email_campaign(
+                "N", "s_1", template_id="tpl_1",
+                tag_ids=["t1"], require_tag_ids=["t2"], suppression_tag_ids=["t3"],
+            )
+        assert seen["url"].path == "/v1/email/campaigns"
+        assert seen["body"] == {
+            "name": "N",
+            "sender_identity_id": "s_1",
+            "template_id": "tpl_1",
+            "tag_ids": ["t1"],
+            "require_tag_ids": ["t2"],
+            "suppression_tag_ids": ["t3"],
+        }
+        assert result["data"]["tag_ids"] == ["t1"]
+
+    def test_import_contact_list_sends_tag_fields(self):
+        seen = {}
+        with make_client(self.record(seen, {"purpose": "audience", "list_id": "cl_1"})) as client:
+            client.import_contact_list(
+                "https://example.org/a.csv", "A", "Phone",
+                tag_ids=["t1"], tag_names=["Walk list"], tags_column="Tags",
+            )
+        assert seen["body"] == {
+            "source_url": "https://example.org/a.csv",
+            "list_name": "A",
+            "phone_column": "Phone",
+            "tag_ids": ["t1"],
+            "tag_names": ["Walk list"],
+            "tags_column": "Tags",
+        }

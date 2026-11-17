@@ -32,6 +32,9 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
+Set `POLITICAL_COMMS_BASE_URL` to point the server at another API host (for example a
+staging API); it defaults to `https://api.politicalcomms.com/v1`.
+
 ## Tools
 
 Read only:
@@ -51,6 +54,7 @@ Read only:
 | `download_contact_list` | A contact list as CSV text (`type` original or analyzed), truncated at 100,000 characters. |
 | `get_message_stats` | Aggregate message stats for a date range. |
 | `get_ledger_usage` | Billing usage for a date range. |
+| `list_tags` | Contact tags of one organization: manual tags with a member count, activity tags (`donated`, `clicked`, `responded`, `sent`, optionally within N days). |
 | `list_conversations` | Conversations with at least one inbound message, sorted by last inbound message. |
 | `get_conversation` | One conversation: status, contact, message counts, last activity. |
 | `list_conversation_messages` | Messages in one conversation, newest first. |
@@ -66,12 +70,15 @@ Read only:
 | `list_email_templates` | Saved email templates with subject and last-updated time. |
 | `get_email_template` | One template including its full HTML body. |
 
-Write (each is annotated as non read-only; `create_project`, `test_project`, `schedule_project`, `start_project`, `add_project_recipient`, `reply_to_conversation`, `schedule_email_campaign`, `resume_email_campaign`, `add_email_campaign_recipient`, and `import_contact_list` additionally require `confirm: true` because they send real messages or write contacts):
+Write (each is annotated as non read-only; `create_project`, `test_project`, `schedule_project`, `start_project`, `add_project_recipient`, `reply_to_conversation`, `schedule_email_campaign`, `resume_email_campaign`, `add_email_campaign_recipient`, `add_tag_contacts`, and `import_contact_list` additionally require `confirm: true` because they send real messages or write contacts):
 
 | Tool | Description |
 |------|-------------|
-| `import_contact_list` | Import a CSV as a new list of phones, emails, or both, or as a do-not-contact list. Requires `confirm: true`. |
-| `create_project` | Create a draft messaging project, or a triggered project (`type: triggered` with a `trigger`, no contact list). |
+| `import_contact_list` | Import a CSV as a new list of phones, emails, or both, or as a do-not-contact list; an audience import can tag its contacts (`tag_ids`, `tag_names`, `tags_column`). Requires `confirm: true`. |
+| `create_tag` | Create a manual tag by `name`, or an activity tag by `activity_event` and optional `within_days`. |
+| `rename_tag` | Rename a manual tag. |
+| `add_tag_contacts` | Put a manual tag on phone numbers or email addresses (`identifiers`) or on everyone on a list (`contact_list_id`). Requires `confirm: true`. |
+| `create_project` | Create a draft messaging project, or a triggered project (`type: triggered` with a `trigger`, no contact list). Recipients are `contact_list_ids` plus contacts carrying ANY `tag_ids` tag; `require_tag_ids` keeps only contacts carrying ALL of its tags; `suppression_tag_ids` leaves tagged contacts out. A tagged contact is only sent to when it is on a live list the sender can use. |
 | `test_project` | Send real test messages to explicit phone numbers. Numbers ending 555-0100 to 555-0199 are [test phone numbers](https://docs.politicalcomms.com/api-reference/testing) that never reach a phone and return a fixed outcome. |
 | `schedule_project` | Commit a bulk send at a specific date and time. |
 | `unschedule_project` | Remove a project's schedule. |
@@ -90,7 +97,8 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, `sc
 | `add_email_campaign_recipient` | Add one recipient to a triggered email campaign; sends a real email. Requires `confirm: true`. |
 | `create_email_campaign_hook` | Mint the inbound hook URL for a triggered email campaign; replaces any previous URL. |
 
-The server deliberately exposes no delete operations.
+The server deliberately exposes no delete operations, so deleting a tag and untagging
+contacts (both need the `public:delete` permission) stay in the SDK, the CLI, and the dashboard.
 
 ### Email tools
 

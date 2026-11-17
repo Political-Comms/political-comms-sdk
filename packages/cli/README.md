@@ -28,7 +28,9 @@ projects list                    List projects
 projects get <id>                Show one project
 projects stats <id>              Show delivery and engagement stats
 projects survey-results <id>     Show survey results (survey projects only)
-projects create                  Create a project
+projects create                  Create a project (--contact-list-id and/or
+                                 --tag-id; --require-tag-id,
+                                 --suppression-tag-id)
 projects test <id>               Send a test message (--phone, repeatable)
 projects schedule <id>           Schedule a send (--send-at, --timezone)
 projects unschedule <id>         Remove a schedule
@@ -41,6 +43,15 @@ contact-lists list               List contact lists (--channel text|email|all;
 contact-lists get <id>           Show one contact list
 contact-lists download <id>      Print a contact list CSV (--type original|analyzed)
 contact-lists delete <id>        Delete an unused contact list (phones and emails)
+tags list                        List tags ([--organization-id])
+tags create                      Create a manual tag (--name) or an activity
+                                 tag (--activity donated|clicked|responded|sent,
+                                 [--within-days 1-365])
+tags rename <id>                 Rename a manual tag (--name)
+tags delete <id>                 Delete a tag (refused while a live send uses it)
+tags add <id>                    Tag contacts: --identifier <phone|email>,
+                                 repeatable, or one --contact-list-id
+tags remove <id>                 Untag contacts (same flags as tags add)
 conversations list               List conversations with an inbound message
                                   (--project, --since, --include-test)
 conversations get <id>           Show one conversation
@@ -88,6 +99,22 @@ npx @political-comms/cli projects create \
   --phone-number-id pn_123 \
   --contact-list-id cl_123 \
   --body "Polls are open until 8pm."
+
+# Tag volunteers, then text everyone on the list or carrying the tag, minus staff.
+# A tagged phone is only sent to when it is on a live list this sender can use.
+npx @political-comms/cli tags create --name Volunteers
+npx @political-comms/cli tags add tag_123 --identifier "(202) 555-0101" --identifier ada@example.org
+npx @political-comms/cli projects create \
+  --name "Volunteer call" \
+  --organization-id org_123 \
+  --brand-id brand_123 \
+  --campaign-id camp_123 \
+  --protocol sms \
+  --phone-number-id pn_123 \
+  --contact-list-id cl_123 \
+  --tag-id tag_123 \
+  --suppression-tag-id tag_staff \
+  --body "Shifts open Saturday."
 
 # Send a test to yourself
 npx @political-comms/cli projects test proj_123 --phone +15555550100

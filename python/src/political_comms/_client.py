@@ -216,6 +216,9 @@ class PoliticalCommsClient:
         consent: Optional[JsonDict] = None,
         email_domain_id: Optional[str] = None,
         acquired: Optional[bool] = None,
+        tag_ids: Optional[Sequence[str]] = None,
+        tag_names: Optional[Sequence[str]] = None,
+        tags_column: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /contact-lists/import
@@ -247,6 +250,13 @@ class PoliticalCommsClient:
         Unknown keys inside ``merge_tags`` or ``consent`` are a 400; unknown
         top-level fields are ignored.
 
+        An ``audience`` import can tag its contacts: ``tag_ids`` (up to 20
+        manual tag ids) and ``tag_names`` (up to 20 names, created if missing)
+        tag every contact; ``tags_column`` names a header whose cells hold tag
+        names separated by commas, semicolons, or pipes. A column that would
+        create more than 100 new tags fails the import (``import.status``
+        ``failed``).
+
         Poll ``get_contact_list(list_id)``: ``import`` is the phone side and
         ``email.status`` is the email side.
         """
@@ -263,6 +273,9 @@ class PoliticalCommsClient:
                 "consent": consent,
                 "email_domain_id": email_domain_id,
                 "acquired": acquired,
+                "tag_ids": _list(tag_ids),
+                "tag_names": _list(tag_names),
+                "tags_column": tags_column,
             }
         )
         return self._request("POST", "/contact-lists/import", body=body, idempotency_key=idempotency_key)
@@ -306,6 +319,113 @@ class PoliticalCommsClient:
         409 CONTACT_LIST_IN_USE with the referencing projects in the details.
         """
         return self._request("DELETE", f"/contact-lists/{id}", idempotency_key=idempotency_key)
+
+    # -- tags --------------------------------------------------------------------
+    #
+    # A tag labels a contact (a phone number or an email address). A tagged
+    # contact is only sent to through a list row the sender can use, so a tag
+    # never reaches anyone who is on no such list.
+
+    def list_tags(self, *, organization_id: Optional[str] = None) -> JsonDict:
+        """GET /tags
+
+        Every tag of one organization (the key's own unless ``organization_id``
+        names another it reaches), sorted by name; not paginated. Each tag has
+        ``kind`` ``"manual"`` or ``"activity"``; a manual tag's
+        ``member_count`` is capped at 10000 (``member_count_capped``), and an
+        activity tag's is ``None``.
+        """
+        return self._request("GET", "/tags", query={"organization_id": organization_id})
+
+    def create_tag(
+        self,
+        name: Optional[str] = None,
+        *,
+        activity_event: Optional[str] = None,
+        within_days: Optional[int] = None,
+        organization_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> JsonDict:
+        """POST /tags
+
+        A manual tag by ``name`` (1-64 characters; 409 ``TAG_NAME_TAKEN`` when
+        the organization has it, ignoring case), or an activity tag by
+        ``activity_event`` (``donated``, ``clicked``, ``responded``, ``sent``)
+        and optional ``within_days`` (1-365). Creating an activity tag that
+        already exists returns it with a 200.
+        """
+        body = _compact(
+            {
+                "name": name,
+                "activity_event": activity_event,
+                "within_days": within_days,
+                "organization_id": organization_id,
+            }
+        )
+        return self._request("POST", "/tags", body=body, idempotency_key=idempotency_key)
+
+    def rename_tag(self, id: str, name: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+        """PATCH /tags/{id}
+
+        Manual tags only (400 ``TAG_NOT_MANUAL``); 409 ``TAG_NAME_TAKEN`` on a clash.
+        """
+        return self._request("PATCH", f"/tags/{id}", body={"name": name}, idempotency_key=idempotency_key)
+
+    def delete_tag(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+        """DELETE /tags/{id}
+
+        Needs an API key with the `public:delete` permission (and `public:write`).
+        A 409 ``TAG_IN_USE`` carries ``body["details"]`` =
+        ``{"projects": [{"id", "name", "status"}], "emailCampaigns": [...]}``:
+        the scheduled, compiling, active, sending, or paused sends using the
+        tag (up to 10 each). Drafts and finished sends never block a delete.
+        """
+        return self._request("DELETE", f"/tags/{id}", idempotency_key=idempotency_key)
+
+    def add_tag_contacts(
+        self,
+        id: str,
+        identifiers: Optional[Sequence[str]] = None,
+        *,
+        contact_list_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> JsonDict:
+        """POST /tags/{id}/contacts
+
+        Pass exactly one of ``identifiers`` (1-10000 US phone numbers in any
+        common format, or email addresses) and ``contact_list_id`` (every
+        active phone and subscribed address on that list). Returns ``added``
+        and ``invalid`` counts. Manual tags only (400 ``TAG_NOT_MANUAL``); a
+        409 ``TAG_BUSY`` means an import is writing the same contacts, so
+        retry in about a minute.
+        """
+        return self._request(
+            "POST",
+            f"/tags/{id}/contacts",
+            body=_tag_contacts(identifiers, contact_list_id),
+            idempotency_key=idempotency_key,
+        )
+
+    def remove_tag_contacts(
+        self,
+        id: str,
+        identifiers: Optional[Sequence[str]] = None,
+        *,
+        contact_list_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> JsonDict:
+        """DELETE /tags/{id}/contacts
+
+        Same body as :meth:`add_tag_contacts`. Needs an API key with the
+        `public:delete` permission (and `public:write`). Returns ``removed``,
+        ``not_tagged``, and ``invalid`` counts.
+        """
+        return self._request(
+            "DELETE",
+            f"/tags/{id}/contacts",
+            body=_tag_contacts(identifiers, contact_list_id),
+            idempotency_key=idempotency_key,
+        )
 
     # -- media -------------------------------------------------------------------
 
@@ -404,6 +524,9 @@ class PoliticalCommsClient:
         campaign_id: Optional[str] = None,
         toll_free_verification_id: Optional[str] = None,
         suppression_list_ids: Optional[Sequence[str]] = None,
+        tag_ids: Optional[Sequence[str]] = None,
+        require_tag_ids: Optional[Sequence[str]] = None,
+        suppression_tag_ids: Optional[Sequence[str]] = None,
         media_ids: Optional[Sequence[str]] = None,
         link_tracking_enabled: Optional[bool] = None,
         link_tracking_destination_url: Optional[str] = None,
@@ -432,9 +555,19 @@ class PoliticalCommsClient:
         ``contact_list_ids`` and ``suppression_list_ids``. Test it with
         :meth:`test_project`, then :meth:`start_project`.
 
-        ``contact_list_ids`` is optional: omitting it creates the project in
-        draft status, and it cannot be tested or scheduled until a list is
-        attached via ``update_project``. An explicitly empty list is rejected.
+        ``contact_list_ids`` is optional: a project with neither a list nor a
+        ``tag_ids`` entry is created in draft status, and it cannot be tested
+        or scheduled until one is attached via ``update_project``. An
+        explicitly empty list is rejected.
+
+        Tags (up to 50 ids each): ``tag_ids`` also sends to contacts carrying
+        ANY of these tags, in union with the lists; ``require_tag_ids`` keeps
+        only recipients carrying ALL of them; ``suppression_tag_ids`` leaves
+        out recipients carrying any of them. A tag cannot be both a source or
+        required tag and a suppression tag (400). A tagged phone is only sent
+        to when it is on a live list the project's sender can use (unscoped,
+        or scoped to the project's own brand, toll-free number, or short code).
+        Triggered and survey projects refuse the tag fields.
 
         Raises a 409 ``LIST_ANALYSIS_IN_PROGRESS`` while a contact list on the
         project is being analyzed; wait for ``analysis.status`` ``complete``.
@@ -464,6 +597,9 @@ class PoliticalCommsClient:
                 "protocol": protocol,
                 "contact_list_ids": list(contact_list_ids) if contact_list_ids is not None else None,
                 "suppression_list_ids": list(suppression_list_ids) if suppression_list_ids else None,
+                "tag_ids": _list(tag_ids),
+                "require_tag_ids": _list(require_tag_ids),
+                "suppression_tag_ids": _list(suppression_tag_ids),
                 "message_text": message_text,
                 "media_ids": list(media_ids) if media_ids else None,
                 "link_tracking_enabled": link_tracking_enabled,
@@ -524,6 +660,9 @@ class PoliticalCommsClient:
         phone_number_ids: Optional[Sequence[str]] = None,
         contact_list_ids: Optional[Sequence[str]] = None,
         suppression_list_ids: Optional[Sequence[str]] = None,
+        tag_ids: Optional[Sequence[str]] = None,
+        require_tag_ids: Optional[Sequence[str]] = None,
+        suppression_tag_ids: Optional[Sequence[str]] = None,
         media_ids: Optional[Sequence[str]] = None,
         link_tracking_enabled: Optional[bool] = None,
         link_tracking_destination_url: Optional[str] = None,
@@ -560,6 +699,12 @@ class PoliticalCommsClient:
         ``link_tracking_destination_url`` is a whole-URL placeholder such as
         ``https://{custom_url}``; see ``create_project``. ``trigger`` replaces
         the trigger of a triggered project (triggered projects only).
+
+        ``tag_ids``, ``require_tag_ids``, and ``suppression_tag_ids`` replace
+        the project's tags; see ``create_project``. An empty list clears a
+        field: ``contact_list_ids=[]`` is accepted while the project keeps a
+        ``tag_ids`` entry (or is a draft), and ``suppression_list_ids=[]`` or
+        ``media_ids=[]`` removes them all. ``None`` leaves a field unchanged.
         """
         body = _compact(
             {
@@ -571,9 +716,12 @@ class PoliticalCommsClient:
                 "message_text": message_text,
                 "protocol": protocol,
                 "phone_number_ids": list(phone_number_ids) if phone_number_ids else None,
-                "contact_list_ids": list(contact_list_ids) if contact_list_ids else None,
-                "suppression_list_ids": list(suppression_list_ids) if suppression_list_ids else None,
-                "media_ids": list(media_ids) if media_ids else None,
+                "contact_list_ids": _list(contact_list_ids),
+                "suppression_list_ids": _list(suppression_list_ids),
+                "tag_ids": _list(tag_ids),
+                "require_tag_ids": _list(require_tag_ids),
+                "suppression_tag_ids": _list(suppression_tag_ids),
+                "media_ids": _list(media_ids),
                 "link_tracking_enabled": link_tracking_enabled,
                 "link_tracking_destination_url": link_tracking_destination_url,
                 "link_tracking_domain_id": link_tracking_domain_id,
@@ -1157,14 +1305,18 @@ class PoliticalCommsClient:
         require_approval: Optional[bool] = None,
         sequence: Optional[JsonDict] = None,
         trigger: Optional[JsonDict] = None,
+        tag_ids: Optional[Sequence[str]] = None,
+        require_tag_ids: Optional[Sequence[str]] = None,
+        suppression_tag_ids: Optional[Sequence[str]] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /email/campaigns.
 
         ``trigger`` makes this a triggered campaign: no list, recipients arrive
         when the trigger fires (``{"source": "api" | "donation" | "event", ...}``).
-        ``list_ids`` is required unless ``trigger`` is set, and a trigger cannot
-        be combined with ``list_ids`` or ``sequence`` (400). Start it with
+        A campaign without ``trigger`` needs ``list_ids`` or a non-empty
+        ``tag_ids``; a trigger cannot be combined with ``list_ids``, tags, or
+        ``sequence`` (400). Start it with
         :meth:`schedule_email_campaign` and no ``scheduled_at``; stop it with
         :meth:`end_email_campaign`.
 
@@ -1188,7 +1340,11 @@ class PoliticalCommsClient:
         and unsubscribe page with your own ``links.`` host. Leave it unset to
         let the platform pick the obvious default.
 
-        A campaign sends to every subscribed, unsuppressed contact on its lists.
+        A campaign sends to every subscribed, unsuppressed contact on its lists,
+        plus every address carrying ANY ``tag_ids`` tag that is subscribed on a
+        list the sending domain can use. ``require_tag_ids`` keeps only
+        recipients carrying ALL of its tags; ``suppression_tag_ids`` leaves out
+        recipients carrying any of its tags.
         """
         return self._request(
             "POST",
@@ -1211,6 +1367,9 @@ class PoliticalCommsClient:
                     "require_approval": require_approval,
                     "sequence": sequence,
                     "trigger": trigger,
+                    "tag_ids": _list(tag_ids),
+                    "require_tag_ids": _list(require_tag_ids),
+                    "suppression_tag_ids": _list(suppression_tag_ids),
                 }
             ),
             idempotency_key=idempotency_key,
@@ -1516,3 +1675,17 @@ class PoliticalCommsClient:
 
 def _compact(mapping: JsonDict) -> JsonDict:
     return {k: v for k, v in mapping.items() if v is not None}
+
+
+def _list(values: Optional[Sequence[str]]) -> Optional[list[str]]:
+    """A list for the JSON body; ``None`` stays omitted, while ``[]`` is sent so it can clear a field."""
+    return None if values is None else list(values)
+
+
+def _tag_contacts(identifiers: Optional[Sequence[str]], contact_list_id: Optional[str]) -> JsonDict:
+    # The API takes exactly one source; refusing a mix here names the arguments.
+    if (identifiers is None) == (contact_list_id is None):
+        raise ValueError("Pass exactly one of identifiers and contact_list_id")
+    if contact_list_id is not None:
+        return {"contact_list_id": contact_list_id}
+    return {"identifiers": list(identifiers or [])}

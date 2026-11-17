@@ -13,7 +13,10 @@ import {
   type ContactListImportPurpose,
   type ListContactListsQuery,
   type CreateProjectRequest,
+  type CreateTagRequest,
   type MergeTagMapping,
+  type TagActivityEvent,
+  type TagContactsRequest,
   type Trigger,
   type ScheduleTimezone,
 } from '@political-comms/sdk';
@@ -26,7 +29,7 @@ const SERVER_INSTRUCTIONS =
   'POLITICAL_COMMS_API_KEY environment variable (created in the dashboard under Admin > API). ' +
   'The write tools create_project, test_project, schedule_project, start_project, ' +
   'add_project_recipient, reply_to_conversation, schedule_email_campaign, ' +
-  'resume_email_campaign, add_email_campaign_recipient, and import_contact_list ' +
+  'resume_email_campaign, add_email_campaign_recipient, add_tag_contacts, and import_contact_list ' +
   'send real messages, spend money, or write contacts, and require ' +
   'confirm: true. Rate limit per key: 600 requests/minute, bursts up to 600, refilling 10 per second. ' +
   'The email write tools need the email entitlement on the organization and return ' +
@@ -143,6 +146,15 @@ const occurrenceIdParam = {
   maxLength: 128,
   description: 'Your id for the event, so a retry of the same event is a no-op',
 } as const;
+
+const TAG_CONSENT_RULE =
+  'A tagged contact is only sent to through a list row the sender can use: a tagged phone must be on ' +
+  'a live contact list this project can send to (unscoped, or scoped to its own brand, toll-free ' +
+  'number, or short code), and a tagged email address must be subscribed on a list the sending domain ' +
+  'can use. Tags never reach a contact who is on no such list. Opt-outs and unsubscribes always apply.';
+
+const tagIdsParam = (description: string) =>
+  ({ type: 'array', items: { type: 'string' }, maxItems: 50, description }) as const;
 
 const emailLimit = {
   type: 'number',
@@ -366,12 +378,16 @@ const TOOLS: Tool[] = [
     name: 'create_project',
     description:
       'Create a new messaging project (a draft send). Requires the owning organization, a name, ' +
-      'protocol (sms or mms), sending phone number IDs, contact list IDs, and the message text. ' +
+      'protocol (sms or mms), sending phone number IDs, contact list IDs or tag IDs, and the message text. ' +
       'For a triggered project (no contact list; each recipient gets one message when the trigger ' +
       'fires) pass type "triggered" and a trigger instead of contact_list_ids; start it with ' +
       'start_project after test_project. ' +
       'For channel=10dlc also pass brand_id and campaign_id; for channel=toll-free pass ' +
-      'toll_free_verification_id. Creating a project does not send messages by itself. A 409 ' +
+      'toll_free_verification_id. Recipients are the union of contact_list_ids and tag_ids (contacts ' +
+      'carrying ANY of those tags); require_tag_ids then keeps only contacts carrying ALL of its tags, ' +
+      'and suppression_tag_ids leaves out contacts carrying any of its tags. ' + TAG_CONSENT_RULE + ' ' +
+      'A project with neither a list nor a tag_ids entry is created as a draft. ' +
+      'Creating a project does not send messages by itself. A 409 ' +
       '`LIST_ANALYSIS_IN_PROGRESS` means a contact list is still being analyzed; wait until ' +
       '`get_contact_list` shows `analysis.status` `complete`, then retry. A 409 `LIST_ARCHIVED` ' +
       'names a list whose contacts were removed 12 months after upload; choose another list.',
@@ -397,8 +413,19 @@ const TOOLS: Tool[] = [
         contact_list_ids: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Contact list IDs to send to. Required unless type is triggered.',
+          description:
+            'Contact list IDs to send to. Send this, tag_ids, or both, unless type is triggered. Omit rather than send an empty array.',
         },
+        tag_ids: tagIdsParam(
+          'Tag IDs (from list_tags): also send to contacts carrying ANY of these tags. Each contact must still be on a ' +
+            'live list this sender can use. Not for triggered or survey projects.',
+        ),
+        require_tag_ids: tagIdsParam(
+          'Tag IDs: keep only recipients carrying ALL of these tags (narrows the lists and tag_ids, never adds anyone).',
+        ),
+        suppression_tag_ids: tagIdsParam(
+          'Tag IDs: leave out recipients carrying any of these tags for this send. Cannot repeat a tag_ids or require_tag_ids entry.',
+        ),
         channel: {
           type: 'string',
           enum: ['10dlc', 'toll-free'],
@@ -1125,6 +1152,99 @@ const TOOLS: Tool[] = [
     annotations: { title: 'Get Email Template', readOnlyHint: true },
   },
   {
+    name: 'list_tags',
+    description:
+      'List the contact tags of one organization, sorted by name. A tag labels a phone number or email ' +
+      'address. kind manual: members are added with add_tag_contacts (member_count is capped at 10000, ' +
+      'see member_count_capped). kind activity: applies by itself while true (activity_event donated, ' +
+      'clicked, responded, or sent, within the last within_days days or ever) and has no member_count. ' +
+      'Use the ids in create_project tag_ids, require_tag_ids, and suppression_tag_ids.',
+    inputSchema: {
+      type: 'object',
+      properties: { organization_id: { type: 'string', description: 'Organization. Defaults to the key owner.' } },
+      additionalProperties: false,
+    },
+    annotations: { title: 'List Tags', readOnlyHint: true },
+  },
+  {
+    name: 'create_tag',
+    description:
+      'Create a contact tag: a manual tag by name, or an activity tag by activity_event (donated, ' +
+      'clicked, responded, sent) and optional within_days (1-365). Creating an activity tag that already ' +
+      'exists returns it. A 409 TAG_NAME_TAKEN means the organization already has that name (ignoring case). ' +
+      'Creating a tag tags nobody; it changes a send only once a project uses it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Manual tag name, 1-64 characters. Omit for an activity tag.' },
+        activity_event: {
+          type: 'string',
+          enum: ['donated', 'clicked', 'responded', 'sent'],
+          description: 'Activity tag event. Omit for a manual tag.',
+        },
+        within_days: { type: 'number', minimum: 1, maximum: 365, description: 'Activity tags only. Omit for ever.' },
+        organization_id: { type: 'string', description: 'Organization. Defaults to the key owner.' },
+      },
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Create Tag',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    },
+  },
+  {
+    name: 'rename_tag',
+    description:
+      'Rename a manual tag. Activity tags are named by their rule (400 TAG_NOT_MANUAL). A 409 ' +
+      'TAG_NAME_TAKEN means the organization already has that name.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: idParam, name: { type: 'string', description: 'New name, 1-64 characters.' } },
+      required: ['id', 'name'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Rename Tag',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+    },
+  },
+  {
+    name: 'add_tag_contacts',
+    description:
+      'Put a manual tag on contacts: identifiers (up to 10000 US phone numbers in any common format or ' +
+      'email addresses) or contact_list_id (every active phone and subscribed address on that list), ' +
+      'exactly one of the two. Returns added and invalid counts. This changes who a project using the ' +
+      'tag reaches. ' + TAG_CONSENT_RULE + ' A 409 TAG_BUSY means an import is writing the same ' +
+      'contacts; retry in about a minute. Requires confirm: true.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        confirm: confirmParam,
+        id: idParam,
+        identifiers: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 1,
+          maxItems: 10000,
+          description: 'Phone numbers or email addresses. Omit when contact_list_id is set.',
+        },
+        contact_list_id: { type: 'string', description: 'Tag everyone on this list. Omit when identifiers is set.' },
+      },
+      required: ['confirm', 'id'],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: 'Add Tag Contacts',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+    },
+  },
+  {
     name: 'import_contact_list',
     description:
       'Import a CSV of contacts as a new list of phones, emails, or both. The server fetches ' +
@@ -1132,7 +1252,8 @@ const TOOLS: Tool[] = [
       'reach. Name phone_column, email_column, or both; there is no automatic email column ' +
       'detection. consent_source is optional and allowed only for an audience list with an email column. With merge_tags, phones map only the named columns while emails also map every remaining column. purpose ' +
       'do_not_contact turns phones into an opt-out list and emails into unsubscribes, and ' +
-      'returns no list_id. Poll get_contact_list: import is the phone side and email.status is the email side. Requires confirm: true.',
+      'returns no list_id. An audience import can tag every contact with tag_ids or tag_names, or per row ' +
+      'with tags_column. Poll get_contact_list: import is the phone side and email.status is the email side. Requires confirm: true.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1167,6 +1288,24 @@ const TOOLS: Tool[] = [
           description: 'Scope the emails to one sending domain. Omit for the whole organization.',
         },
         acquired: { type: 'boolean', description: 'Optional, default false. The emails were purchased or rented; the list is sent more gradually.' },
+        tag_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          maxItems: 20,
+          description: 'Audience imports only. Manual tag IDs put on every imported phone and email.',
+        },
+        tag_names: {
+          type: 'array',
+          items: { type: 'string' },
+          maxItems: 20,
+          description: 'Audience imports only. Tag names put on every imported contact; missing tags are created.',
+        },
+        tags_column: {
+          type: 'string',
+          description:
+            'Audience imports only. A CSV header whose cells hold tag names separated by commas, semicolons, or pipes. ' +
+            'New tags are created; more than 100 new tags fails the import.',
+        },
       },
       required: ['confirm', 'source_url', 'list_name'],
       additionalProperties: false,
@@ -1193,8 +1332,9 @@ const CONFIRM_REQUIRED = new Set([
   'start_project',
   'add_project_recipient',
   'add_email_campaign_recipient',
-  // Writes contacts into a list, changing who a campaign reaches.
+  // Each writes contacts into a list or a tag, changing who a send reaches.
   'import_contact_list',
+  'add_tag_contacts',
 ]);
 
 function textResult(value: unknown): CallToolResult {
@@ -1289,12 +1429,33 @@ function createProjectRequest(args: Args): CreateProjectRequest {
   if (args.type === 'triggered') {
     return { ...base, type: 'triggered', trigger: args.trigger as Trigger };
   }
+  // Omitted stays omitted: the API refuses an empty contact_list_ids, and a
+  // project may name only tags.
   return {
     ...base,
     type: opt(args, 'type') as 'broadcast' | 'survey' | undefined,
-    contact_list_ids: (args.contact_list_ids as string[]) ?? [],
+    contact_list_ids: args.contact_list_ids as string[] | undefined,
     suppression_list_ids: args.suppression_list_ids as string[] | undefined,
+    tag_ids: args.tag_ids as string[] | undefined,
+    require_tag_ids: args.require_tag_ids as string[] | undefined,
+    suppression_tag_ids: args.suppression_tag_ids as string[] | undefined,
   };
+}
+
+function createTagRequest(args: Args): CreateTagRequest {
+  const organization_id = opt(args, 'organization_id');
+  if (args.name !== undefined) return { name: s(args, 'name'), organization_id };
+  return {
+    activity_event: s(args, 'activity_event') as TagActivityEvent,
+    within_days: optNum(args, 'within_days'),
+    organization_id,
+  };
+}
+
+function tagContactsRequest(args: Args): TagContactsRequest {
+  return args.contact_list_id === undefined
+    ? { identifiers: (args.identifiers as string[]) ?? [] }
+    : { contact_list_id: s(args, 'contact_list_id') };
 }
 
 async function callTool(client: PoliticalCommsClient, name: string, args: Args): Promise<CallToolResult> {
@@ -1510,6 +1671,15 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       );
     case 'get_email_template':
       return textResult(await client.getEmailTemplate(s(args, 'id')));
+    case 'list_tags':
+      return textResult(await client.listTags({ organization_id: opt(args, 'organization_id') }));
+    case 'create_tag':
+      return textResult(await client.createTag(createTagRequest(args)));
+    case 'rename_tag':
+      return textResult(await client.renameTag(s(args, 'id'), { name: s(args, 'name') }));
+    case 'add_tag_contacts':
+      return textResult(await client.addTagContacts(s(args, 'id'), tagContactsRequest(args)));
+
     case 'import_contact_list':
       return textResult(
         await client.importContactList({
@@ -1531,6 +1701,9 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
               }),
           email_domain_id: opt(args, 'email_domain_id'),
           ...(args.acquired === undefined ? {} : { acquired: args.acquired === true }),
+          tag_ids: args.tag_ids as string[] | undefined,
+          tag_names: args.tag_names as string[] | undefined,
+          tags_column: opt(args, 'tags_column'),
         }),
       );
 
@@ -1541,7 +1714,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.22.1' },
+    { name: 'political-comms', version: '0.23.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 
@@ -1562,7 +1735,7 @@ async function start(): Promise<void> {
     }
 
     try {
-      client ??= new PoliticalCommsClient();
+      client ??= new PoliticalCommsClient({ baseUrl: process.env.POLITICAL_COMMS_BASE_URL });
     } catch (cause) {
       return errorResult(
         (cause instanceof Error ? cause.message : String(cause)) +

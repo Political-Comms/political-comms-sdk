@@ -1,6 +1,12 @@
 import { parseArgs } from 'node:util';
 import { PoliticalCommsClient, PoliticalCommsError } from '@political-comms/sdk';
-import type { ProjectSurveyResults, ScheduleTimezone } from '@political-comms/sdk';
+import type {
+  CreateTagRequest,
+  ProjectSurveyResults,
+  ScheduleTimezone,
+  TagActivityEvent,
+  TagContactsRequest,
+} from '@political-comms/sdk';
 
 /** The subset of the SDK the CLI uses. Injectable for tests. */
 export type CliClient = Pick<
@@ -24,6 +30,12 @@ export type CliClient = Pick<
   | 'getContactList'
   | 'downloadContactList'
   | 'deleteContactList'
+  | 'listTags'
+  | 'createTag'
+  | 'renameTag'
+  | 'deleteTag'
+  | 'addTagContacts'
+  | 'removeTagContacts'
   | 'listConversations'
   | 'getConversation'
   | 'listConversationMessages'
@@ -86,6 +98,15 @@ Commands:
   contact-lists get <id>           Show one contact list
   contact-lists download <id>      Print a contact list CSV (--type original|analyzed)
   contact-lists delete <id>        Delete an unused contact list (phones and emails)
+  tags list                        List tags ([--organization-id])
+  tags create                      Create a manual tag (--name) or an activity
+                                   tag (--activity donated|clicked|responded|sent,
+                                   [--within-days 1-365])
+  tags rename <id>                 Rename a manual tag (--name)
+  tags delete <id>                 Delete a tag (refused while a live send uses it)
+  tags add <id>                    Tag contacts: --identifier <phone|email>,
+                                   repeatable, or one --contact-list-id
+  tags remove <id>                 Untag contacts (same flags as tags add)
   conversations list               List conversations with an inbound message
                                    (--project, --since, --include-test,
                                    --limit, --cursor)
@@ -118,7 +139,16 @@ Create flags (projects create):
   --organization-id <id>           Owning organization (required)
   --protocol <sms|mms>             Message protocol (required)
   --phone-number-id <id>           Sending number, repeatable (required)
-  --contact-list-id <id>           Contact list, repeatable (required)
+  --contact-list-id <id>           Contact list, repeatable (this or --tag-id
+                                   required)
+  --tag-id <id>                    Also send to contacts carrying ANY of these
+                                   tags, repeatable. A tagged phone is only sent
+                                   to when it is on a live list this project's
+                                   sender can use
+  --require-tag-id <id>            Keep only contacts carrying ALL of these
+                                   tags, repeatable
+  --suppression-tag-id <id>        Leave out contacts carrying this tag,
+                                   repeatable
   --body <text>                    Message text (required)
   --campaign-id <id>               10DLC campaign
   --brand-id <id>                  10DLC brand
@@ -159,6 +189,12 @@ const PARSE_OPTIONS = {
   'phone-number-id': { type: 'string', multiple: true },
   'contact-list-id': { type: 'string', multiple: true },
   'suppression-list-id': { type: 'string', multiple: true },
+  'tag-id': { type: 'string', multiple: true },
+  'require-tag-id': { type: 'string', multiple: true },
+  'suppression-tag-id': { type: 'string', multiple: true },
+  identifier: { type: 'string', multiple: true },
+  activity: { type: 'string' },
+  'within-days': { type: 'string' },
   'media-id': { type: 'string', multiple: true },
   body: { type: 'string' },
   phone: { type: 'string', multiple: true },
@@ -333,6 +369,9 @@ async function dispatch(client: CliClient, positionals: string[], flags: Flags, 
       io.out(kv(result.data));
       return 0;
     }
+
+    case 'tags':
+      return tagsCommand(client, sub, arg, flags, io);
 
     case 'conversations':
       return conversationsCommand(client, sub, arg, flags, io);
@@ -717,7 +756,7 @@ async function projectsCommand(
         ['--organization-id', flags['organization-id']],
         ['--protocol', flags.protocol],
         ['--phone-number-id', flags['phone-number-id']?.[0]],
-        ['--contact-list-id', flags['contact-list-id']?.[0]],
+        ['--contact-list-id or --tag-id', flags['contact-list-id']?.[0] ?? flags['tag-id']?.[0]],
         ['--body', flags.body],
       ]
         .filter(([, value]) => value === undefined)
@@ -738,13 +777,16 @@ async function projectsCommand(
         phone_number_ids: flags['phone-number-id']!,
         name: flags.name!,
         protocol: flags.protocol,
-        contact_list_ids: flags['contact-list-id']!,
+        contact_list_ids: flags['contact-list-id'],
         suppression_list_ids: flags['suppression-list-id'],
+        tag_ids: flags['tag-id'],
+        require_tag_ids: flags['require-tag-id'],
+        suppression_tag_ids: flags['suppression-tag-id'],
         media_ids: flags['media-id'],
         message_text: flags.body!,
       });
       if (flags.json) return printJson(io, result);
-      io.out(`Created project ${str(result.data?.id)} (status: ${str(result.data?.status)})`);
+      io.out(`Created project ${str(result.data?.project_id)} (status: ${str(result.data?.status)})`);
       return 0;
     }
 
@@ -833,6 +875,120 @@ async function projectsCommand(
 
     default:
       throw new UsageError(`Unknown projects subcommand: ${sub}`);
+  }
+}
+
+const ACTIVITY_EVENTS: readonly TagActivityEvent[] = ['donated', 'clicked', 'responded', 'sent'];
+
+function createTagRequest(flags: Flags): CreateTagRequest {
+  const organization_id = flags['organization-id'];
+  if (flags.name !== undefined && flags.activity !== undefined) {
+    throw new UsageError('tags create takes --name or --activity, not both');
+  }
+  if (flags.name !== undefined) {
+    if (flags['within-days'] !== undefined) throw new UsageError('--within-days applies to --activity tags only');
+    return { name: flags.name, organization_id };
+  }
+  const event = ACTIVITY_EVENTS.find((candidate) => candidate === flags.activity);
+  if (!event) {
+    throw new UsageError(`tags create requires --name <name> or --activity ${ACTIVITY_EVENTS.join('|')}`);
+  }
+  const days = flags['within-days'] === undefined ? undefined : Number(flags['within-days']);
+  if (days !== undefined && (!Number.isInteger(days) || days < 1 || days > 365)) {
+    throw new UsageError('--within-days must be an integer from 1 to 365');
+  }
+  return { activity_event: event, within_days: days, organization_id };
+}
+
+/** The API takes exactly one source, so a mix or a second list is refused here. */
+function tagContactsRequest(flags: Flags, usage: string): TagContactsRequest {
+  const identifiers = flags.identifier ?? [];
+  const lists = flags['contact-list-id'] ?? [];
+  if (identifiers.length > 0 && lists.length === 0) return { identifiers };
+  if (identifiers.length === 0 && lists.length === 1) return { contact_list_id: lists[0]! };
+  throw new UsageError(`${usage} takes --identifier (repeatable) or one --contact-list-id`);
+}
+
+/** Tags label contacts. Every tag carries its organization; a parent key may name a sub-organization. */
+async function tagsCommand(
+  client: CliClient,
+  sub: string | undefined,
+  arg: string | undefined,
+  flags: Flags,
+  io: CliIO,
+): Promise<number> {
+  requireSub(sub, ['list', 'create', 'rename', 'delete', 'add', 'remove'], 'tags');
+
+  switch (sub) {
+    case 'list': {
+      const result = await client.listTags({ organization_id: flags['organization-id'] });
+      if (flags.json) return printJson(io, result);
+      io.out(
+        table(
+          (result.data ?? []).map((tag) => ({
+            ...tag,
+            rule: tag.activity_event
+              ? `${tag.activity_event}${tag.within_days ? ` in ${tag.within_days} days` : ''}`
+              : '',
+            members: tag.member_count_capped ? `${str(tag.member_count)}+` : tag.member_count,
+          })),
+          [
+            { key: 'id', header: 'ID' },
+            { key: 'name', header: 'NAME' },
+            { key: 'kind', header: 'KIND' },
+            { key: 'rule', header: 'RULE' },
+            { key: 'members', header: 'MEMBERS' },
+          ],
+        ),
+      );
+      return 0;
+    }
+
+    case 'create': {
+      const result = await client.createTag(createTagRequest(flags));
+      if (flags.json) return printJson(io, result);
+      io.out(`Tag ${str(result.data?.name)} (${str(result.data?.id)}, ${str(result.data?.kind)}).`);
+      return 0;
+    }
+
+    case 'rename': {
+      const id = requireArg(arg, 'tags rename <id> --name <name>');
+      if (flags.name === undefined) throw new UsageError('tags rename requires --name <name>');
+      const result = await client.renameTag(id, { name: flags.name });
+      if (flags.json) return printJson(io, result);
+      io.out(`Renamed tag ${id} to ${str(result.data?.name)}.`);
+      return 0;
+    }
+
+    case 'delete': {
+      const id = requireArg(arg, 'tags delete <id>');
+      const result = await client.deleteTag(id);
+      if (flags.json) return printJson(io, result);
+      io.out(`Deleted tag ${id}.`);
+      return 0;
+    }
+
+    case 'add': {
+      const id = requireArg(arg, 'tags add <id>');
+      const result = await client.addTagContacts(id, tagContactsRequest(flags, 'tags add'));
+      if (flags.json) return printJson(io, result);
+      io.out(`Tagged ${str(result.data?.added)} contact(s); ${str(result.data?.invalid)} invalid.`);
+      return 0;
+    }
+
+    case 'remove': {
+      const id = requireArg(arg, 'tags remove <id>');
+      const result = await client.removeTagContacts(id, tagContactsRequest(flags, 'tags remove'));
+      if (flags.json) return printJson(io, result);
+      io.out(
+        `Untagged ${str(result.data?.removed)} contact(s); ${str(result.data?.not_tagged)} were not tagged, ` +
+          `${str(result.data?.invalid)} invalid.`,
+      );
+      return 0;
+    }
+
+    default:
+      throw new UsageError(`Unknown tags subcommand: ${sub}`);
   }
 }
 

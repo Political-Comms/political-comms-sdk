@@ -7,12 +7,12 @@
     "source": "github",
     "subfolder": "packages/mcp"
   },
-  "version": "0.22.0",
+  "version": "0.23.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@political-comms/mcp",
-      "version": "0.22.0",
+      "version": "0.23.0",
       "transport": {
         "type": "stdio"
       },
@@ -23,6 +23,13 @@
           "format": "string",
           "isSecret": true,
           "name": "POLITICAL_COMMS_API_KEY"
+        },
+        {
+          "description": "API base URL. Defaults to https://api.politicalcomms.com/v1",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "POLITICAL_COMMS_BASE_URL"
         }
       ]
     }

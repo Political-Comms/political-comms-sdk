@@ -1253,3 +1253,209 @@ describe('triggered projects and campaigns', () => {
     expect(headers['Idempotency-Key']).toMatch(UUID_RE);
   });
 });
+
+describe('tags', () => {
+  const base = 'https://api.politicalcomms.com/v1';
+  const tag = {
+    id: 'a1b2c3d4-0000-4000-8000-0000000000aa',
+    name: 'Volunteers',
+    kind: 'manual',
+    activity_event: null,
+    within_days: null,
+    member_count: 10000,
+    member_count_capped: true,
+    organization_id: 'org_1',
+    created_at: '2026-11-17T00:00:00Z',
+  };
+
+  function call(fetchMock: ReturnType<typeof vi.fn>): {
+    url: string;
+    init: RequestInit;
+    headers: Record<string, string>;
+    body: unknown;
+  } {
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = init.body === undefined ? undefined : JSON.parse(init.body as string);
+    return { url, init, headers: init.headers as Record<string, string>, body };
+  }
+
+  it('listTags GETs /tags with the organization filter and unwraps the array', async () => {
+    const fetchMock = vi.fn(async () => okResponse([tag]));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.listTags({ organization_id: 'org_2' });
+    const { url, init } = call(fetchMock);
+    expect(url).toBe(`${base}/tags?organization_id=org_2`);
+    expect(init.method).toBe('GET');
+    expect(res.data[0]!.member_count_capped).toBe(true);
+  });
+
+  it('listTags without a query sends no params', async () => {
+    const fetchMock = vi.fn(async () => okResponse([]));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.listTags();
+    expect(call(fetchMock).url).toBe(`${base}/tags`);
+  });
+
+  it('createTag POSTs a manual tag with a generated idempotency key', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(201, { success: true, data: tag }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.createTag({ name: 'Volunteers' });
+    const { url, init, headers, body } = call(fetchMock);
+    expect(url).toBe(`${base}/tags`);
+    expect(init.method).toBe('POST');
+    expect(body).toEqual({ name: 'Volunteers' });
+    expect(headers['Idempotency-Key']).toMatch(UUID_RE);
+    expect(res.data.kind).toBe('manual');
+  });
+
+  it('createTag POSTs an activity tag with its window', async () => {
+    const activity = { ...tag, name: 'Donated (90 days)', kind: 'activity', activity_event: 'donated', within_days: 90, member_count: null, member_count_capped: false };
+    const fetchMock = vi.fn(async () => okResponse(activity));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.createTag({ activity_event: 'donated', within_days: 90, organization_id: 'org_2' });
+    expect(call(fetchMock).body).toEqual({ activity_event: 'donated', within_days: 90, organization_id: 'org_2' });
+    expect(res.data.member_count).toBeNull();
+  });
+
+  it('renameTag PATCHes the encoded id with the new name', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ ...tag, name: 'Core volunteers' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.renameTag('a/b', { name: 'Core volunteers' }, { idempotencyKey: 'rename-1' });
+    const { url, init, headers, body } = call(fetchMock);
+    expect(url).toBe(`${base}/tags/a%2Fb`);
+    expect(init.method).toBe('PATCH');
+    expect(body).toEqual({ name: 'Core volunteers' });
+    expect(headers['Idempotency-Key']).toBe('rename-1');
+    expect(res.data.name).toBe('Core volunteers');
+  });
+
+  it('deleteTag DELETEs without a body or a generated idempotency key', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ id: tag.id, deleted: true }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.deleteTag(tag.id);
+    const { url, init, headers } = call(fetchMock);
+    expect(url).toBe(`${base}/tags/${tag.id}`);
+    expect(init.method).toBe('DELETE');
+    expect(init.body).toBeUndefined();
+    expect(headers['Idempotency-Key']).toBeUndefined();
+    expect(res.data.deleted).toBe(true);
+  });
+
+  it('deleteTag surfaces TAG_IN_USE with the blocking sends in body.details', async () => {
+    const details = {
+      projects: [{ id: 'proj_1', name: 'GOTV', status: 'scheduled' }],
+      emailCampaigns: [{ id: 'camp_1', name: 'Rally', status: 'sending' }],
+    };
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(409, { success: false, error: 'This tag is used by a send', code: 'TAG_IN_USE', details }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const err = await client.deleteTag(tag.id).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PoliticalCommsError);
+    expect((err as PoliticalCommsError).code).toBe('TAG_IN_USE');
+    expect(((err as PoliticalCommsError).body as { details: unknown }).details).toEqual(details);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('addTagContacts POSTs identifiers and returns added and invalid counts', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ added: 2, invalid: 1 }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.addTagContacts(tag.id, { identifiers: ['(202) 555-0101', 'ada@example.org', 'nope'] });
+    const { url, init, headers, body } = call(fetchMock);
+    expect(url).toBe(`${base}/tags/${tag.id}/contacts`);
+    expect(init.method).toBe('POST');
+    expect(body).toEqual({ identifiers: ['(202) 555-0101', 'ada@example.org', 'nope'] });
+    expect(headers['Idempotency-Key']).toMatch(UUID_RE);
+    expect(res.data).toEqual({ added: 2, invalid: 1 });
+  });
+
+  it('addTagContacts POSTs a contact list as the source', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ added: 40, invalid: 0 }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.addTagContacts(tag.id, { contact_list_id: 'cl_1' });
+    expect(call(fetchMock).body).toEqual({ contact_list_id: 'cl_1' });
+  });
+
+  it('removeTagContacts sends a DELETE with a JSON body, as removeEmailSuppressions does', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ removed: 1, not_tagged: 1, invalid: 0 }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.removeTagContacts(tag.id, { identifiers: ['+12025550101', 'bob@example.org'] }, { idempotencyKey: 'untag-1' });
+    const { url, init, headers, body } = call(fetchMock);
+    expect(url).toBe(`${base}/tags/${tag.id}/contacts`);
+    expect(init.method).toBe('DELETE');
+    expect(headers['Content-Type']).toBe('application/json');
+    expect(headers['Idempotency-Key']).toBe('untag-1');
+    expect(body).toEqual({ identifiers: ['+12025550101', 'bob@example.org'] });
+    expect(res.data.not_tagged).toBe(1);
+  });
+
+  it('createProject and updateProject pass the three tag fields through', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ project_id: 'proj_1', tag_ids: ['t1'] }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.createProject({
+      organization_id: 'org_1',
+      phone_number_ids: ['pn_1'],
+      name: 'Tagged',
+      protocol: 'sms',
+      message_text: 'Hi',
+      tag_ids: ['t1'],
+      require_tag_ids: ['t2'],
+      suppression_tag_ids: ['t3'],
+    });
+    expect(call(fetchMock).body).toMatchObject({ tag_ids: ['t1'], require_tag_ids: ['t2'], suppression_tag_ids: ['t3'] });
+    expect(call(fetchMock).body).not.toHaveProperty('contact_list_ids');
+
+    fetchMock.mockClear();
+    const res = await client.updateProject('proj_1', { contact_list_ids: [], tag_ids: ['t1'], suppression_tag_ids: [] });
+    const { url, init, body } = call(fetchMock);
+    expect(url).toBe(`${base}/projects/proj_1`);
+    expect(init.method).toBe('PATCH');
+    expect(body).toEqual({ contact_list_ids: [], tag_ids: ['t1'], suppression_tag_ids: [] });
+    expect(res.data.tag_ids).toEqual(['t1']);
+  });
+
+  it('createEmailCampaign accepts tags without list_ids', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ id: 'camp_1', name: 'N', status: 'draft', sender_identity_id: 's_1', tag_ids: ['t1'] }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.createEmailCampaign({
+      name: 'N',
+      sender_identity_id: 's_1',
+      template_id: 'tpl_1',
+      tag_ids: ['t1'],
+      require_tag_ids: ['t2'],
+      suppression_tag_ids: ['t3'],
+    });
+    const { url, body } = call(fetchMock);
+    expect(url).toBe(`${base}/email/campaigns`);
+    expect(body).toEqual({
+      name: 'N',
+      sender_identity_id: 's_1',
+      template_id: 'tpl_1',
+      tag_ids: ['t1'],
+      require_tag_ids: ['t2'],
+      suppression_tag_ids: ['t3'],
+    });
+    expect(res.data.tag_ids).toEqual(['t1']);
+  });
+
+  it('importContactList passes tag_ids, tag_names, and tags_column through', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ purpose: 'audience', list_id: 'cl_1' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.importContactList({
+      source_url: 'https://example.org/a.csv',
+      list_name: 'A',
+      phone_column: 'Phone',
+      tag_ids: ['t1'],
+      tag_names: ['Walk list'],
+      tags_column: 'Tags',
+    });
+    expect(call(fetchMock).body).toEqual({
+      source_url: 'https://example.org/a.csv',
+      list_name: 'A',
+      phone_column: 'Phone',
+      tag_ids: ['t1'],
+      tag_names: ['Walk list'],
+      tags_column: 'Tags',
+    });
+  });
+});

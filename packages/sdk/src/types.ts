@@ -498,6 +498,17 @@ export interface ImportContactListRequest {
   email_domain_id?: string | null;
   /** Optional, default false. True marks the emails as purchased or rented; the list is sent more gradually (warms up on half steps). */
   acquired?: boolean;
+  /** `audience` imports only. Up to 20 manual tag ids put on every imported phone and email (400 `TAG_NOT_MANUAL` for an activity tag). */
+  tag_ids?: string[];
+  /** `audience` imports only. Up to 20 tag names put on every imported contact; missing ones are created. */
+  tag_names?: string[];
+  /**
+   * `audience` imports only. A header of the file whose cells hold tag names
+   * separated by commas, semicolons, or pipes; new tags are created. A column
+   * that would create more than 100 new tags fails the import
+   * (`import.status` `failed` on `getContactList`).
+   */
+  tags_column?: string;
 }
 
 /** An email side queued with the list. Poll GET /contact-lists/{list_id} and read `email.status`. */
@@ -569,6 +580,136 @@ export interface DeleteContactListResult {
   name?: string;
   deleted?: boolean;
   [key: string]: unknown;
+}
+
+// ---------------------------------------------------------------------------
+// Tags
+//
+// A tag labels a contact (a phone number or an email address) inside one
+// organization. A tagged contact is only ever sent to through a list row the
+// sender can use, so a tag narrows or widens who a send reaches but never
+// bypasses list consent.
+// ---------------------------------------------------------------------------
+
+/** `manual` tags have members you add and remove; `activity` tags apply by themselves while true. */
+export type TagKind = "manual" | "activity";
+
+export type TagActivityEvent = "donated" | "clicked" | "responded" | "sent";
+
+export interface Tag {
+  id: string;
+  /** 1-64 characters, unique per organization ignoring case. */
+  name: string;
+  kind: TagKind;
+  /** Null for a manual tag. */
+  activity_event: TagActivityEvent | null;
+  /** Activity tags only: the window in days (1-365), or null for "ever". */
+  within_days: number | null;
+  /** Manual tags: members, capped at 10000 (see `member_count_capped`). Null for an activity tag, which is evaluated when a send compiles. */
+  member_count: number | null;
+  /** True when the tag has more than 10000 members and `member_count` shows the cap. */
+  member_count_capped: boolean;
+  organization_id: string;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+export interface ListTagsQuery {
+  /** The key's own organization when omitted; another one it reaches otherwise. */
+  organization_id?: string;
+}
+
+export interface CreateManualTagRequest {
+  /** 1-64 characters. 409 `TAG_NAME_TAKEN` when the organization already has it (ignoring case). */
+  name: string;
+  organization_id?: string;
+}
+
+/** Returns the existing tag (200, not 201) when the same event and window already exist. */
+export interface CreateActivityTagRequest {
+  activity_event: TagActivityEvent;
+  /** 1-365 days; null or omitted means ever. */
+  within_days?: number | null;
+  organization_id?: string;
+}
+
+export type CreateTagRequest = CreateManualTagRequest | CreateActivityTagRequest;
+
+export interface RenameTagRequest {
+  /** 1-64 characters. Manual tags only (400 `TAG_NOT_MANUAL`). */
+  name: string;
+}
+
+/**
+ * Exactly one source. `identifiers`: 1-10000 US phone numbers in any common
+ * format or email addresses. `contact_list_id`: every active phone and
+ * subscribed address on that list (404 `LIST_NOT_FOUND`).
+ */
+export type TagContactsRequest = { identifiers: string[] } | { contact_list_id: string };
+
+export interface AddTagContactsResult {
+  added: number;
+  /** Identifiers that are neither a valid US phone number nor an email address. */
+  invalid: number;
+  [key: string]: unknown;
+}
+
+export interface RemoveTagContactsResult {
+  removed: number;
+  /** Valid identifiers that did not carry the tag. */
+  not_tagged: number;
+  invalid: number;
+  [key: string]: unknown;
+}
+
+export interface DeleteTagResult {
+  id: string;
+  deleted: true;
+  [key: string]: unknown;
+}
+
+/** A send named in a `TAG_IN_USE` error. */
+export interface TagInUseSend {
+  id: string;
+  name: string;
+  status: string;
+}
+
+/**
+ * `error.body.details` of a 409 `TAG_IN_USE` from `deleteTag`: the scheduled,
+ * compiling, active, sending, or paused sends that use the tag (up to 10 of
+ * each). Drafts and finished sends never block a delete; the tag is removed
+ * from them.
+ */
+export interface TagInUseDetails {
+  projects: TagInUseSend[];
+  emailCampaigns: TagInUseSend[];
+}
+
+/** A tag as a project read names it. */
+export interface ProjectTagRef {
+  id: string;
+  name: string;
+}
+
+/**
+ * Tag fields shared by project and email campaign writes. Each is up to 50
+ * tag ids of the send's organization. A tag cannot be in both `tag_ids` and
+ * `suppression_tag_ids`, nor in both `require_tag_ids` and
+ * `suppression_tag_ids` (400). Triggered and survey sends refuse all three.
+ */
+export interface SendTagFields {
+  /**
+   * Send to contacts carrying ANY of these tags, in union with the lists.
+   * A tagged contact is still only reached through a list row the sender can
+   * use: a phone on a live list scoped to the project's sender (or unscoped),
+   * an address subscribed on a list the sending domain can use.
+   */
+  tag_ids?: string[];
+  /** Keep only recipients carrying ALL of these tags. */
+  require_tag_ids?: string[];
+  /** Leave out recipients carrying any of these tags for this send. Opt-outs and unsubscribes always apply on top. */
+  suppression_tag_ids?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -812,6 +953,15 @@ export interface Project {
   brand_name?: string | null;
   toll_free_verification_id?: string | null;
   contact_list_ids?: string[];
+  tag_ids?: string[];
+  require_tag_ids?: string[];
+  suppression_tag_ids?: string[];
+  /** The `tag_ids` tags with their names. */
+  source_tags?: ProjectTagRef[];
+  /** The `require_tag_ids` tags with their names. */
+  required_tags?: ProjectTagRef[];
+  /** The `suppression_tag_ids` tags with their names. */
+  suppression_tags?: ProjectTagRef[];
   org_id?: string;
   org_name?: string;
   /** null for survey projects. */
@@ -863,6 +1013,12 @@ export interface ProjectDetail {
   message_text?: string | null;
   contact_list_ids?: string[];
   suppression_list_ids?: string[];
+  /** Send to contacts carrying ANY of these tags, in union with `contact_list_ids`. */
+  tag_ids?: string[];
+  /** Recipients must carry ALL of these tags. */
+  require_tag_ids?: string[];
+  /** Recipients carrying any of these tags are left out. */
+  suppression_tag_ids?: string[];
   /** Always an empty array in the current API version; see media_urls. */
   media_ids?: string[];
   media_urls?: string[];
@@ -992,13 +1148,17 @@ interface CreateProjectBase {
   opt_out_footer_enabled?: boolean;
 }
 
-/** A project that sends to contact lists (the default type). */
-export interface CreateListProjectRequest extends CreateProjectBase {
+/**
+ * A project that sends to contact lists, tags, or both (the default type).
+ * Survey projects refuse the tag fields.
+ */
+export interface CreateListProjectRequest extends CreateProjectBase, SendTagFields {
   type?: "broadcast" | "survey";
   /**
-   * Contact list IDs to send to. Optional: omitting it creates the project
-   * in draft status, and it cannot be tested or scheduled until a list is
-   * attached via PATCH /projects/{id}. An explicitly empty array is rejected.
+   * Contact list IDs to send to. Optional: a project with neither a list nor
+   * a `tag_ids` entry is created in draft status, and it cannot be tested or
+   * scheduled until one is attached via PATCH /projects/{id}. An explicitly
+   * empty array is rejected.
    */
   contact_list_ids?: string[];
   suppression_list_ids?: string[];
@@ -1041,7 +1201,7 @@ export interface CreateProjectResult {
   [key: string]: unknown;
 }
 
-export interface UpdateProjectRequest {
+export interface UpdateProjectRequest extends SendTagFields {
   /**
    * Editable while the project is draft, awaiting_test, ready, or paused.
    * Only organization_id and type are immutable.
@@ -1070,6 +1230,11 @@ export interface UpdateProjectRequest {
   phone_number_ids?: string[];
   /** @deprecated Use phone_number_ids. */
   phone_number_id?: string;
+  /**
+   * `[]` is accepted only while the project keeps a `tag_ids` entry (or is a
+   * draft). Changing any list or tag field is a content edit: the project
+   * returns to `awaiting_test`.
+   */
   contact_list_ids?: string[];
   suppression_list_ids?: string[];
   media_ids?: string[];
@@ -1911,6 +2076,12 @@ export interface EmailCampaign {
   sender_identity_id: string;
   list_ids?: string[];
   suppression_list_ids?: string[];
+  /** Subscribed addresses carrying ANY of these tags, in union with `list_ids`. */
+  tag_ids?: string[];
+  /** Recipients must carry ALL of these tags. */
+  require_tag_ids?: string[];
+  /** Recipients carrying any of these tags are left out. */
+  suppression_tag_ids?: string[];
   refcode?: string | null;
   source_code?: string | null;
   scheduled_at?: string | null;
@@ -1984,10 +2155,13 @@ export interface CreateEmailSequenceRequest {
   steps: CreateEmailSequenceStepRequest[];
 }
 
-export interface CreateEmailCampaignRequest {
+export interface CreateEmailCampaignRequest extends SendTagFields {
   name: string;
   sender_identity_id: string;
-  /** 1-50 list ids. Required unless `trigger` is set; cannot be combined with `trigger`. */
+  /**
+   * 1-50 list ids. A campaign without `trigger` needs `list_ids` or a
+   * non-empty `tag_ids`; a triggered campaign takes neither lists nor tags.
+   */
   list_ids?: string[];
   suppression_list_ids?: string[];
   template_id?: string;
@@ -2018,7 +2192,7 @@ export interface CreateEmailCampaignRequest {
   sequence?: CreateEmailSequenceRequest;
   /**
    * Makes this a triggered campaign: no list, recipients arrive when the
-   * trigger fires. Cannot be combined with `list_ids` or `sequence`. Start it
+   * trigger fires. Cannot be combined with `list_ids`, tags, or `sequence`. Start it
    * with `scheduleEmailCampaign` and no `scheduled_at`; stop it with
    * `endEmailCampaign`.
    */
