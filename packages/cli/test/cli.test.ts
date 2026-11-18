@@ -60,8 +60,8 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     deleteContactList: vi.fn(() => ok({ list_id: 'cl_1', name: 'Voters', deleted: true })),
     listTags: vi.fn(() =>
       ok([
-        { id: 'tag_1', name: 'Volunteers', kind: 'manual', activity_event: null, within_days: null, member_count: 10000, member_count_capped: true },
-        { id: 'tag_2', name: 'Recent donors', kind: 'activity', activity_event: 'donated', within_days: 90, member_count: null, member_count_capped: false },
+        { id: 'tag_1', name: 'Volunteers', kind: 'manual', activity_event: null, within_days: null, member_count: 10000, member_count_capped: true, live_triggers: [{ id: 'proj_7', name: 'Welcome', channel: 'text' }, { id: 'camp_7', name: 'Welcome email', channel: 'email' }] },
+        { id: 'tag_2', name: 'Recent donors', kind: 'activity', activity_event: 'donated', within_days: 90, member_count: null, member_count_capped: false, live_triggers: [] },
       ]),
     ),
     createTag: vi.fn(() => ok({ id: 'tag_3', name: 'Walkers', kind: 'manual' })),
@@ -69,6 +69,8 @@ function makeClient(overrides: Partial<Record<keyof CliClient, unknown>> = {}): 
     deleteTag: vi.fn(() => ok({ id: 'tag_1', deleted: true })),
     addTagContacts: vi.fn(() => ok({ added: 2, invalid: 1 })),
     removeTagContacts: vi.fn(() => ok({ removed: 1, not_tagged: 1, invalid: 0 })),
+    tagContacts: vi.fn(() => ok({ tag: { id: 'tag_4', name: 'Donor', kind: 'manual' }, created: true, added: 1, invalid: 0 })),
+    untagContacts: vi.fn(() => ok({ tag: { id: 'tag_4', name: 'Donor', kind: 'manual' }, removed: 3, not_tagged: 0, invalid: 0 })),
     listConversations: vi.fn(() =>
       ok({
         data: [
@@ -398,11 +400,26 @@ describe('commands', () => {
     const client = makeClient();
     const { io, out } = makeIO();
     expect(await main(['projects', 'start', 'proj_1'], deps(client, io))).toBe(0);
-    expect(client.startProject).toHaveBeenCalledWith('proj_1');
+    expect(client.startProject).toHaveBeenCalledWith('proj_1', undefined);
     expect(await main(['projects', 'end', 'proj_1'], deps(client, io))).toBe(0);
     expect(client.endProject).toHaveBeenCalledWith('proj_1');
     expect(out.join('\n')).toContain('Started project proj_1 (status: active)');
     expect(out.join('\n')).toContain('Ended project proj_1 (status: completed)');
+  });
+
+  it('projects start --audience sends the audience of a tag trigger', async () => {
+    const client = makeClient();
+    const { io } = makeIO();
+    expect(await main(['projects', 'start', 'proj_1', '--audience', 'new_only'], deps(client, io))).toBe(0);
+    expect(client.startProject).toHaveBeenCalledWith('proj_1', { audience: 'new_only' });
+  });
+
+  it('projects start exits 2 on an unknown --audience', async () => {
+    const client = makeClient();
+    const { io, err } = makeIO();
+    expect(await main(['projects', 'start', 'proj_1', '--audience', 'everyone'], deps(client, io))).toBe(2);
+    expect(err.join('\n')).toContain('--audience must be current_and_new or new_only');
+    expect(client.startProject).not.toHaveBeenCalled();
   });
 
   it('projects schedule omits daily_cap_bypass unless the flag is passed', async () => {
@@ -778,6 +795,8 @@ describe('tags commands', () => {
     const text = out.join('\n');
     expect(text).toContain('10000+');
     expect(text).toContain('donated in 90 days');
+    expect(text).toContain('LIVE TRIGGERS');
+    expect(text).toContain('Welcome (text), Welcome email (email)');
   });
 
   it('create sends a manual tag by name', async () => {
@@ -812,6 +831,9 @@ describe('tags commands', () => {
     [['tags', 'add', 'tag_1'], '--identifier'],
     [['tags', 'add', 'tag_1', '--identifier', 'a@example.org', '--contact-list-id', 'cl_1'], '--identifier'],
     [['tags', 'remove', 'tag_1', '--contact-list-id', 'cl_1', '--contact-list-id', 'cl_2'], 'one --contact-list-id'],
+    [['tags', 'add', '--identifier', 'a@example.org'], '<id> | --name <name>'],
+    [['tags', 'add', 'tag_1', '--name', 'Donor', '--identifier', 'a@example.org'], '<id> or --name, not both'],
+    [['tags', 'remove', '--name', 'Donor'], '--identifier'],
   ])('exits 2 on %j', async (argv, message) => {
     const client = makeClient();
     const { io, err } = makeIO();
@@ -822,6 +844,8 @@ describe('tags commands', () => {
     expect(client.createTag).not.toHaveBeenCalled();
     expect(client.addTagContacts).not.toHaveBeenCalled();
     expect(client.removeTagContacts).not.toHaveBeenCalled();
+    expect(client.tagContacts).not.toHaveBeenCalled();
+    expect(client.untagContacts).not.toHaveBeenCalled();
   });
 
   it('rename sends the new name', async () => {
@@ -871,14 +895,154 @@ describe('tags commands', () => {
     expect(out.join('\n')).toContain('Tagged 2 contact(s); 1 invalid.');
   });
 
-  it('remove sends one contact list as the source', async () => {
+  it('add --no-fire-triggers sends fire_triggers: false', async () => {
     const client = makeClient();
+    const { io } = makeIO();
+    const code = await main(['tags', 'add', 'tag_1', '--identifier', 'ada@example.org', '--no-fire-triggers'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.addTagContacts).toHaveBeenCalledWith('tag_1', { identifiers: ['ada@example.org'], fire_triggers: false });
+  });
+
+  it('add --fire-triggers prints how many entered live triggers', async () => {
+    const client = makeClient({ addTagContacts: vi.fn(() => ok({ added: 2, invalid: 0, triggers: { entered: 2 } })) });
+    const { io, out } = makeIO();
+    const code = await main(['tags', 'add', 'tag_1', '--identifier', 'ada@example.org', '--fire-triggers'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.addTagContacts).toHaveBeenCalledWith('tag_1', { identifiers: ['ada@example.org'], fire_triggers: true });
+    expect(out.join('\n')).toBe('Tagged 2 contact(s); 0 invalid. Entered 2 into live triggers.');
+  });
+
+  it('add --name with a list and --fire-triggers says the queued job fires triggers', async () => {
+    const client = makeClient({
+      tagContacts: vi.fn(() =>
+        ok({ tag: { id: 'tag_4', name: 'Donor', kind: 'manual' }, created: false, queued: true, job_id: 'job_9', fire_triggers: true }),
+      ),
+    });
+    const { io, out } = makeIO();
+    const code = await main(['tags', 'add', '--name', 'Donor', '--contact-list-id', 'cl_1', '--fire-triggers'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.tagContacts).toHaveBeenCalledWith({ contact_list_id: 'cl_1', fire_triggers: true, name: 'Donor', organization_id: undefined });
+    expect(out.join('\n')).toContain("Newly tagged contacts enter the tag's live triggers.");
+  });
+
+  it('add exits 2 with both --fire-triggers and --no-fire-triggers', async () => {
+    const client = makeClient();
+    const { io, err } = makeIO();
+    const code = await main(['tags', 'add', 'tag_1', '--identifier', 'a@b.org', '--fire-triggers', '--no-fire-triggers'], deps(client, io));
+
+    expect(code).toBe(2);
+    expect(err.join('\n')).toContain('not both');
+    expect(client.addTagContacts).not.toHaveBeenCalled();
+  });
+
+  it('remove exits 2 with --fire-triggers', async () => {
+    const client = makeClient();
+    const { io } = makeIO();
+    expect(await main(['tags', 'remove', 'tag_1', '--identifier', 'a@b.org', '--fire-triggers'], deps(client, io))).toBe(2);
+    expect(client.removeTagContacts).not.toHaveBeenCalled();
+  });
+
+  it('remove prints the counts for identifiers', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['tags', 'remove', 'tag_1', '--identifier', 'ada@example.org'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(out.join('\n')).toContain('1 were not tagged');
+  });
+
+  it('add with a contact list prints that tagging was queued, with the job id and no counts', async () => {
+    const client = makeClient({ addTagContacts: vi.fn(() => ok({ queued: true, job_id: 'job_1' })) });
+    const { io, out } = makeIO();
+    const code = await main(['tags', 'add', 'tag_1', '--contact-list-id', 'cl_1'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.addTagContacts).toHaveBeenCalledWith('tag_1', { contact_list_id: 'cl_1' });
+    expect(out.join('\n')).toBe("Tagging queued (job job_1). The tag's member count in `tags list` updates when it finishes.");
+  });
+
+  it('remove with a contact list prints that untagging was queued', async () => {
+    const client = makeClient({ removeTagContacts: vi.fn(() => ok({ queued: true, job_id: 'job_2' })) });
     const { io, out } = makeIO();
     const code = await main(['tags', 'remove', 'tag_1', '--contact-list-id', 'cl_1'], deps(client, io));
 
     expect(code).toBe(0);
     expect(client.removeTagContacts).toHaveBeenCalledWith('tag_1', { contact_list_id: 'cl_1' });
-    expect(out.join('\n')).toContain('1 were not tagged');
+    expect(out.join('\n')).toContain('Untagging queued (job job_2).');
+    expect(out.join('\n')).not.toContain('Untagged');
+  });
+
+  it('add --name tags by name in the named organization and says the tag was created', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(
+      ['tags', 'add', '--name', 'Donor', '--identifier', 'ada@example.org', '--organization-id', 'org_2'],
+      deps(client, io),
+    );
+
+    expect(code).toBe(0);
+    expect(client.tagContacts).toHaveBeenCalledWith({ identifiers: ['ada@example.org'], name: 'Donor', organization_id: 'org_2' });
+    expect(client.addTagContacts).not.toHaveBeenCalled();
+    expect(out.join('\n')).toContain('Created tag Donor (tag_4). Tagged 1 contact(s); 0 invalid.');
+  });
+
+  it('add --name says when the tag already existed', async () => {
+    const client = makeClient({
+      tagContacts: vi.fn(() =>
+        ok({ tag: { id: 'tag_1', name: 'Volunteers', kind: 'manual' }, created: false, queued: true, job_id: 'job_3' }),
+      ),
+    });
+    const { io, out } = makeIO();
+    const code = await main(['tags', 'add', '--name', 'volunteers', '--contact-list-id', 'cl_1'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.tagContacts).toHaveBeenCalledWith({ contact_list_id: 'cl_1', name: 'volunteers', organization_id: undefined });
+    expect(out.join('\n')).toContain('Used existing tag Volunteers (tag_1). Tagging queued (job job_3).');
+    expect(out.join('\n')).not.toContain('Tagged');
+  });
+
+  it('remove --name untags by name', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main(['tags', 'remove', '--name', 'Donor', '--identifier', 'ada@example.org'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(client.untagContacts).toHaveBeenCalledWith({ identifiers: ['ada@example.org'], name: 'Donor', organization_id: undefined });
+    expect(client.removeTagContacts).not.toHaveBeenCalled();
+    expect(out.join('\n')).toContain('Untagged 3 contact(s)');
+  });
+});
+
+describe('contact-lists get', () => {
+  it('prints why a failed import failed, for each side', async () => {
+    const client = makeClient({
+      getContactList: vi.fn(() =>
+        ok({
+          list_id: 'cl_1',
+          import: { status: 'failed', error: { code: 'TAG_COLUMN_TOO_MANY_TAGS', message: 'That column would create more than 100 tags.' } },
+          email: { status: 'failed', error: { code: 'IMPORT_FAILED', message: 'The import could not be completed.' } },
+        }),
+      ),
+    });
+    const { io, out } = makeIO();
+    const code = await main(['contact-lists', 'get', 'cl_1'], deps(client, io));
+
+    expect(code).toBe(0);
+    expect(out).toContain('Import failed: That column would create more than 100 tags. (TAG_COLUMN_TOO_MANY_TAGS)');
+    expect(out).toContain('Email import failed: The import could not be completed. (IMPORT_FAILED)');
+  });
+
+  it('prints no failure line for a list that did not fail', async () => {
+    const client = makeClient({
+      getContactList: vi.fn(() => ok({ list_id: 'cl_1', import: { status: 'ready', error: null }, email: null })),
+    });
+    const { io, out } = makeIO();
+    await main(['contact-lists', 'get', 'cl_1'], deps(client, io));
+
+    expect(out.join('\n')).not.toContain('failed:');
   });
 });
 
@@ -920,5 +1084,73 @@ describe('projects create with tags', () => {
     expect(code).toBe(2);
     expect(err.join('\n')).toContain('--contact-list-id or --tag-id');
     expect(client.createProject).not.toHaveBeenCalled();
+  });
+});
+
+describe('projects create with follow-ups', () => {
+  const setup = [
+    'projects', 'create',
+    '--name', 'GOTV',
+    '--organization-id', 'org_1',
+    '--protocol', 'sms',
+    '--phone-number-id', 'pn_1',
+    '--contact-list-id', 'cl_1',
+    '--body', 'Early voting starts Monday.',
+  ];
+
+  it('maps repeated --follow-up flags, the stop rules, and the send time', async () => {
+    const client = makeClient();
+    const { io } = makeIO();
+    const code = await main(
+      [
+        ...setup,
+        '--follow-up', '2d=Find your polling place: https://example.org/vote',
+        '--follow-up', '6h=Polls close at 7 = tonight',
+        '--stop-on-reply',
+        '--send-time', '09:00',
+        '--timezone', 'America/Chicago',
+      ],
+      deps(client, io),
+    );
+
+    expect(code).toBe(0);
+    expect(client.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        follow_ups: {
+          steps: [
+            { message_text: 'Find your polling place: https://example.org/vote', wait: { unit: 'days', amount: 2 } },
+            { message_text: 'Polls close at 7 = tonight', wait: { unit: 'hours', amount: 6 } },
+          ],
+          stop_on_reply: true,
+          stop_on_click: false,
+        },
+        scheduled_timezone: 'America/Chicago',
+        sequence_send_time: '09:00',
+      }),
+    );
+  });
+
+  it('sends no follow-up fields without --follow-up', async () => {
+    const client = makeClient();
+    const { io } = makeIO();
+    expect(await main(setup, deps(client, io))).toBe(0);
+    const body = vi.mocked(client.createProject).mock.calls[0]![0];
+    expect(body.follow_ups).toBeUndefined();
+    expect(body.scheduled_timezone).toBeUndefined();
+  });
+
+  it('exits 2 when --follow-up has no stop rule', async () => {
+    const client = makeClient();
+    const { io, err } = makeIO();
+    expect(await main([...setup, '--follow-up', '1d=Hi'], deps(client, io))).toBe(2);
+    expect(err.join('\n')).toContain('--stop-on-reply, --stop-on-click, or both');
+    expect(client.createProject).not.toHaveBeenCalled();
+  });
+
+  it('exits 2 on a malformed --follow-up', async () => {
+    const client = makeClient();
+    const { io, err } = makeIO();
+    expect(await main([...setup, '--follow-up', '2w=Hi', '--stop-on-click'], deps(client, io))).toBe(2);
+    expect(err.join('\n')).toContain('<N>d=<text> or <N>h=<text>');
   });
 });

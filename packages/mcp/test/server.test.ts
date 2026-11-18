@@ -211,6 +211,56 @@ describe('political-comms MCP server (stdio)', () => {
     expect(schema.properties.trigger).toBeTruthy();
     expect(schema.required).not.toContain('contact_list_ids');
   });
+
+  it('offers tag triggers and start times, and no reentry, on the trigger', async () => {
+    const result = await client.listTools();
+    const trigger = (result.tools.find((t) => t.name === 'create_project')!.inputSchema.properties as unknown as {
+      trigger: { properties: Record<string, { enum?: string[] }>; description: string };
+    }).trigger;
+    expect(trigger.properties.source?.enum).toEqual(['api', 'donation', 'event', 'tag']);
+    expect(trigger.properties.start?.enum).toEqual(['immediate', 'next_day']);
+    expect(trigger.properties.tag).toBeTruthy();
+    expect(trigger.properties).not.toHaveProperty('reentry');
+    expect(trigger.description).toContain('at most once');
+  });
+
+  it('describes follow-ups on create_project: the stop rules, once per person, and per-send charges', async () => {
+    const result = await client.listTools();
+    const tool = result.tools.find((t) => t.name === 'create_project')!;
+    const props = (tool.inputSchema as { properties: Record<string, { description?: string }> }).properties;
+    expect(props.follow_ups).toBeTruthy();
+    expect(props.scheduled_timezone).toBeTruthy();
+    expect(props.sequence_send_time).toBeTruthy();
+    expect(props.follow_ups!.description).toContain('stop_on_reply');
+    expect(props.follow_ups!.description).toContain('stop_on_click');
+    expect(tool.description).toContain('at most once');
+    expect(tool.description).toContain('charged when it sends');
+  });
+
+  it('warns that tagging into a live trigger messages people on add_tag_contacts and import_contact_list', async () => {
+    const result = await client.listTools();
+    for (const name of ['add_tag_contacts', 'import_contact_list']) {
+      const tool = result.tools.find((t) => t.name === name)!;
+      expect(tool.description, name).toContain('MESSAGES');
+      expect(tool.description, name).toContain('live_triggers');
+      expect(tool.description, name).toContain('get their explicit yes');
+      expect((tool.inputSchema as { properties: Record<string, unknown> }).properties, name).toHaveProperty('fire_triggers');
+      expect((tool.inputSchema as { required: string[] }).required, name).toContain('confirm');
+    }
+    expect(result.tools.find((t) => t.name === 'list_tags')!.description).toContain('live_triggers');
+  });
+
+  it('offers audience on start_project and schedule_email_campaign, and no too_soon anywhere', async () => {
+    const result = await client.listTools();
+    for (const name of ['start_project', 'schedule_email_campaign']) {
+      const props = (result.tools.find((t) => t.name === name)!.inputSchema as {
+        properties: Record<string, { enum?: string[] }>;
+      }).properties;
+      expect(props.audience?.enum, name).toEqual(['current_and_new', 'new_only']);
+    }
+    expect(JSON.stringify(result.tools)).not.toContain('too_soon');
+    expect(JSON.stringify(result.tools)).not.toContain('reentry');
+  });
 });
 
 type Recorded = { method: string; path: string; body: unknown };
@@ -220,7 +270,7 @@ describe('political-comms MCP server tag requests', () => {
   let client: Client;
   let api: Server;
   const requests: Recorded[] = [];
-  const reply: { data: unknown } = { data: {} };
+  const reply: { data: unknown; status?: number } = { data: {} };
 
   async function readBody(req: IncomingMessage): Promise<unknown> {
     let raw = '';
@@ -240,8 +290,9 @@ describe('political-comms MCP server tag requests', () => {
   beforeAll(async () => {
     api = createServer(async (req, res) => {
       requests.push({ method: req.method!, path: req.url!, body: await readBody(req) });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.writeHead(reply.status ?? 200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, data: reply.data }));
+      reply.status = undefined;
     });
     await new Promise<void>((resolve) => api.listen(0, '127.0.0.1', resolve));
     const { port } = api.address() as AddressInfo;
@@ -300,8 +351,74 @@ describe('political-comms MCP server tag requests', () => {
     });
     expect(JSON.parse(byIdentifiers.text).data).toEqual({ added: 1, invalid: 1 });
 
+  });
+
+  it('add_tag_contacts with a contact list returns the 202 queued result as given', async () => {
+    reply.data = { queued: true, job_id: 'job_1' };
+    reply.status = 202;
     const byList = await call('add_tag_contacts', { confirm: true, id: 'tag_1', contact_list_id: 'cl_1' });
     expect(byList.request.body).toEqual({ contact_list_id: 'cl_1' });
+    expect(JSON.parse(byList.text).data).toEqual({ queued: true, job_id: 'job_1' });
+  });
+
+  it('add_tag_contacts by name with a contact list returns the tag, created, and the job', async () => {
+    reply.data = { tag: { id: 'tag_9', name: 'Donor' }, created: false, queued: true, job_id: 'job_2' };
+    reply.status = 202;
+    const { text } = await call('add_tag_contacts', { confirm: true, name: 'Donor', contact_list_id: 'cl_1' });
+    expect(JSON.parse(text).data).toEqual({ tag: { id: 'tag_9', name: 'Donor' }, created: false, queued: true, job_id: 'job_2' });
+  });
+
+  it('tells the agent a list tagging runs in the background and where its outcome shows', async () => {
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'add_tag_contacts')!;
+    expect(tool.description).toContain('runs in the background');
+    expect(tool.description).toContain('member_count in list_tags');
+  });
+
+  it('get_contact_list passes a failed import reason through', async () => {
+    const error = { code: 'TAG_COLUMN_TOO_MANY_TAGS', message: 'That column would create more than 100 tags.' };
+    reply.data = { list_id: 'cl_1', import: { status: 'failed', error }, email: null };
+    const { request, text } = await call('get_contact_list', { id: 'cl_1' });
+    expect(request).toEqual({ method: 'GET', path: '/v1/contact-lists/cl_1', body: undefined });
+    expect(JSON.parse(text).data.import.error).toEqual(error);
+  });
+
+  it('add_tag_contacts with a name POSTs /tags/contacts and returns tag and created', async () => {
+    reply.data = { tag: { id: 'tag_9', name: 'Donor' }, created: true, added: 1, invalid: 0 };
+    const { request, text } = await call('add_tag_contacts', {
+      confirm: true,
+      name: 'Donor',
+      organization_id: 'org_2',
+      identifiers: ['ada@example.org'],
+    });
+    expect(request).toEqual({
+      method: 'POST',
+      path: '/v1/tags/contacts',
+      body: { identifiers: ['ada@example.org'], name: 'Donor', organization_id: 'org_2' },
+    });
+    expect(JSON.parse(text).data.created).toBe(true);
+  });
+
+  it('add_tag_contacts refuses both or neither of id and name without calling the API', async () => {
+    for (const args of [
+      { confirm: true, id: 'tag_1', name: 'Donor', identifiers: ['ada@example.org'] },
+      { confirm: true, identifiers: ['ada@example.org'] },
+    ]) {
+      requests.length = 0;
+      const result = await client.callTool({ name: 'add_tag_contacts', arguments: args });
+      expect(result.isError).toBe(true);
+      expect((result.content as Array<{ text: string }>)[0]?.text).toContain('exactly one of id or name');
+      expect(requests).toHaveLength(0);
+    }
+  });
+
+  it('add_tag_contacts by name still requires confirm: true', async () => {
+    requests.length = 0;
+    const result = await client.callTool({
+      name: 'add_tag_contacts',
+      arguments: { name: 'Donor', identifiers: ['ada@example.org'] },
+    });
+    expect(result.isError).toBe(true);
+    expect(requests).toHaveLength(0);
   });
 
   it('create_project sends the tag fields and leaves out an omitted contact_list_ids', async () => {
@@ -321,6 +438,91 @@ describe('political-comms MCP server tag requests', () => {
     expect(request.path).toBe('/v1/projects');
     expect(request.body).toMatchObject({ tag_ids: ['t1'], require_tag_ids: ['t2'], suppression_tag_ids: ['t3'] });
     expect(request.body).not.toHaveProperty('contact_list_ids');
+  });
+
+  it('add_tag_contacts passes fire_triggers and returns triggers.entered', async () => {
+    reply.data = { added: 1, invalid: 0, triggers: { entered: 1 } };
+    const { request, text } = await call('add_tag_contacts', {
+      confirm: true,
+      id: 'tag_1',
+      identifiers: ['+12025550141'],
+      fire_triggers: false,
+    });
+    expect(request.body).toEqual({ identifiers: ['+12025550141'], fire_triggers: false });
+    expect(JSON.parse(text).data.triggers).toEqual({ entered: 1 });
+  });
+
+  it('add_tag_contacts by name with a list sends fire_triggers: true', async () => {
+    reply.data = { tag: { id: 'tag_1' }, created: false, queued: true, job_id: 'job_1', fire_triggers: true };
+    const { request } = await call('add_tag_contacts', { confirm: true, name: 'Volunteers', contact_list_id: 'cl_1', fire_triggers: true });
+    expect(request).toEqual({
+      method: 'POST',
+      path: '/v1/tags/contacts',
+      body: { contact_list_id: 'cl_1', fire_triggers: true, name: 'Volunteers' },
+    });
+  });
+
+  it('start_project sends the audience; without one it sends no body', async () => {
+    reply.data = { project_id: 'proj_1', status: 'active', type: 'triggered' };
+    const withAudience = await call('start_project', { confirm: true, id: 'proj_1', audience: 'current_and_new' });
+    expect(withAudience.request).toEqual({ method: 'POST', path: '/v1/projects/proj_1/start', body: { audience: 'current_and_new' } });
+    const bare = await call('start_project', { confirm: true, id: 'proj_1' });
+    expect(bare.request.body).toBeUndefined();
+  });
+
+  it('schedule_email_campaign sends the audience', async () => {
+    reply.data = { id: 'camp_1', status: 'sending' };
+    const { request } = await call('schedule_email_campaign', { confirm: true, id: 'camp_1', audience: 'new_only' });
+    expect(request).toEqual({ method: 'POST', path: '/v1/email/campaigns/camp_1/schedule', body: { audience: 'new_only' } });
+  });
+
+  it('create_project sends a tag trigger with follow-ups and the send time', async () => {
+    reply.data = { project_id: 'proj_2' };
+    const followUps = {
+      steps: [{ message_text: 'Still in?', wait: { unit: 'days', amount: 2 } }],
+      stop_on_reply: true,
+      stop_on_click: false,
+    };
+    const { request } = await call('create_project', {
+      confirm: true,
+      type: 'triggered',
+      organization_id: 'org_1',
+      name: 'Welcome',
+      protocol: 'sms',
+      message_text: 'Welcome!',
+      phone_number_ids: ['pn_1'],
+      trigger: { source: 'tag', tag: { tag_ids: ['tag_1'] }, start: 'next_day' },
+      follow_ups: followUps,
+      scheduled_timezone: 'America/Chicago',
+      sequence_send_time: '09:00',
+    });
+    expect(request.body).toMatchObject({
+      type: 'triggered',
+      trigger: { source: 'tag', tag: { tag_ids: ['tag_1'] }, start: 'next_day' },
+      follow_ups: followUps,
+      scheduled_timezone: 'America/Chicago',
+      sequence_send_time: '09:00',
+    });
+  });
+
+  it('import_contact_list sends fire_triggers only when given', async () => {
+    reply.data = { purpose: 'audience', list_id: 'cl_1', fire_triggers: true };
+    const withFire = await call('import_contact_list', {
+      confirm: true,
+      source_url: 'https://example.org/a.csv',
+      list_name: 'A',
+      phone_column: 'Phone',
+      tag_names: ['Walk list'],
+      fire_triggers: true,
+    });
+    expect((withFire.request.body as Record<string, unknown>).fire_triggers).toBe(true);
+    const without = await call('import_contact_list', {
+      confirm: true,
+      source_url: 'https://example.org/a.csv',
+      list_name: 'A',
+      phone_column: 'Phone',
+    });
+    expect(without.request.body).not.toHaveProperty('fire_triggers');
   });
 
   it('import_contact_list sends tag_ids, tag_names, and tags_column', async () => {
@@ -351,5 +553,6 @@ describe('political-comms MCP server tag requests', () => {
     expect(props.tag_ids?.description).toContain('ANY');
     expect(props.require_tag_ids?.description).toContain('ALL');
     expect(tool.description).toContain('only sent to through a list row the sender can use');
+    expect(props.tag_ids?.description).not.toContain('survey');
   });
 });

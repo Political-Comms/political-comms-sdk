@@ -16,8 +16,11 @@ import {
   type CreateTagRequest,
   type MergeTagMapping,
   type TagActivityEvent,
+  type AddTagContactsRequest,
+  type ProjectFollowUps,
   type TagContactsRequest,
   type Trigger,
+  type TriggerAudience,
   type ScheduleTimezone,
 } from '@political-comms/sdk';
 
@@ -59,18 +62,22 @@ const triggerParam = {
     'add_project_recipient / add_email_campaign_recipient or the inbound hook URL. source "donation": ' +
     'a gift from a connected WinRed or Anedot list (donation.integrations is required). source "event": ' +
     'something that happens in another project or campaign (event.event and event.sources are required). ' +
-    'delay_minutes (0-43200) delays each send; reentry is {mode: "once"} (default) or ' +
-    '{mode: "repeat", min_gap_hours: 1-8760}.',
+    'source "tag": a contact was newly tagged with one of tag.tag_ids (manual tags from list_tags); a ' +
+    'tagged phone enters a text project, a tagged email address an email campaign, and re-tagging never ' +
+    'fires. Each phone number or email address is sent a triggered item at most once. start "immediate" ' +
+    '(default) sends after delay_minutes (0-43200); start "next_day" sends the day after the trigger ' +
+    'fired at sequence_send_time in the project time zone, with delay_minutes 0.',
   properties: {
-    source: { type: 'string', enum: ['api', 'donation', 'event'] },
-    delay_minutes: { type: 'number', minimum: 0, maximum: 43200 },
-    reentry: {
+    source: { type: 'string', enum: ['api', 'donation', 'event', 'tag'] },
+    start: { type: 'string', enum: ['immediate', 'next_day'], description: 'Default immediate' },
+    delay_minutes: { type: 'number', minimum: 0, maximum: 43200, description: 'Must be 0 with start next_day' },
+    tag: {
       type: 'object',
+      description: 'Required when source is tag',
       properties: {
-        mode: { type: 'string', enum: ['once', 'repeat'] },
-        min_gap_hours: { type: 'number', minimum: 1, maximum: 8760, description: 'Required with mode repeat' },
+        tag_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 20, description: 'Manual tag IDs' },
       },
-      required: ['mode'],
+      required: ['tag_ids'],
       additionalProperties: false,
     },
     donation: {
@@ -132,6 +139,67 @@ const triggerParam = {
   required: ['source'],
   additionalProperties: false,
 } as const;
+
+const scheduleTimezoneParam = {
+  type: 'string',
+  enum: ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'],
+} as const;
+
+const audienceParam = {
+  type: 'string',
+  enum: ['current_and_new', 'new_only'],
+  description:
+    'Tag triggers only, required on the first start: current_and_new also sends to everyone carrying the ' +
+    'tag now, new_only only to contacts tagged from now on. Ask the user which; refused for anything else.',
+} as const;
+
+const followUpsParam = {
+  type: 'object',
+  description:
+    'Up to 9 follow-up texts after the first message (broadcast or triggered projects; a survey refuses ' +
+    'them). Each step waits {unit: "days", amount: 1-365}, sent at sequence_send_time in ' +
+    'scheduled_timezone (both then required), or {unit: "hours", amount: 1-72}; quiet hours only move a ' +
+    'step later. A person stops getting them on a reply (stop_on_reply), a tracked-link click ' +
+    '(stop_on_click), or an opt-out (always); at least one of the two flags must be true. A person whose ' +
+    'first message failed gets none. Each follow-up is charged when it sends. Locked once the project starts.',
+  properties: {
+    steps: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 9,
+      items: {
+        type: 'object',
+        properties: {
+          message_text: { type: 'string' },
+          media_ids: { type: 'array', items: { type: 'string' }, maxItems: 10, description: 'MMS projects only' },
+          wait: {
+            type: 'object',
+            properties: {
+              unit: { type: 'string', enum: ['days', 'hours'] },
+              amount: { type: 'number', minimum: 1, maximum: 365, description: 'Days 1-365, hours 1-72' },
+            },
+            required: ['unit', 'amount'],
+            additionalProperties: false,
+          },
+        },
+        required: ['message_text', 'wait'],
+        additionalProperties: false,
+      },
+    },
+    stop_on_reply: { type: 'boolean' },
+    stop_on_click: { type: 'boolean' },
+  },
+  required: ['steps', 'stop_on_reply', 'stop_on_click'],
+  additionalProperties: false,
+} as const;
+
+const TAG_TRIGGER_WARNING =
+  'Tagging a contact into a tag that has live triggers MESSAGES that contact: it enters every started ' +
+  'triggered project or campaign listening for the tag (each person at most once). Call list_tags first ' +
+  'and read the tag\'s live_triggers. When live_triggers is empty, fire_triggers changes nothing. When it ' +
+  'is not, decide fire_triggers deliberately; before sending fire_triggers: true for a contact list or an ' +
+  'import, tell the user which live triggers will message those contacts and get their explicit yes, and ' +
+  'only then pass confirm: true.';
 
 const recipientFields = {
   type: 'object',
@@ -313,7 +381,8 @@ const TOOLS: Tool[] = [
   {
     name: 'get_contact_list',
     description:
-      'Get one contact list by ID, including its available merge tags, phone import progress (import), email side status and counts (email), and list analysis results when available.',
+      'Get one contact list by ID, including its available merge tags, phone import progress (import), email side status and counts (email), and list analysis results when available. ' +
+      'When import.status or email.status is failed, that side\'s error ({ code, message }, null otherwise) says why; the message is safe to show the user.',
     inputSchema: {
       type: 'object',
       properties: { id: idParam },
@@ -379,9 +448,13 @@ const TOOLS: Tool[] = [
     description:
       'Create a new messaging project (a draft send). Requires the owning organization, a name, ' +
       'protocol (sms or mms), sending phone number IDs, contact list IDs or tag IDs, and the message text. ' +
-      'For a triggered project (no contact list; each recipient gets one message when the trigger ' +
+      'For a triggered project (no contact list; each phone number gets it at most once, when the trigger ' +
       'fires) pass type "triggered" and a trigger instead of contact_list_ids; start it with ' +
-      'start_project after test_project. ' +
+      'start_project after test_project. A tag trigger texts a tagged phone on a list the project can use ' +
+      'with that row\'s merge fields, and one on no list with merge-field defaults; opt-outs always apply. ' +
+      'follow_ups adds up to 9 texts after the first message: a person stops getting them on a reply ' +
+      '(stop_on_reply), a tracked-link click (stop_on_click), or an opt-out, and each follow-up is charged ' +
+      'when it sends, so tell the user the cost can be up to the first message times the number of steps. ' +
       'For channel=10dlc also pass brand_id and campaign_id; for channel=toll-free pass ' +
       'toll_free_verification_id. Recipients are the union of contact_list_ids and tag_ids (contacts ' +
       'carrying ANY of those tags); require_tag_ids then keeps only contacts carrying ALL of its tags, ' +
@@ -402,6 +475,17 @@ const TOOLS: Tool[] = [
           description: 'Project type. Defaults to broadcast. Triggered requires trigger and takes no list IDs.',
         },
         trigger: triggerParam,
+        follow_ups: followUpsParam,
+        scheduled_timezone: {
+          ...scheduleTimezoneParam,
+          description:
+            'Project time zone. Required with a follow-up that waits days or a next_day trigger start; a ' +
+            'broadcast takes it here only for day follow-ups.',
+        },
+        sequence_send_time: {
+          type: 'string',
+          description: 'Local time of day, HH:MM, that day follow-ups and a next_day trigger start send at.',
+        },
         name: { type: 'string', description: 'Project name' },
         protocol: { type: 'string', enum: ['sms', 'mms'], description: 'Message protocol' },
         message_text: { type: 'string', description: 'The message body to send' },
@@ -418,7 +502,7 @@ const TOOLS: Tool[] = [
         },
         tag_ids: tagIdsParam(
           'Tag IDs (from list_tags): also send to contacts carrying ANY of these tags. Each contact must still be on a ' +
-            'live list this sender can use. Not for triggered or survey projects.',
+            'live list this sender can use. Not for triggered projects.',
         ),
         require_tag_ids: tagIdsParam(
           'Tag IDs: keep only recipients carrying ALL of these tags (narrows the lists and tag_ids, never adds anyone).',
@@ -543,18 +627,7 @@ const TOOLS: Tool[] = [
             'ISO 8601 date-time at which to send (with offset). May be now or in the past - ' +
             'sending starts as soon as audience compilation finishes (no minimum lead time).',
         },
-        scheduled_timezone: {
-          type: 'string',
-          description: 'One of the six supported US IANA zones',
-          enum: [
-            'America/New_York',
-            'America/Chicago',
-            'America/Denver',
-            'America/Los_Angeles',
-            'America/Anchorage',
-            'Pacific/Honolulu',
-          ],
-        },
+        scheduled_timezone: { ...scheduleTimezoneParam, description: 'One of the six supported US IANA zones' },
         daily_cap_bypass: {
           type: 'boolean',
           description:
@@ -624,10 +697,12 @@ const TOOLS: Tool[] = [
     description:
       'Start or resume a triggered project so it begins sending to recipients as its trigger fires. ' +
       'Test it first with test_project. This commits real sends. A 409 CONFLICT means the project ' +
-      'is not triggered. Pause with pause_project.',
+      'is not triggered. Pause with pause_project. A tag trigger\'s first start needs audience; with ' +
+      'current_and_new it also texts everyone carrying the tag now, so say how many (list_tags member_count) ' +
+      'before confirming.',
     inputSchema: {
       type: 'object',
-      properties: { confirm: confirmParam, id: idParam },
+      properties: { confirm: confirmParam, id: idParam, audience: audienceParam },
       required: ['confirm', 'id'],
       additionalProperties: false,
     },
@@ -662,8 +737,8 @@ const TOOLS: Tool[] = [
     description:
       'Add one recipient to an active triggered project. The person gets the project message, now or ' +
       'after its delay (held until 8 AM if it comes due between 10 PM and 8 AM their time). This sends ' +
-      'a real text. Answers queued with send_at, or already_entered with a reason (duplicate, ' +
-      'already_entered, too_soon). A paused project returns 409 CONFLICT; an opted-out number ' +
+      'a real text. Answers queued with send_at, or already_entered with a reason: duplicate (a repeated ' +
+      'occurrence_id) or already_entered (each person gets it at most once). A paused project returns 409 CONFLICT; an opted-out number ' +
       'returns 409 CONTACT_OPTED_OUT.',
     inputSchema: {
       type: 'object',
@@ -966,8 +1041,9 @@ const TOOLS: Tool[] = [
   {
     name: 'schedule_email_campaign',
     description:
-      'Schedule an email campaign, or omit scheduled_at to send now. This commits a real send to ' +
-      'every recipient on the campaign lists. If it is refused, read "blocked" on the campaign.',
+      'Schedule an email campaign, or omit scheduled_at to send now (or to start a triggered campaign). ' +
+      'This commits a real send to every recipient on the campaign lists. If it is refused, read ' +
+      '"blocked" on the campaign. A tag-triggered campaign\'s first start needs audience.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -977,6 +1053,7 @@ const TOOLS: Tool[] = [
           type: 'string',
           description: 'ISO 8601 date-time. Omit to send immediately. A past date is rejected.',
         },
+        audience: audienceParam,
       },
       required: ['confirm', 'id'],
       additionalProperties: false,
@@ -1086,7 +1163,7 @@ const TOOLS: Tool[] = [
     description:
       'Add one recipient to a triggered email campaign. The person gets the campaign email, now or ' +
       'after its delay. This sends a real email. Answers queued with send_at, or already_entered with ' +
-      'a reason (duplicate, already_entered, too_soon). A paused campaign returns 409 CONFLICT; a ' +
+      'a reason: duplicate (a repeated occurrence_id) or already_entered (each address gets it at most once). A paused campaign returns 409 CONFLICT; a ' +
       'suppressed address returns 422 with the reason.',
     inputSchema: {
       type: 'object',
@@ -1158,7 +1235,10 @@ const TOOLS: Tool[] = [
       'address. kind manual: members are added with add_tag_contacts (member_count is capped at 10000, ' +
       'see member_count_capped). kind activity: applies by itself while true (activity_event donated, ' +
       'clicked, responded, or sent, within the last within_days days or ever) and has no member_count. ' +
-      'Use the ids in create_project tag_ids, require_tag_ids, and suppression_tag_ids.',
+      'Use the ids in create_project tag_ids, require_tag_ids, and suppression_tag_ids, or in a tag trigger. ' +
+      'live_triggers lists the started triggered projects (channel text) and email campaigns (channel email) ' +
+      'listening for the tag: tagging contacts into such a tag messages them, so read it before ' +
+      'add_tag_contacts or an import that tags.',
     inputSchema: {
       type: 'object',
       properties: { organization_id: { type: 'string', description: 'Organization. Defaults to the key owner.' } },
@@ -1215,16 +1295,34 @@ const TOOLS: Tool[] = [
   {
     name: 'add_tag_contacts',
     description:
-      'Put a manual tag on contacts: identifiers (up to 10000 US phone numbers in any common format or ' +
-      'email addresses) or contact_list_id (every active phone and subscribed address on that list), ' +
-      'exactly one of the two. Returns added and invalid counts. This changes who a project using the ' +
-      'tag reaches. ' + TAG_CONSENT_RULE + ' A 409 TAG_BUSY means an import is writing the same ' +
-      'contacts; retry in about a minute. Requires confirm: true.',
+      'Put a manual tag on contacts. Name the tag by id or by name, exactly one of the two. A name is ' +
+      'matched ignoring case, and when the organization has no tag with that name this call CREATES it: ' +
+      'call list_tags first and pass a name exactly as listed, so a variant spelling does not create a ' +
+      'near-duplicate tag. The result then carries the tag (use tag.id in create_project) and created: ' +
+      'true means this call made a new tag; if you did not intend that, tell the user. Contacts are ' +
+      'identifiers (up to 10000 US phone numbers in any common format or email addresses) or ' +
+      'contact_list_id (every active phone and subscribed address on that list), exactly one of the two. ' +
+      'identifiers return added and invalid counts. contact_list_id runs in the background: the result is ' +
+      'queued: true and a job_id, with no counts (there is no job status tool). Tell the user the tagging is ' +
+      'in progress, never that zero were added; the outcome shows as the tag\'s member_count in list_tags ' +
+      'once the job finishes. This changes who a project using the tag reaches. ' +
+      TAG_CONSENT_RULE + ' ' + TAG_TRIGGER_WARNING + ' fire_triggers defaults to true for identifiers and ' +
+      'false for contact_list_id; with live triggers the result carries triggers.entered. A 409 TAG_BUSY ' +
+      'means an import is writing the same contacts; retry in about a minute. Requires confirm: true.',
     inputSchema: {
       type: 'object',
       properties: {
         confirm: confirmParam,
-        id: idParam,
+        id: { type: 'string', description: 'Tag ID (from list_tags). Omit when name is set.' },
+        name: {
+          type: 'string',
+          description:
+            'Tag name, 1-64 characters, instead of id. Creates the tag when none has this name (ignoring case).',
+        },
+        organization_id: {
+          type: 'string',
+          description: 'With name only: the organization whose tag to use. Defaults to the key owner.',
+        },
         identifiers: {
           type: 'array',
           items: { type: 'string' },
@@ -1233,8 +1331,14 @@ const TOOLS: Tool[] = [
           description: 'Phone numbers or email addresses. Omit when contact_list_id is set.',
         },
         contact_list_id: { type: 'string', description: 'Tag everyone on this list. Omit when identifiers is set.' },
+        fire_triggers: {
+          type: 'boolean',
+          description:
+            'Whether newly tagged contacts enter the tag\'s live_triggers (which messages them). Default true ' +
+            'for identifiers, false for contact_list_id. Ask the user before passing true with contact_list_id.',
+        },
       },
-      required: ['confirm', 'id'],
+      required: ['confirm'],
       additionalProperties: false,
     },
     annotations: {
@@ -1253,7 +1357,8 @@ const TOOLS: Tool[] = [
       'detection. consent_source is optional and allowed only for an audience list with an email column. With merge_tags, phones map only the named columns while emails also map every remaining column. purpose ' +
       'do_not_contact turns phones into an opt-out list and emails into unsubscribes, and ' +
       'returns no list_id. An audience import can tag every contact with tag_ids or tag_names, or per row ' +
-      'with tags_column. Poll get_contact_list: import is the phone side and email.status is the email side. Requires confirm: true.',
+      'with tags_column. ' + TAG_TRIGGER_WARNING + ' fire_triggers defaults to false here. ' +
+      'Poll get_contact_list: import is the phone side and email.status is the email side. Requires confirm: true.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1305,6 +1410,12 @@ const TOOLS: Tool[] = [
           description:
             'Audience imports only. A CSV header whose cells hold tag names separated by commas, semicolons, or pipes. ' +
             'New tags are created; more than 100 new tags fails the import.',
+        },
+        fire_triggers: {
+          type: 'boolean',
+          description:
+            'Default false. True enters the contacts this import newly tags into those tags\' live_triggers, ' +
+            'which messages them. Ask the user before passing true.',
         },
       },
       required: ['confirm', 'source_url', 'list_name'],
@@ -1425,6 +1536,9 @@ function createProjectRequest(args: Args): CreateProjectRequest {
     link_tracking_param_field: opt(args, 'link_tracking_param_field'),
     link_tracking_fallback_url: opt(args, 'link_tracking_fallback_url'),
     opt_out_footer_enabled: args.opt_out_footer_enabled as boolean | undefined,
+    follow_ups: args.follow_ups as ProjectFollowUps | undefined,
+    scheduled_timezone: opt(args, 'scheduled_timezone') as ScheduleTimezone | undefined,
+    sequence_send_time: opt(args, 'sequence_send_time'),
   };
   if (args.type === 'triggered') {
     return { ...base, type: 'triggered', trigger: args.trigger as Trigger };
@@ -1452,10 +1566,22 @@ function createTagRequest(args: Args): CreateTagRequest {
   };
 }
 
-function tagContactsRequest(args: Args): TagContactsRequest {
-  return args.contact_list_id === undefined
-    ? { identifiers: (args.identifiers as string[]) ?? [] }
-    : { contact_list_id: s(args, 'contact_list_id') };
+function tagContactsRequest(args: Args): AddTagContactsRequest {
+  const source: TagContactsRequest =
+    args.contact_list_id === undefined
+      ? { identifiers: (args.identifiers as string[]) ?? [] }
+      : { contact_list_id: s(args, 'contact_list_id') };
+  return args.fire_triggers === undefined ? source : { ...source, fire_triggers: args.fire_triggers === true };
+}
+
+/** A tag id addresses one tag; a name finds or creates one, so exactly one must be given. */
+async function addTagContacts(client: PoliticalCommsClient, args: Args) {
+  if ((args.id === undefined) === (args.name === undefined)) {
+    throw new Error('add_tag_contacts takes exactly one of id or name.');
+  }
+  const source = tagContactsRequest(args);
+  if (args.id !== undefined) return client.addTagContacts(s(args, 'id'), source);
+  return client.tagContacts({ ...source, name: s(args, 'name'), organization_id: opt(args, 'organization_id') });
 }
 
 async function callTool(client: PoliticalCommsClient, name: string, args: Args): Promise<CallToolResult> {
@@ -1545,8 +1671,10 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       const reason = opt(args, 'reason');
       return textResult(await client.pauseProject(s(args, 'id'), reason ? { reason } : undefined));
     }
-    case 'start_project':
-      return textResult(await client.startProject(s(args, 'id')));
+    case 'start_project': {
+      const audience = opt(args, 'audience') as TriggerAudience | undefined;
+      return textResult(await client.startProject(s(args, 'id'), audience ? { audience } : undefined));
+    }
     case 'end_project':
       return textResult(await client.endProject(s(args, 'id')));
     case 'add_project_recipient':
@@ -1637,6 +1765,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
       return textResult(
         await client.scheduleEmailCampaign(s(args, 'id'), {
           ...(args.scheduled_at === undefined ? {} : { scheduled_at: s(args, 'scheduled_at') }),
+          ...(args.audience === undefined ? {} : { audience: s(args, 'audience') as TriggerAudience }),
         }),
       );
     case 'unschedule_email_campaign':
@@ -1678,7 +1807,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
     case 'rename_tag':
       return textResult(await client.renameTag(s(args, 'id'), { name: s(args, 'name') }));
     case 'add_tag_contacts':
-      return textResult(await client.addTagContacts(s(args, 'id'), tagContactsRequest(args)));
+      return textResult(await addTagContacts(client, args));
 
     case 'import_contact_list':
       return textResult(
@@ -1704,6 +1833,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
           tag_ids: args.tag_ids as string[] | undefined,
           tag_names: args.tag_names as string[] | undefined,
           tags_column: opt(args, 'tags_column'),
+          ...(args.fire_triggers === undefined ? {} : { fire_triggers: args.fire_triggers === true }),
         }),
       );
 

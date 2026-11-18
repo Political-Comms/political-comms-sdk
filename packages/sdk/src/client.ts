@@ -66,11 +66,13 @@ import type {
   UnscheduleProjectResult,
   PauseProjectRequest,
   PauseProjectResult,
+  StartProjectRequest,
   StartProjectResult,
   EndProjectResult,
   TriggerHookResponse,
   UpdateProjectRequest,
   UpdateProjectResult,
+  AddTagContactsRequest,
   AddTagContactsResult,
   CreateTagRequest,
   DeleteTagResult,
@@ -78,7 +80,11 @@ import type {
   RemoveTagContactsResult,
   RenameTagRequest,
   Tag,
+  TagContactsByNameRequest,
+  TagContactsByNameResult,
   TagContactsRequest,
+  UntagContactsByNameRequest,
+  UntagContactsByNameResult,
   // Email
   AddEmailSuppressionsRequest,
   AddEmailSuppressionsResult,
@@ -424,21 +430,55 @@ export class PoliticalCommsClient {
   }
 
   /**
+   * POST /tags/contacts. Tags contacts with the manual tag of that name,
+   * creating it when the organization has none (`created: true`). A name
+   * matching an activity tag's generated name makes a manual tag beside it;
+   * 409 `TAG_BUSY` as for `addTagContacts`. A `contact_list_id` source is queued as for
+   * `addTagContacts`; the tag is still created by this call. `fire_triggers`
+   * as for `addTagContacts`.
+   */
+  tagContacts(
+    body: TagContactsByNameRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<TagContactsByNameResult>> {
+    return this.request('POST', '/tags/contacts', undefined, body, options);
+  }
+
+  /**
+   * DELETE /tags/contacts, with the same body as `tagContacts`. Never creates
+   * a tag: 404 `NOT_FOUND` when no tag has that name. Needs an API key with
+   * the `public:delete` permission (and `public:write`).
+   */
+  untagContacts(
+    body: UntagContactsByNameRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<UntagContactsByNameResult>> {
+    return this.request('DELETE', '/tags/contacts', undefined, body, options);
+  }
+
+  /**
    * POST /tags/{id}/contacts. Manual tags only (400 `TAG_NOT_MANUAL`). A 409
    * `TAG_BUSY` means an import is writing the same contacts; retry in about a
-   * minute.
+   * minute. `identifiers` answer 200 with counts; a `contact_list_id` is
+   * tagged in the background (202, `{ queued: true, job_id }`, no counts),
+   * and the outcome shows as the tag's `member_count` on `listTags`.
+   *
+   * Tagging into a tag with `live_triggers` sends those triggered projects
+   * and campaigns to the newly tagged contacts unless `fire_triggers` is
+   * false (it defaults to true for `identifiers`, false for a list); the 200
+   * then carries `triggers.entered`.
    */
   addTagContacts(
     id: string,
-    body: TagContactsRequest,
+    body: AddTagContactsRequest,
     options?: RequestOptions,
   ): Promise<ApiResponse<AddTagContactsResult>> {
     return this.request('POST', `/tags/${encodeURIComponent(id)}/contacts`, undefined, body, options);
   }
 
   /**
-   * DELETE /tags/{id}/contacts, with the same body as `addTagContacts`.
-   * Needs an API key with the `public:delete` permission (and `public:write`).
+   * DELETE /tags/{id}/contacts, with the same body and the same queued
+   * answer for a `contact_list_id` as `addTagContacts`. Needs an API key with the `public:delete` permission (and `public:write`).
    */
   removeTagContacts(
     id: string,
@@ -681,10 +721,15 @@ export class PoliticalCommsClient {
   /**
    * POST /projects/{id}/start. Starts or resumes a triggered project (test it
    * first with `testProject`; stop it with `pauseProject`). Throws a 409
-   * `CONFLICT` for a project that is not triggered.
+   * `CONFLICT` for a project that is not triggered. A tag trigger's first
+   * start needs `audience`; any other project refuses it (400).
    */
-  startProject(id: string, options?: RequestOptions): Promise<ApiResponse<StartProjectResult>> {
-    return this.request('POST', `/projects/${encodeURIComponent(id)}/start`, undefined, undefined, options);
+  startProject(
+    id: string,
+    body?: StartProjectRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResponse<StartProjectResult>> {
+    return this.request('POST', `/projects/${encodeURIComponent(id)}/start`, undefined, body, options);
   }
 
   /**
@@ -1057,6 +1102,7 @@ export class PoliticalCommsClient {
   /**
    * POST /email/campaigns/{id}/schedule.
    * Omit `scheduled_at` to send now. If this refuses, read `blocked` on the campaign.
+   * A tag-triggered campaign's first start needs `audience`.
    * Once GA, also returns `403 ENTITLEMENT_REQUIRED` if the organization is
    * not entitled to email (`error.body.details.entitlement` is `'email'`), or
    * `409 SENDING_PAUSED` if sending is paused for the organization or

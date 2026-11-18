@@ -945,7 +945,7 @@ class TestTriggered:
 
     def test_create_project_sends_type_and_trigger(self):
         seen, handler = self._capture({"project_id": "proj_1", "type": "triggered"})
-        trigger = {"source": "api", "delay_minutes": 0, "reentry": {"mode": "once"}}
+        trigger = {"source": "api", "delay_minutes": 0}
         with make_client(handler) as client:
             client.create_project(
                 "org_1", "Thanks", "sms", "Hi {first_name}", ["pn_1"], type="triggered", trigger=trigger
@@ -955,6 +955,76 @@ class TestTriggered:
         assert body["type"] == "triggered"
         assert body["trigger"] == trigger
         assert "contact_list_ids" not in body
+
+    def test_create_project_sends_a_tag_trigger_with_follow_ups_and_send_time(self):
+        seen, handler = self._capture({"project_id": "proj_2"})
+        trigger = {"source": "tag", "tag": {"tag_ids": ["tag_1"]}, "start": "next_day"}
+        follow_ups = {
+            "steps": [{"message_text": "Still in?", "wait": {"unit": "days", "amount": 2}}],
+            "stop_on_reply": True,
+            "stop_on_click": False,
+        }
+        with make_client(handler) as client:
+            client.create_project(
+                "org_1", "Welcome", "sms", "Welcome!", ["pn_1"],
+                type="triggered", trigger=trigger, follow_ups=follow_ups,
+                scheduled_timezone="America/Chicago", sequence_send_time="09:00",
+            )
+        body = json.loads(seen["content"])
+        assert body["trigger"] == trigger
+        assert body["follow_ups"] == follow_ups
+        assert body["scheduled_timezone"] == "America/Chicago"
+        assert body["sequence_send_time"] == "09:00"
+
+    def test_update_project_clear_follow_ups_sends_null(self):
+        seen, handler = self._capture({"follow_ups": None})
+        with make_client(handler) as client:
+            client.update_project("proj_1", clear_follow_ups=True)
+        assert json.loads(seen["content"]) == {"follow_ups": None}
+
+    def test_update_project_refuses_follow_ups_and_clear_together(self):
+        with make_client(lambda request: ok_response()) as client:
+            with pytest.raises(ValueError, match="not both"):
+                client.update_project("proj_1", follow_ups={"steps": []}, clear_follow_ups=True)
+
+    def test_start_project_sends_the_audience(self):
+        seen, handler = self._capture({"project_id": "proj_1", "status": "active"})
+        with make_client(handler) as client:
+            client.start_project("proj_1", audience="new_only")
+        assert json.loads(seen["content"]) == {"audience": "new_only"}
+
+    def test_add_project_recipient_returns_already_entered(self):
+        seen, handler = self._capture({"status": "already_entered", "reason": "already_entered"})
+        with make_client(handler) as client:
+            result = client.add_project_recipient("proj_1", "+12025550141")
+        assert result["data"] == {"status": "already_entered", "reason": "already_entered"}
+
+    def test_create_email_campaign_sends_timezone_send_time_and_stop_on_click(self):
+        seen, handler = self._capture({"id": "camp_2", "type": "broadcast"})
+        trigger = {"source": "tag", "tag": {"tag_ids": ["tag_1"]}, "start": "next_day"}
+        with make_client(handler) as client:
+            client.create_email_campaign(
+                "Welcome", "sid_1", template_id="tpl_1", trigger=trigger,
+                timezone="America/Denver", sequence_send_time="08:00",
+            )
+            triggered = json.loads(seen["content"])
+            client.create_email_campaign(
+                "Drip", "sid_1", ["l_1"], template_id="tpl_1",
+                sequence={"stop_on_reply": False, "stop_on_click": True, "steps": [
+                    {"template_id": "tpl_2", "delay_days": 3, "send_time": "09:00"},
+                ]},
+            )
+            drip = json.loads(seen["content"])
+        assert triggered["timezone"] == "America/Denver"
+        assert triggered["sequence_send_time"] == "08:00"
+        assert drip["sequence"]["stop_on_click"] is True
+
+    def test_schedule_email_campaign_sends_the_audience(self):
+        seen, handler = self._capture({"id": "camp_2"})
+        with make_client(handler) as client:
+            client.schedule_email_campaign("camp_2", audience="current_and_new")
+        assert seen["path"] == "/v1/email/campaigns/camp_2/schedule"
+        assert json.loads(seen["content"]) == {"audience": "current_and_new"}
 
     def test_update_project_sends_trigger(self):
         seen, handler = self._capture()
@@ -1018,6 +1088,17 @@ class TestTriggered:
         assert seen["path"] == "/v1/email/campaigns"
         assert body["trigger"] == trigger
         assert "list_ids" not in body
+
+    def test_create_email_campaign_sends_a_sequence_beside_a_trigger(self):
+        seen, handler = self._capture({"id": "camp_1", "type": "triggered"})
+        sequence = {"steps": [{"template_id": "tpl_2", "delay_days": 1, "send_time": "09:00"}]}
+        with make_client(handler) as client:
+            client.create_email_campaign(
+                "Welcome", "sid_1", template_id="tpl_1", trigger={"source": "api"}, sequence=sequence
+            )
+        body = json.loads(seen["content"])
+        assert body["trigger"] == {"source": "api"}
+        assert body["sequence"] == sequence
 
     @pytest.mark.parametrize(
         ("method", "path"),
@@ -1220,15 +1301,56 @@ class TestTags:
         assert UUID_RE.match(seen["idem"])
         assert result["data"] == {"added": 2, "invalid": 1}
 
+    @staticmethod
+    def queued(data):
+        return lambda request: httpx.Response(202, json={"success": True, "data": data})
+
+    def test_add_tag_contacts_sends_fire_triggers_and_returns_entered(self):
+        seen = {}
+        with make_client(self.record(seen, {"added": 1, "invalid": 0, "triggers": {"entered": 1}})) as client:
+            result = client.add_tag_contacts("tag_1", ["+12025550101"], fire_triggers=False)
+        assert seen["body"] == {"identifiers": ["+12025550101"], "fire_triggers": False}
+        assert result["data"]["triggers"] == {"entered": 1}
+
+    def test_tag_contacts_by_name_sends_fire_triggers(self):
+        seen = {}
+        with make_client(self.record(seen, {"queued": True, "job_id": "job_1", "fire_triggers": True})) as client:
+            client.tag_contacts("Volunteers", contact_list_id="cl_1", fire_triggers=True)
+        assert seen["body"] == {"name": "Volunteers", "contact_list_id": "cl_1", "fire_triggers": True}
+
+    def test_add_tag_contacts_by_list_returns_the_queued_answer(self):
+        with make_client(self.queued({"queued": True, "job_id": "job_1"})) as client:
+            result = client.add_tag_contacts("tag_1", contact_list_id="cl_1")
+        assert result["data"] == {"queued": True, "job_id": "job_1"}
+
     def test_remove_tag_contacts_is_a_delete_with_a_body(self):
         seen = {}
         with make_client(self.record(seen, {"removed": 3, "not_tagged": 0, "invalid": 0})) as client:
-            result = client.remove_tag_contacts("tag_1", contact_list_id="cl_1", idempotency_key="untag-1")
+            result = client.remove_tag_contacts("tag_1", ["ada@example.org"], idempotency_key="untag-1")
         assert seen["method"] == "DELETE"
         assert seen["url"].path == "/v1/tags/tag_1/contacts"
-        assert seen["body"] == {"contact_list_id": "cl_1"}
+        assert seen["body"] == {"identifiers": ["ada@example.org"]}
         assert seen["idem"] == "untag-1"
         assert result["data"]["removed"] == 3
+
+    def test_remove_tag_contacts_by_list_returns_the_queued_answer(self):
+        with make_client(self.queued({"queued": True, "job_id": "job_2"})) as client:
+            result = client.remove_tag_contacts("tag_1", contact_list_id="cl_1")
+        assert result["data"] == {"queued": True, "job_id": "job_2"}
+
+    def test_tag_contacts_by_name_and_list_returns_the_tag_and_the_job(self):
+        reply = {"tag": {"id": "tag_9", "name": "Donor"}, "created": True, "queued": True, "job_id": "job_3"}
+        with make_client(self.queued(reply)) as client:
+            result = client.tag_contacts("Donor", contact_list_id="cl_1")
+        assert result["data"] == reply
+
+    def test_get_contact_list_passes_the_failure_reasons_through(self):
+        error = {"code": "TAG_COLUMN_TOO_MANY_TAGS", "message": "That column would create more than 100 tags."}
+        data = {"list_id": "cl_1", "import": {"status": "failed", "error": error}, "email": {"status": "ready", "error": None}}
+        with make_client(lambda request: ok_response(data)) as client:
+            result = client.get_contact_list("cl_1")
+        assert result["data"]["import"]["error"] == error
+        assert result["data"]["email"]["error"] is None
 
     @pytest.mark.parametrize("kwargs", [{}, {"identifiers": ["a@example.org"], "contact_list_id": "cl_1"}])
     def test_tag_contacts_need_exactly_one_source(self, kwargs):
@@ -1236,6 +1358,35 @@ class TestTags:
         with make_client(lambda request: calls.append(request) or ok_response({})) as client:
             with pytest.raises(ValueError):
                 client.add_tag_contacts("tag_1", **kwargs)
+        assert calls == []
+
+    def test_tag_contacts_by_name_posts_and_returns_created(self):
+        seen = {}
+        reply = {"tag": {"id": "tag_9", "name": "Donor"}, "created": True, "added": 1, "invalid": 0}
+        with make_client(self.record(seen, reply)) as client:
+            result = client.tag_contacts("Donor", ["ada@example.org"], organization_id="org_2")
+        assert seen["method"] == "POST"
+        assert seen["url"].path == "/v1/tags/contacts"
+        assert seen["body"] == {"name": "Donor", "organization_id": "org_2", "identifiers": ["ada@example.org"]}
+        assert UUID_RE.match(seen["idem"])
+        assert result["data"]["created"] is True
+
+    def test_untag_contacts_by_name_is_a_delete_with_a_body(self):
+        seen = {}
+        reply = {"tag": {"id": "tag_9"}, "queued": True, "job_id": "job_4"}
+        with make_client(self.record(seen, reply)) as client:
+            result = client.untag_contacts("donor", contact_list_id="cl_1", idempotency_key="untag-2")
+        assert seen["method"] == "DELETE"
+        assert seen["url"].path == "/v1/tags/contacts"
+        assert seen["body"] == {"name": "donor", "contact_list_id": "cl_1"}
+        assert seen["idem"] == "untag-2"
+        assert result["data"]["job_id"] == "job_4"
+
+    def test_tag_contacts_by_name_needs_exactly_one_source(self):
+        calls = []
+        with make_client(lambda request: calls.append(request) or ok_response({})) as client:
+            with pytest.raises(ValueError):
+                client.tag_contacts("Donor")
         assert calls == []
 
     def test_create_project_sends_tags_without_a_list(self):
@@ -1280,7 +1431,7 @@ class TestTags:
         with make_client(self.record(seen, {"purpose": "audience", "list_id": "cl_1"})) as client:
             client.import_contact_list(
                 "https://example.org/a.csv", "A", "Phone",
-                tag_ids=["t1"], tag_names=["Walk list"], tags_column="Tags",
+                tag_ids=["t1"], tag_names=["Walk list"], tags_column="Tags", fire_triggers=True,
             )
         assert seen["body"] == {
             "source_url": "https://example.org/a.csv",
@@ -1289,4 +1440,5 @@ class TestTags:
             "tag_ids": ["t1"],
             "tag_names": ["Walk list"],
             "tags_column": "Tags",
+            "fire_triggers": True,
         }

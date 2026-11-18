@@ -30,28 +30,42 @@ projects stats <id>              Show delivery and engagement stats
 projects survey-results <id>     Show survey results (survey projects only)
 projects create                  Create a project (--contact-list-id and/or
                                  --tag-id; --require-tag-id,
-                                 --suppression-tag-id)
+                                 --suppression-tag-id; follow-ups with
+                                 --follow-up, --stop-on-reply, --stop-on-click,
+                                 --send-time, --timezone)
 projects test <id>               Send a test message (--phone, repeatable)
 projects schedule <id>           Schedule a send (--send-at, --timezone)
 projects unschedule <id>         Remove a schedule
 projects pause <id>              Pause a running or scheduled send ([--reason])
 projects start <id>              Start or resume a triggered project
+                                 (--audience current_and_new|new_only, required
+                                 for a tag trigger's first start)
 projects end <id>                End a triggered project (final)
 projects copy <id>               Copy a project (drops lists, schedule, stats)
 contact-lists list               List contact lists (--channel text|email|all;
                                  default text)
-contact-lists get <id>           Show one contact list
+contact-lists get <id>           Show one contact list (and why its import
+                                 failed, when it did)
 contact-lists download <id>      Print a contact list CSV (--type original|analyzed)
 contact-lists delete <id>        Delete an unused contact list (phones and emails)
-tags list                        List tags ([--organization-id])
+tags list                        List tags and the live triggers listening
+                                 for each ([--organization-id])
 tags create                      Create a manual tag (--name) or an activity
                                  tag (--activity donated|clicked|responded|sent,
                                  [--within-days 1-365])
 tags rename <id>                 Rename a manual tag (--name)
 tags delete <id>                 Delete a tag (refused while a live send uses it)
-tags add <id>                    Tag contacts: --identifier <phone|email>,
-                                 repeatable, or one --contact-list-id
-tags remove <id>                 Untag contacts (same flags as tags add)
+tags add <id> | --name <name>    Tag contacts: --identifier <phone|email>,
+                                 repeatable, or one --contact-list-id (runs
+                                 in the background: prints the job id, and
+                                 the tag's member count updates when it
+                                 finishes). --name creates the tag when none
+                                 has that name (ignoring case) and says so;
+                                 with [--organization-id]. --fire-triggers or
+                                 --no-fire-triggers (default: on for
+                                 --identifier, off for --contact-list-id)
+tags remove <id> | --name <name> Untag contacts (same source flags as tags
+                                 add; --name never creates a tag)
 conversations list               List conversations with an inbound message
                                   (--project, --since, --include-test)
 conversations get <id>           Show one conversation
@@ -100,10 +114,14 @@ npx @political-comms/cli projects create \
   --contact-list-id cl_123 \
   --body "Polls are open until 8pm."
 
-# Tag volunteers, then text everyone on the list or carrying the tag, minus staff.
-# A tagged phone is only sent to when it is on a live list this sender can use.
-npx @political-comms/cli tags create --name Volunteers
-npx @political-comms/cli tags add tag_123 --identifier "(202) 555-0101" --identifier ada@example.org
+# Tag volunteers by name (the tag is created if it does not exist yet; the output
+# says "Created tag" or "Used existing tag" and prints its id), then text everyone
+# on the list or carrying the tag, minus staff. A tagged phone is only sent to
+# when it is on a live list this sender can use.
+npx @political-comms/cli tags add --name Volunteers --identifier "(202) 555-0101" --identifier ada@example.org
+# Tagging a whole list is queued: the output gives the job id, and the tag's member
+# count in `tags list` updates when it finishes.
+npx @political-comms/cli tags add --name Volunteers --contact-list-id cl_123
 npx @political-comms/cli projects create \
   --name "Volunteer call" \
   --organization-id org_123 \
@@ -115,6 +133,33 @@ npx @political-comms/cli projects create \
   --tag-id tag_123 \
   --suppression-tag-id tag_staff \
   --body "Shifts open Saturday."
+
+# Trigger on a tag: once a tag has a live trigger (`tags list` shows it under
+# LIVE TRIGGERS), tagging contacts into it MESSAGES them. Tag a list without
+# entering anyone into the trigger:
+npx @political-comms/cli tags add --name Volunteers --contact-list-id cl_123 --no-fire-triggers
+# Start a tag-triggered project for people tagged from now on only (create it
+# with the SDK or API: `trigger: { source: "tag", tag: { tag_ids: [...] } }`)
+npx @political-comms/cli projects start proj_123 --audience new_only
+
+# Follow-ups: up to 9 texts after the first message, each charged when it sends.
+# <N>d waits days and sends at --send-time in --timezone; <N>h waits hours.
+# A person stops getting them on a reply (--stop-on-reply), a tracked-link click
+# (--stop-on-click), or an opt-out; give at least one of the two flags. Locked once
+# the project starts. Text only: follow-up media goes through the SDK or API.
+npx @political-comms/cli projects create \
+  --name "Early vote" \
+  --organization-id org_123 \
+  --brand-id brand_123 \
+  --campaign-id camp_123 \
+  --protocol sms \
+  --phone-number-id pn_123 \
+  --contact-list-id cl_123 \
+  --body "Early voting starts Monday." \
+  --follow-up "2d=Find your polling place: https://example.org/vote" \
+  --follow-up "6h=Polls close at 7 tonight." \
+  --stop-on-reply --stop-on-click \
+  --send-time 09:00 --timezone America/Chicago
 
 # Send a test to yourself
 npx @political-comms/cli projects test proj_123 --phone +15555550100

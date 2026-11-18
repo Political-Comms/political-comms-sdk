@@ -79,16 +79,19 @@ await client.scheduleProject(projectId, {
 
 A test, or any send, can also target a test phone number such as `+12025550101` (any number ending 555-0100 through 555-0199) to get a fixed delivered or failed outcome without texting a real phone. See [Test phone numbers](https://docs.politicalcomms.com/api-reference/testing).
 
-One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `getCampaignThroughput`, `listTrackingDomains`, `listPhoneNumbers`, `listWebhookEndpoints`, `getWebhookEndpoint`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `downloadContactList`, `deleteContactList`, `listTags`, `createTag`, `renameTag`, `deleteTag`, `addTagContacts`, `removeTagContacts`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `getProjectSurveyResults`, `getProjectThroughput`, `testProject`, `scheduleProject`, `unscheduleProject`, `pauseProject`, `startProject`, `endProject`, `addProjectRecipient`, `createProjectHook`, `copyProject`, `listConversations`, `getConversation`, `listConversationMessages`, `replyToConversation`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
+One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `getCampaignThroughput`, `listTrackingDomains`, `listPhoneNumbers`, `listWebhookEndpoints`, `getWebhookEndpoint`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `downloadContactList`, `deleteContactList`, `listTags`, `createTag`, `renameTag`, `deleteTag`, `addTagContacts`, `removeTagContacts`, `tagContacts`, `untagContacts`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `getProjectSurveyResults`, `getProjectThroughput`, `testProject`, `scheduleProject`, `unscheduleProject`, `pauseProject`, `startProject`, `endProject`, `addProjectRecipient`, `createProjectHook`, `copyProject`, `listConversations`, `getConversation`, `listConversationMessages`, `replyToConversation`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
 
 ## Triggered projects and campaigns
 
 A triggered text project or email campaign has no contact list. Recipients arrive one at a
-time when its `trigger` fires, and each gets its one message, immediately or after
-`delay_minutes`. It stays active until paused or ended. A trigger `source` is `donation`
+time when its `trigger` fires. A phone number or email address is sent a triggered project
+or campaign at most once. The first message goes `start: 'immediate'` (the default, after
+`delay_minutes`) or `start: 'next_day'`: the day after the trigger fired at the project's
+`sequence_send_time` in its `scheduled_timezone` (a campaign's `timezone`), with
+`delay_minutes` 0. It stays active until paused or ended. A trigger `source` is `donation`
 (a connected WinRed or Anedot list), `event` (a text link click, text reply, email open,
-email click, or email reply in another project or campaign), or `api` (you add the
-recipient, or a tool POSTs to the inbound hook URL).
+email click, or email reply in another project or campaign), `tag` (a contact was tagged;
+see below), or `api` (you add the recipient, or a tool POSTs to the inbound hook URL).
 
 ```ts
 const { data: project } = await client.createProject({
@@ -102,7 +105,6 @@ const { data: project } = await client.createProject({
     source: 'donation',
     donation: { integrations: [{ provider: 'winred', id: 'int_1' }], gift: 'one_time' },
     delay_minutes: 10,
-    reentry: { mode: 'once' },
   },
 });
 
@@ -116,7 +118,7 @@ const { data } = await client.addProjectRecipient(id, {
   occurrence_id: 'evt_123',
 });
 if (data.status === 'queued') console.log('sends at', data.send_at);
-else console.log('skipped:', data.reason); // duplicate | already_entered | too_soon
+else console.log('skipped:', data.reason); // duplicate | already_entered
 
 const { data: hook } = await client.createProjectHook(id); // hook.hook_url (or hook.endpoint_url + hook.secret in X-Hook-Secret), shown only once
 await client.endProject(id); // final: recipients still waiting are not sent
@@ -128,6 +130,67 @@ Email campaigns work the same way: `createEmailCampaign({ ..., trigger })` with 
 with a 409, not queued. Opted-out phone numbers and suppressed addresses are never sent to
 (409 `CONTACT_OPTED_OUT` or a 422).
 
+### Trigger on a tag
+
+`source: 'tag'` fires when a contact is newly tagged with any of `tag.tag_ids` (1-20 manual
+tags): a tagged phone enters a triggered project, a tagged email address a triggered
+campaign. Re-tagging a contact that already carries the tag never fires. The first start
+asks who to send to: `current_and_new` (everyone carrying the tag now, entered in the
+background, plus everyone tagged later) or `new_only`.
+
+```ts
+const { data: welcome } = await client.createProject({
+  ...projectSetup,
+  type: 'triggered',
+  message_text: 'Welcome aboard, {first_name}!',
+  trigger: { source: 'tag', tag: { tag_ids: [volunteersTagId] }, start: 'next_day' },
+  scheduled_timezone: 'America/New_York',
+  sequence_send_time: '10:00',
+});
+await client.startProject(welcome!.project_id!, { audience: 'new_only' });
+// Email: scheduleEmailCampaign(id, { audience: 'new_only' }).
+```
+
+Once a tag has a live trigger, tagging contacts into it MESSAGES them. `listTags` shows each
+tag's `live_triggers`; `addTagContacts`, `tagContacts`, and `importContactList` take
+`fire_triggers` (default true for `identifiers`, false for a `contact_list_id` or an
+import), and a 200 reports `triggers.entered`.
+
+## Follow-ups
+
+Any broadcast or triggered text project can send up to 9 follow-up texts after its first
+message (surveys cannot). Each waits `{ unit: 'days', amount: 1-365 }`, sent at the
+project's `sequence_send_time` in its `scheduled_timezone` (required in the same write), or
+`{ unit: 'hours', amount: 1-72 }`. A person stops getting them when they reply
+(`stop_on_reply`), click a tracked link (`stop_on_click`), or opt out; at least one of the
+two flags must be true. Each follow-up is charged when it sends, and a person whose first
+message failed gets none. Follow-ups are locked once the project starts (409); send
+`follow_ups: null` before then to clear them.
+
+```ts
+await client.createProject({
+  ...projectSetup,
+  contact_list_ids: [listId],
+  message_text: 'Early voting starts Monday.',
+  follow_ups: {
+    steps: [
+      { message_text: 'Find your polling place: https://example.org/vote', wait: { unit: 'days', amount: 2 } },
+      { message_text: 'Polls close at 7 tonight.', wait: { unit: 'hours', amount: 6 } },
+    ],
+    stop_on_reply: true,
+    stop_on_click: true,
+  },
+  scheduled_timezone: 'America/Chicago',
+  sequence_send_time: '09:00',
+});
+```
+
+Email campaigns take follow-ups as `sequence` (`steps` of `template_id`, `delay_days`,
+`send_time`, with `stop_on_reply` and `stop_on_click`); such a campaign reads
+`type: 'broadcast'`. A triggered email campaign can have follow-ups too: beside a `trigger`,
+each person's follow-up goes `delay_days` (1 to 365) after the calendar day their own previous
+email was sent, in the campaign's `timezone`; email follow-ups wait whole days.
+
 ## Tags
 
 A tag labels a contact (a phone number or an email address) inside one organization.
@@ -135,10 +198,22 @@ Manual tags have members you add and remove; activity tags (`donated`, `clicked`
 `responded`, `sent`, optionally within the last `within_days` days) apply by themselves
 and are evaluated when a send compiles.
 
+The simplest way to tag is by name: `tagContacts` finds the manual tag with that name
+(ignoring case) or creates it, and `created` says which happened, so a misspelled name
+that made a new tag is easy to catch. `untagContacts` takes the same body and never
+creates a tag. Sends refer to tags by id, so keep the returned `tag.id`.
+
+Tagging by `identifiers` answers with counts (`added` or `removed`, `invalid`). Tagging a
+whole list by `contact_list_id` runs in the background: the call answers 202 with
+`{ queued: true, job_id }` and no counts (by name, the `tag` and `created` too, since the
+tag is created immediately). There is no job status endpoint; the outcome shows as the
+tag's `member_count` on `listTags` once the job finishes. Narrow the result on `queued`.
+
 ```ts
-const { data: tag } = await client.createTag({ name: 'Volunteers' });
-await client.addTagContacts(tag.id, { identifiers: ['(202) 555-0101', 'ada@example.org'] });
-await client.addTagContacts(tag.id, { contact_list_id: listId }); // every active phone and subscribed address
+const { data: tagged } = await client.tagContacts({ name: 'Volunteers', identifiers: ['(202) 555-0101', 'ada@example.org'] });
+const tag = tagged.tag; // tagged.created is true when this call created it
+const { data: job } = await client.addTagContacts(tag.id, { contact_list_id: listId }); // every active phone and subscribed address
+if (job.queued) console.log(job.job_id); // a list is tagged in the background: no counts
 const { data: donors } = await client.createTag({ activity_event: 'donated', within_days: 90 });
 
 await client.createProject({
@@ -150,13 +225,13 @@ await client.createProject({
 });
 ```
 
-`createProject`, `updateProject`, and `createEmailCampaign` take the three tag fields; a
-campaign needs `list_ids` or `tag_ids`. A tagged contact is only sent to through a list
+`createProject` and `updateProject` (broadcast and survey projects alike) and
+`createEmailCampaign` take the three tag fields; a campaign needs `list_ids` or `tag_ids`. A tagged contact is only sent to through a list
 row the sender can use: a tagged phone must be on a live list the project's sender can use
 (unscoped, or scoped to the project's own brand, toll-free number, or short code), and a
 tagged address must be subscribed on a list the sending domain can use. Opt-outs and
 unsubscribes always apply. `importContactList` can tag an `audience` import with
-`tag_ids`, `tag_names`, or `tags_column`. `deleteTag` and `removeTagContacts` need the
+`tag_ids`, `tag_names`, or `tags_column`. `deleteTag`, `removeTagContacts`, and `untagContacts` need the
 `public:delete` permission; a 409 `TAG_IN_USE` from `deleteTag` lists the live sends using
 the tag in `error.body.details` (`TagInUseDetails`).
 
@@ -285,7 +360,9 @@ if (started.purpose === 'audience') console.log(started.list_id, started.channel
 
 `listContactLists` returns the lists that hold phone numbers by default; pass
 `channel: 'email'` or `channel: 'all'` for the others. Each list reports its
-`channels` and its `email` side (null when it has none). `deleteContactList` removes a list's phone numbers and its emails. The delete methods (`deleteContactList`, `deleteMedia`, `deleteTag`, `removeTagContacts`, `removeEmailSuppressions`) need an API key with the `public:delete` permission, which is opt-in when the key is created and requires `public:write`; other keys get a 403.
+`channels` and its `email` side (null when it has none). When `getContactList` reports `import.status` or `email.status` `failed`, that side's `error` (`{ code, message }`, null otherwise) says why; the message is safe to show an end user. `deleteContactList` removes a list's phone numbers and its emails.
+
+API key permissions follow the HTTP method: GET needs `public:read`; POST, PATCH, and PUT need `public:write`; DELETE needs `public:write` and `public:delete`. A write-only key can create and change things but cannot read. The delete methods (`deleteContactList`, `deleteMedia`, `deleteTag`, `removeTagContacts`, `untagContacts`, `removeEmailSuppressions`) therefore need `public:delete`, which is opt-in when the key is created; other keys get a 403.
 
 Email addresses reach a list only through `importContactList` with `email_column`
 (a CSV import creates the list, with the email side). Poll `getContactList` and

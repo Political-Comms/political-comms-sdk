@@ -75,18 +75,21 @@ client.schedule_project(project_id, "2026-11-03T09:00:00", "America/New_York")
 
 A test, or any send, can also target a test phone number such as `+12025550101` (any number ending 555-0100 through 555-0199) to get a fixed delivered or failed outcome without texting a real phone. See [Test phone numbers](https://docs.politicalcomms.com/api-reference/testing).
 
-One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `get_campaign_throughput`, `list_tracking_domains`, `list_phone_numbers`, `list_webhook_endpoints`, `get_webhook_endpoint`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `download_contact_list`, `delete_contact_list`, `list_tags`, `create_tag`, `rename_tag`, `delete_tag`, `add_tag_contacts`, `remove_tag_contacts`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `get_project_survey_results`, `get_project_throughput`, `test_project`, `schedule_project`, `unschedule_project`, `pause_project`, `start_project`, `end_project`, `add_project_recipient`, `create_project_hook`, `copy_project`, `list_conversations`, `get_conversation`, `list_conversation_messages`, `reply_to_conversation`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
+One method exists per API operation, in snake_case: `list_organizations`, `get_hierarchy`, `list_brands`, `list_campaigns`, `get_campaign_throughput`, `list_tracking_domains`, `list_phone_numbers`, `list_webhook_endpoints`, `get_webhook_endpoint`, `list_toll_free_verifications`, `get_toll_free_verification`, `list_contact_lists`, `get_contact_list`, `import_contact_list`, `analyze_contact_list`, `download_contact_list`, `delete_contact_list`, `list_tags`, `create_tag`, `rename_tag`, `delete_tag`, `add_tag_contacts`, `remove_tag_contacts`, `tag_contacts`, `untag_contacts`, `list_media`, `import_media`, `get_media`, `delete_media`, `list_projects`, `create_project`, `get_all_project_stats`, `get_project`, `update_project`, `get_project_stats`, `get_project_survey_results`, `get_project_throughput`, `test_project`, `schedule_project`, `unschedule_project`, `pause_project`, `start_project`, `end_project`, `add_project_recipient`, `create_project_hook`, `copy_project`, `list_conversations`, `get_conversation`, `list_conversation_messages`, `reply_to_conversation`, `get_message_stats`, `get_ledger_usage`, `get_ledger_usage_by_initiator`.
 
 Every method returns the parsed JSON response, a dict of the form `{"success": True, "data": ...}`.
 
 ## Triggered projects and campaigns
 
 A triggered text project or email campaign has no contact list. Recipients arrive one at a
-time when its `trigger` fires, and each gets its one message, immediately or after
-`delay_minutes`. It stays active until paused or ended. A trigger `source` is `donation`
+time when its `trigger` fires. A phone number or email address is sent a triggered project
+or campaign at most once. The first message goes `"start": "immediate"` (the default, after
+`delay_minutes`) or `"start": "next_day"`: the day after the trigger fired at the project's
+`sequence_send_time` in its `scheduled_timezone` (a campaign's `timezone`), with
+`delay_minutes` 0. It stays active until paused or ended. A trigger `source` is `donation`
 (a connected WinRed or Anedot list), `event` (a text link click, text reply, email open,
-email click, or email reply in another project or campaign), or `api` (you add the
-recipient, or a tool POSTs to the inbound hook URL).
+email click, or email reply in another project or campaign), `tag` (a contact was tagged;
+see below), or `api` (you add the recipient, or a tool POSTs to the inbound hook URL).
 
 ```python
 project = client.create_project(
@@ -96,7 +99,6 @@ project = client.create_project(
         "source": "donation",
         "donation": {"integrations": [{"provider": "winred", "id": "int_1"}]},
         "delay_minutes": 10,
-        "reentry": {"mode": "once"},
     },
 )["data"]
 client.test_project(project["project_id"], [{"phone": "+12025550141"}])
@@ -116,6 +118,66 @@ Email campaigns work the same way: `create_email_campaign(name, sender_identity_
 with no `list_ids`, `schedule_email_campaign(id)` with no `scheduled_at` to start, then
 `add_email_campaign_recipient`, `create_email_campaign_hook`, and `end_email_campaign`. While
 paused, new recipients are refused with a 409, not queued.
+
+### Trigger on a tag
+
+`"source": "tag"` fires when a contact is newly tagged with any of `tag.tag_ids` (1-20
+manual tags): a tagged phone enters a triggered project, a tagged email address a
+triggered campaign. Re-tagging a contact that already carries the tag never fires. The
+first start asks who to send to: `current_and_new` (everyone carrying the tag now, entered
+in the background, plus everyone tagged later) or `new_only`.
+
+```python
+welcome = client.create_project(
+    "org_1", "Welcome volunteers", "sms", "Welcome aboard, {first_name}!", ["pn_1"],
+    type="triggered",
+    trigger={"source": "tag", "tag": {"tag_ids": [volunteers_tag_id]}, "start": "next_day"},
+    scheduled_timezone="America/New_York",
+    sequence_send_time="10:00",
+)["data"]
+client.start_project(welcome["project_id"], audience="new_only")
+# Email: client.schedule_email_campaign(campaign_id, audience="new_only")
+```
+
+Once a tag has a live trigger, tagging contacts into it MESSAGES them. `list_tags` shows
+each tag's `live_triggers`; `add_tag_contacts`, `tag_contacts`, and `import_contact_list`
+take `fire_triggers` (default true for `identifiers`, false for a `contact_list_id` or an
+import), and a 200 reports `triggers["entered"]`.
+
+## Follow-ups
+
+Any broadcast or triggered text project can send up to 9 follow-up texts after its first
+message (surveys cannot). Each waits `{"unit": "days", "amount": 1-365}`, sent at the
+project's `sequence_send_time` in its `scheduled_timezone` (required in the same call), or
+`{"unit": "hours", "amount": 1-72}`. A person stops getting them when they reply
+(`stop_on_reply`), click a tracked link (`stop_on_click`), or opt out; at least one of the
+two flags must be true. Each follow-up is charged when it sends, and a person whose first
+message failed gets none. Follow-ups are locked once the project starts (409);
+`update_project(id, clear_follow_ups=True)` removes them before then.
+
+```python
+client.create_project(
+    org_id, "Early vote", "sms", "Early voting starts Monday.", [phone_number_id], [list_id],
+    brand_id=brand_id,
+    campaign_id=campaign_id,
+    follow_ups={
+        "steps": [
+            {"message_text": "Find your polling place: https://example.org/vote", "wait": {"unit": "days", "amount": 2}},
+            {"message_text": "Polls close at 7 tonight.", "wait": {"unit": "hours", "amount": 6}},
+        ],
+        "stop_on_reply": True,
+        "stop_on_click": True,
+    },
+    scheduled_timezone="America/Chicago",
+    sequence_send_time="09:00",
+)
+```
+
+Email campaigns take follow-ups as `sequence` (`steps` of `template_id`, `delay_days`,
+`send_time`, with `stop_on_reply` and `stop_on_click`); such a campaign reads
+`type` `"broadcast"`. A triggered email campaign can have follow-ups too: beside a `trigger`,
+each person's follow-up goes `delay_days` (1 to 365) after the calendar day their own previous
+email was sent, in the campaign's `timezone`; email follow-ups wait whole days.
 
 ## Conversations
 
@@ -147,10 +209,22 @@ Manual tags have members you add and remove; activity tags (`donated`, `clicked`
 `responded`, `sent`, optionally within the last `within_days` days) apply by themselves
 and are evaluated when a send compiles.
 
+The simplest way to tag is by name: `tag_contacts` finds the manual tag with that name
+(ignoring case) or creates it, and `created` says which happened, so a misspelled name
+that made a new tag is easy to catch. `untag_contacts` takes the same arguments and never
+creates a tag. Sends refer to tags by id, so keep the returned `tag["id"]`.
+
+Tagging by `identifiers` answers with counts (`added` or `removed`, `invalid`). Tagging a
+whole list by `contact_list_id` runs in the background: the call answers 202 with
+`{"queued": True, "job_id": ...}` and no counts (by name, the `tag` and `created` too,
+since the tag is created immediately). There is no job status endpoint; the outcome
+shows as the tag's `member_count` on `list_tags` once the job finishes.
+
 ```python
-tag = client.create_tag("Volunteers")["data"]
-client.add_tag_contacts(tag["id"], ["(202) 555-0101", "ada@example.org"])
-client.add_tag_contacts(tag["id"], contact_list_id=list_id)  # every active phone and subscribed address
+tagged = client.tag_contacts("Volunteers", ["(202) 555-0101", "ada@example.org"])["data"]
+tag = tagged["tag"]  # tagged["created"] is True when this call created it
+job = client.add_tag_contacts(tag["id"], contact_list_id=list_id)["data"]  # every active phone and subscribed address
+# a list is tagged in the background: job is {"queued": True, "job_id": ...}, no counts
 donors = client.create_tag(activity_event="donated", within_days=90)["data"]
 
 client.create_project(
@@ -164,8 +238,8 @@ client.create_project(
 )
 ```
 
-`create_project`, `update_project`, and `create_email_campaign` take the three tag
-fields; a campaign needs `list_ids` or `tag_ids`. A tagged contact is only sent to
+`create_project` and `update_project` (broadcast and survey projects alike) and
+`create_email_campaign` take the three tag fields; a campaign needs `list_ids` or `tag_ids`. A tagged contact is only sent to
 through a list row the sender can use: a tagged phone must be on a live list the
 project's sender can use (unscoped, or scoped to the project's own brand, toll-free
 number, or short code), and a tagged address must be subscribed on a list the sending
@@ -278,8 +352,12 @@ if started["purpose"] == "audience":
 
 `list_contact_lists` returns the lists that hold phone numbers by default; pass
 `channel="email"` or `channel="all"` for the others. Each list reports its
-`channels` and its `email` side (null when it has none).
-`delete_contact_list` removes a list's phone numbers and its emails. The delete methods (`delete_contact_list`, `delete_media`, `delete_tag`, `remove_tag_contacts`, `remove_email_suppressions`) need an API key with the `public:delete` permission, which is opt-in when the key is created and requires `public:write`; other keys get a 403.
+`channels` and its `email` side (null when it has none). When `get_contact_list`
+reports `import.status` or `email.status` `failed`, that side's `error`
+(`{"code", "message"}`, `None` otherwise) says why; the message is safe to show an end user.
+`delete_contact_list` removes a list's phone numbers and its emails.
+
+API key permissions follow the HTTP method: GET needs `public:read`; POST, PATCH, and PUT need `public:write`; DELETE needs `public:write` and `public:delete`. A write-only key can create and change things but cannot read. The delete methods (`delete_contact_list`, `delete_media`, `delete_tag`, `remove_tag_contacts`, `untag_contacts`, `remove_email_suppressions`) therefore need `public:delete`, which is opt-in when the key is created; other keys get a 403.
 
 Email addresses reach a list only through `import_contact_list` with `email_column`
 (a CSV import creates the list, with the email side). Poll `get_contact_list` and

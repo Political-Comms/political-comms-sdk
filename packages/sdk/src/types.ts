@@ -315,6 +315,13 @@ export interface ContactListEmailCounts {
   [key: string]: unknown;
 }
 
+/** Why an import side failed, safe to show an end user. */
+export interface ContactListImportError {
+  /** Stable: a fixable reason such as `TAG_COLUMN_TOO_MANY_TAGS`, or `IMPORT_FAILED` for an internal failure. */
+  code: string;
+  message: string;
+}
+
 /** The email side of a list. `status` is the email import status: poll GET /contact-lists/{id} until it is `ready`. */
 export interface ContactListEmail {
   description?: string | null;
@@ -326,6 +333,8 @@ export interface ContactListEmail {
   acquired?: boolean | null;
   sunset_enabled?: boolean | null;
   quality_grade?: "green" | "yellow" | "red" | null;
+  /** Null unless `status` is `failed`; never null when it is. */
+  error?: ContactListImportError | null;
   counts?: ContactListEmailCounts;
   /** Addresses removed before joining, by reason. */
   removed_at_upload?: Record<string, number>;
@@ -366,6 +375,8 @@ export interface ContactListImportSection {
   opted_out_count?: number | null;
   processing_started_at?: string | null;
   processing_completed_at?: string | null;
+  /** Null unless `status` is `failed`; never null when it is. */
+  error?: ContactListImportError | null;
   [key: string]: unknown;
 }
 
@@ -506,9 +517,15 @@ export interface ImportContactListRequest {
    * `audience` imports only. A header of the file whose cells hold tag names
    * separated by commas, semicolons, or pipes; new tags are created. A column
    * that would create more than 100 new tags fails the import
-   * (`import.status` `failed` on `getContactList`).
+   * (`import.status` `failed` and `import.error.code`
+   * `TAG_COLUMN_TOO_MANY_TAGS` on `getContactList`).
    */
   tags_column?: string;
+  /**
+   * Default false. True enters the contacts the import newly tags into the
+   * live triggers of those tags (`Tag.live_triggers`), which MESSAGES them.
+   */
+  fire_triggers?: boolean;
 }
 
 /** An email side queued with the list. Poll GET /contact-lists/{list_id} and read `email.status`. */
@@ -537,6 +554,8 @@ export interface AudienceContactListImportResult extends ContactListImportResult
   purpose: "audience";
   list_id: string;
   imported_via_api?: boolean;
+  /** Echoes the request's `fire_triggers` (false when omitted). */
+  fire_triggers?: boolean;
   /** Present when the file had an email column. */
   email_import?: ContactListEmailImport;
 }
@@ -609,9 +628,22 @@ export interface Tag {
   member_count: number | null;
   /** True when the tag has more than 10000 members and `member_count` shows the cap. */
   member_count_capped: boolean;
+  /**
+   * The started triggered projects (`text`) and email campaigns (`email`)
+   * listening for this tag; empty when none. Tagging contacts into a tag with
+   * live triggers enters them into those sends unless `fire_triggers` is false.
+   */
+  live_triggers: TagLiveTrigger[];
   organization_id: string;
   created_at: string;
   [key: string]: unknown;
+}
+
+export interface TagLiveTrigger {
+  /** A project id (`text`) or an email campaign id (`email`). */
+  id: string;
+  name: string;
+  channel: "text" | "email";
 }
 
 export interface ListTagsQuery {
@@ -647,20 +679,79 @@ export interface RenameTagRequest {
  */
 export type TagContactsRequest = { identifiers: string[] } | { contact_list_id: string };
 
-export interface AddTagContactsResult {
-  added: number;
-  /** Identifiers that are neither a valid US phone number nor an email address. */
-  invalid: number;
+/**
+ * Adding also says whether newly tagged contacts enter the tag's live
+ * triggers (`Tag.live_triggers`), which MESSAGES them. Defaults: true for
+ * `identifiers`, false for `contact_list_id`. Contacts that already carried
+ * the tag never fire. Removing refuses the field (400).
+ */
+export type AddTagContactsRequest = TagContactsRequest & { fire_triggers?: boolean };
+
+/**
+ * 202 Accepted for a `contact_list_id` source: the list is tagged in the
+ * background and no counts exist yet. There is no job status endpoint;
+ * `job_id` is for correlation, and the outcome shows as the tag's
+ * `member_count` on `listTags` once the job finishes.
+ */
+export interface TagContactsQueuedResult {
+  queued: true;
+  job_id: string;
+  /** Adding only: the `fire_triggers` the job runs with. */
+  fire_triggers?: boolean;
   [key: string]: unknown;
 }
 
-export interface RemoveTagContactsResult {
+/** 200 for an `identifiers` source. */
+export interface AddTagContactsCounts {
+  queued?: undefined;
+  added: number;
+  /** Identifiers that are neither a valid US phone number nor an email address. */
+  invalid: number;
+  /** Present only when the tag has live triggers: how many contacts this call entered into them. */
+  triggers?: { entered: number };
+  [key: string]: unknown;
+}
+
+/** Counts for `identifiers`, `TagContactsQueuedResult` for `contact_list_id`; narrow on `queued`. */
+export type AddTagContactsResult = AddTagContactsCounts | TagContactsQueuedResult;
+
+/**
+ * A tag named instead of addressed by id. The name is matched ignoring case;
+ * `organization_id` defaults to the key's own organization.
+ */
+export type UntagContactsByNameRequest = TagContactsRequest & {
+  /** 1-64 characters, trimmed. */
+  name: string;
+  organization_id?: string;
+};
+
+/** `fire_triggers` as on `AddTagContactsRequest`. */
+export type TagContactsByNameRequest = UntagContactsByNameRequest & { fire_triggers?: boolean };
+
+/**
+ * The tag is created immediately even when the tagging is queued; on a queued
+ * result `tag.member_count` is the count before the job runs.
+ */
+export type TagContactsByNameResult = AddTagContactsResult & {
+  tag: Tag;
+  /** True only when this call created the tag: a misspelled name makes a new one. */
+  created: boolean;
+};
+
+export type UntagContactsByNameResult = RemoveTagContactsResult & { tag: Tag };
+
+/** 200 for an `identifiers` source. */
+export interface RemoveTagContactsCounts {
+  queued?: undefined;
   removed: number;
   /** Valid identifiers that did not carry the tag. */
   not_tagged: number;
   invalid: number;
   [key: string]: unknown;
 }
+
+/** Counts for `identifiers`, `TagContactsQueuedResult` for `contact_list_id`; narrow on `queued`. */
+export type RemoveTagContactsResult = RemoveTagContactsCounts | TagContactsQueuedResult;
 
 export interface DeleteTagResult {
   id: string;
@@ -696,7 +787,7 @@ export interface ProjectTagRef {
  * Tag fields shared by project and email campaign writes. Each is up to 50
  * tag ids of the send's organization. A tag cannot be in both `tag_ids` and
  * `suppression_tag_ids`, nor in both `require_tag_ids` and
- * `suppression_tag_ids` (400). Triggered and survey sends refuse all three.
+ * `suppression_tag_ids` (400). Triggered projects refuse all three.
  */
 export interface SendTagFields {
   /**
@@ -831,11 +922,6 @@ export type ProjectType = "broadcast" | "survey" | "triggered";
 export type ProjectStatsStatusFilter =
   "draft" | "active" | "completed" | "paused" | "all";
 
-/** How often one person can enter a triggered project or campaign. */
-export type TriggerReentry =
-  | { mode: "once" }
-  | { mode: "repeat"; /** 1-8760. */ min_gap_hours: number };
-
 export type TriggerDonationProvider = "winred" | "anedot";
 
 export interface TriggerDonation {
@@ -871,21 +957,50 @@ export interface TriggerEvent {
   link_url?: string;
 }
 
+export interface TriggerTag {
+  /**
+   * 1-20 distinct manual tag ids of the organization. A tagged phone number
+   * enters a triggered project, a tagged email address a triggered campaign.
+   * Re-tagging a contact that already carries the tag never fires. Cannot be
+   * changed once the project or campaign has started.
+   */
+  tag_ids: string[];
+}
+
+/**
+ * `immediate` (the default): `delay_minutes` after the trigger fires.
+ * `next_day`: the calendar day after it fired, at the project's
+ * `sequence_send_time` in its `scheduled_timezone` (a campaign's `timezone`);
+ * `delay_minutes` must be 0.
+ */
+export type TriggerStart = "immediate" | "next_day";
+
 interface TriggerBase {
-  /** 0-43200. Default 0 (immediately). */
+  /** Default `immediate`. */
+  start?: TriggerStart;
+  /** 0-43200. Default 0. Must be 0 when `start` is `next_day`. */
   delay_minutes?: number;
-  reentry?: TriggerReentry;
 }
 
 /**
  * When a triggered project or email campaign adds a recipient. Same shape for
  * text and email. `api` recipients arrive through `addProjectRecipient` /
- * `addEmailCampaignRecipient` or the inbound hook URL.
+ * `addEmailCampaignRecipient` or the inbound hook URL. A phone number or an
+ * email address is sent a triggered project or campaign at most once.
  */
 export type Trigger =
   | (TriggerBase & { source: "api" })
   | (TriggerBase & { source: "donation"; donation: TriggerDonation })
-  | (TriggerBase & { source: "event"; event: TriggerEvent });
+  | (TriggerBase & { source: "event"; event: TriggerEvent })
+  | (TriggerBase & { source: "tag"; tag: TriggerTag });
+
+/**
+ * Who a tag trigger's first start sends to. `current_and_new`: everyone
+ * carrying the tag now (entered in the background) plus everyone tagged from
+ * now on. `new_only`: only contacts tagged from now on. Required for a tag
+ * trigger's first start; refused (400) for anything else.
+ */
+export type TriggerAudience = "current_and_new" | "new_only";
 
 /** Body for POST /projects/{id}/recipients. */
 export interface AddProjectRecipientRequest {
@@ -905,16 +1020,15 @@ export interface AddEmailCampaignRecipientRequest {
 }
 
 /**
- * 202 `queued` (`send_at` is when it will send) or 200 `already_entered`
- * (`reason`: `duplicate`, `already_entered`, or `too_soon`). A paused item
- * answers 409 `CONFLICT`, an opted-out number 409 `CONTACT_OPTED_OUT`.
+ * 202 `queued` (`send_at` is when it will send) or 200 `already_entered`:
+ * `reason` `duplicate` for a repeated `occurrence_id`, `already_entered` for
+ * a person this item has already been sent (each person gets it at most
+ * once). A paused item answers 409 `CONFLICT`, an opted-out number 409
+ * `CONTACT_OPTED_OUT`.
  */
 export type AddRecipientResponse =
   | { status: "queued"; send_at: string }
-  | {
-      status: "already_entered";
-      reason: "duplicate" | "already_entered" | "too_soon";
-    };
+  | { status: "already_entered"; reason: "duplicate" | "already_entered" };
 
 /** 201 Created. The URL is shown only in this response; a new one replaces the old. */
 export interface TriggerHookResponse {
@@ -924,6 +1038,12 @@ export interface TriggerHookResponse {
   endpoint_url: string;
   /** The hook secret. Shown only in this response. */
   secret: string;
+}
+
+/** Body for POST /projects/{id}/start. */
+export interface StartProjectRequest {
+  /** Required for a tag trigger's first start; refused (400) for any other project. */
+  audience?: TriggerAudience;
 }
 
 /** Result of POST /projects/{id}/start. */
@@ -1068,8 +1188,12 @@ export interface ProjectDetail {
   updated_at?: string;
   /** Survey projects only; absent on broadcast projects. */
   questions?: SurveyQuestion[];
-  /** The trigger of a triggered project; null otherwise. */
+  /** The trigger of a triggered project, with `start` filled in; null otherwise. */
   trigger?: Trigger | null;
+  /** Local time of day, "HH:MM": a next-day trigger start and follow-ups that wait days send at it in `scheduled_timezone`. */
+  sequence_send_time?: string | null;
+  /** The project's follow-ups, each step naming its media by URL; null when it has none. */
+  follow_ups?: ProjectFollowUpsDetail | null;
   [key: string]: unknown;
 }
 
@@ -1078,6 +1202,51 @@ export interface ListProjectsQuery {
   brand_id?: string;
   campaign_id?: string;
   type?: ProjectType;
+}
+
+/**
+ * How long a follow-up waits after the previous message. Days: 1-365, sent
+ * that many days later at the project's `sequence_send_time` in its
+ * `scheduled_timezone`. Hours: 1-72, sent that many hours later. The
+ * recipient's quiet hours (08:00 to 22:00 local) can only move a step later.
+ */
+export type ProjectFollowUpWait =
+  | { unit: "days"; amount: number }
+  | { unit: "hours"; amount: number };
+
+export interface ProjectFollowUpStep {
+  message_text: string;
+  /** Up to 10 uploaded media ids; MMS projects only (400 otherwise). */
+  media_ids?: string[];
+  wait: ProjectFollowUpWait;
+}
+
+/**
+ * Texts sent after the first message, each charged when it sends. A person
+ * stops getting them when they reply (`stop_on_reply`), click a tracked link
+ * (`stop_on_click`), or opt out (always); at least one of the two flags must
+ * be true. A person whose first message failed to deliver gets none. Locked
+ * once the project has started (409 `CONFLICT`); the time of day and time
+ * zone can still change.
+ */
+export interface ProjectFollowUps {
+  /** 1-9 steps, in order. */
+  steps: ProjectFollowUpStep[];
+  stop_on_reply: boolean;
+  stop_on_click: boolean;
+}
+
+/** A follow-up step as GET /projects/{id} returns it: media by URL. */
+export interface ProjectFollowUpStepDetail {
+  message_text: string;
+  media_urls: string[];
+  wait: ProjectFollowUpWait;
+}
+
+export interface ProjectFollowUpsDetail {
+  steps: ProjectFollowUpStepDetail[];
+  stop_on_reply: boolean;
+  stop_on_click: boolean;
 }
 
 interface CreateProjectBase {
@@ -1146,11 +1315,22 @@ interface CreateProjectBase {
    * message. Defaults to true.
    */
   opt_out_footer_enabled?: boolean;
+  /** Broadcast and triggered projects only; a survey refuses them (400). */
+  follow_ups?: ProjectFollowUps;
+  /**
+   * The project's time zone. Required when a follow-up waits days or a
+   * triggered project's trigger starts `next_day` (400 naming it). A
+   * broadcast takes it at create only for follow-ups that wait days (its own
+   * send time is chosen by `scheduleProject`).
+   */
+  scheduled_timezone?: ScheduleTimezone;
+  /** Local time of day, "HH:MM". Required beside `scheduled_timezone` in the same cases. */
+  sequence_send_time?: string;
 }
 
 /**
- * A project that sends to contact lists, tags, or both (the default type).
- * Survey projects refuse the tag fields.
+ * A broadcast (the default type) or survey project that sends to contact
+ * lists, tags, or both. Both types take the same tag fields.
  */
 export interface CreateListProjectRequest extends CreateProjectBase, SendTagFields {
   type?: "broadcast" | "survey";
@@ -1167,7 +1347,8 @@ export interface CreateListProjectRequest extends CreateProjectBase, SendTagFiel
 /**
  * A triggered project has no contact list: recipients arrive when `trigger`
  * fires. `contact_list_ids` and `suppression_list_ids` are not accepted.
- * Test with `testProject`, then start with `startProject`.
+ * Test with `testProject`, then start with `startProject`. Each phone number
+ * is sent it at most once.
  */
 export interface CreateTriggeredProjectRequest extends CreateProjectBase {
   type: "triggered";
@@ -1251,8 +1432,24 @@ export interface UpdateProjectRequest extends SendTagFields {
   link_tracking_fallback_url?: string | null;
   /** Whether the "STOP=END" opt-out footer is appended to outbound messages. */
   opt_out_footer_enabled?: boolean;
-  /** Triggered projects only. */
+  /**
+   * Triggered projects only. A tag trigger cannot be pointed at other tags
+   * once the project has started (400).
+   */
   trigger?: Trigger;
+  /**
+   * `null` clears them. Refused with a 409 `CONFLICT` when the value changes
+   * after the project has started; sending the stored value back is a no-op.
+   */
+  follow_ups?: ProjectFollowUps | null;
+  /**
+   * Required in the same write as follow-ups that wait days or a `next_day`
+   * trigger start. Changing it after start moves the next message of people
+   * already waiting; nothing already sent is re-sent.
+   */
+  scheduled_timezone?: ScheduleTimezone;
+  /** "HH:MM"; the same rules as `scheduled_timezone`. */
+  sequence_send_time?: string;
 }
 
 /** PATCH returns the full project object, same shape as GET /projects/{id}. */
@@ -1544,8 +1741,10 @@ export interface ScheduleProjectResult {
   daily_cap_bypass?: boolean;
   /** Triggered projects only: enrolled, not yet sent. */
   waiting_recipients?: number;
-  /** Triggered projects only: reason to count, e.g. `{ "opted_out": 2 }`. */
+  /** Triggered projects only: reason to count, e.g. `{ "opted_out": 2, "not_delivered": 1 }`. */
   skipped_recipients?: Record<string, number>;
+  /** Projects with follow-ups only: people who left them, by reason. */
+  exited_recipients?: { replied?: number; clicked?: number; opted_out?: number; [key: string]: number | undefined };
   [key: string]: unknown;
 }
 
@@ -2063,7 +2262,8 @@ export interface EmailCampaignCounts {
 export type EmailCampaignApprovalStatus =
   "not_required" | "pending" | "approved" | "rejected";
 
-export type EmailCampaignType = "broadcast" | "sequence" | "triggered";
+/** A campaign with follow-ups reads `broadcast`; there is no `sequence` type. */
+export type EmailCampaignType = "broadcast" | "triggered";
 
 export interface EmailCampaign {
   id: string;
@@ -2095,6 +2295,10 @@ export interface EmailCampaign {
   sequence_position?: number | null;
   /** Sequence emails only: replies are forwarded to the sender's reply address and end that person's follow-ups. */
   stop_on_reply?: boolean;
+  /** Sequence emails only: a click on a tracked link in any of its emails ends that person's follow-ups. */
+  stop_on_click?: boolean;
+  /** Triggered campaigns: the local time, "HH:MM", a `next_day` trigger start sends at in `timezone`. */
+  sequence_send_time?: string | null;
   audience_count?: number | null;
   counts?: EmailCampaignCounts;
   /**
@@ -2136,15 +2340,18 @@ export interface CreateEmailSequenceStepRequest {
   /** Defaults to the template's subject. */
   subject?: string;
   preheader?: string | null;
-  /** Days after the previous email; 0 is later the same day. 0-365. */
+  /** Days after the previous email; 0 is later the same day. 0-365; on a triggered campaign 1-365 (0 is a 400), counted from the day that person's previous email was sent. */
   delay_days: number;
   /** Local time of day in the campaign's time zone, "HH:MM" (for example "08:30"). */
   send_time: string;
 }
 
+/** At least one of `stop_on_reply` and `stop_on_click` must be true when there are steps (400 at `sequence.stop_on_reply`); an opt-out always ends them. */
 export interface CreateEmailSequenceRequest {
   /** Default true: a reply ends that person's follow-ups and is forwarded to the sender's reply address. */
   stop_on_reply?: boolean;
+  /** Default false: a click on a tracked link in any of the sequence's emails ends that person's follow-ups. */
+  stop_on_click?: boolean;
   /**
    * Default false. True sends each follow-up as a reply in the first email's
    * thread (In-Reply-To and References name the recipient's earlier emails,
@@ -2182,21 +2389,28 @@ export interface CreateEmailCampaignRequest extends SendTagFields {
   tracking_domain_id?: string | null;
   require_approval?: boolean;
   /**
-   * Make this campaign the first email of a sequence: `steps` are its
-   * follow-ups in order. Each sends `delay_days` after the previous email at
-   * `send_hour` in the campaign's time zone, to the people the first email
-   * reached, skipping anyone who replied (with `stop_on_reply`, the default),
+   * Give this campaign follow-ups: `steps` are sent in order, each
+   * `delay_days` after the previous email at `send_time` in the campaign's
+   * time zone, to the people the first email reached, skipping anyone who
+   * left (a reply with `stop_on_reply`, a click with `stop_on_click`),
    * unsubscribed, bounced or complained. Schedule the first email to schedule
-   * them all; one test send tests every email.
+   * them all; one test send tests every email. Beside `trigger` each person is
+   * on their own clock: `delay_days` must be 1 to 365 (0 is a 400) and counts
+   * from the calendar day that person's previous email was sent.
    */
   sequence?: CreateEmailSequenceRequest;
   /**
    * Makes this a triggered campaign: no list, recipients arrive when the
-   * trigger fires. Cannot be combined with `list_ids`, tags, or `sequence`. Start it
-   * with `scheduleEmailCampaign` and no `scheduled_at`; stop it with
+   * trigger fires, and each address is sent it at most once. Cannot be
+   * combined with `list_ids` or tags; a `sequence` is accepted. Start it with
+   * `scheduleEmailCampaign` and no `scheduled_at`; stop it with
    * `endEmailCampaign`.
    */
   trigger?: Trigger;
+  /** One of the six `ScheduleTimezone` zones; default America/New_York. Where a `next_day` trigger start and follow-up send times fall. */
+  timezone?: ScheduleTimezone;
+  /** Triggered campaigns only (400 otherwise): "HH:MM", required with a `next_day` trigger start. */
+  sequence_send_time?: string;
 }
 
 export interface TestEmailCampaignResult {
@@ -2208,6 +2422,8 @@ export interface TestEmailCampaignResult {
 export interface ScheduleEmailCampaignRequest {
   /** ISO 8601 date-time. Omit to send now. */
   scheduled_at?: string;
+  /** Required for a tag-triggered campaign's first start; refused (400) for any other campaign. */
+  audience?: TriggerAudience;
 }
 
 export interface ResumeEmailCampaignInput {

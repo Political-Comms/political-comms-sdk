@@ -2,14 +2,33 @@
 
 ## [0.22.0] - 2026-11-17
 
+### Breaking
+- Breaking: a trigger's `reentry` is gone from the docs and examples. A phone number or email address is sent a triggered project or campaign at most once; the API ignores a sent-back `{"mode": "once"}` and refuses any other value (400 at `trigger.reentry`). Drop the key.
+- Breaking: `add_project_recipient` and `add_email_campaign_recipient` no longer answer `reason` `"too_soon"`. A repeat is `"already_entered"` (the person was already sent this item) or `"duplicate"` (a repeated `occurrence_id`).
+- Breaking: an email campaign's `type` is only `"broadcast"` or `"triggered"`; a campaign with follow-ups reads `"broadcast"`, not `"sequence"`.
+
 ### Added
+- `create_email_campaign` accepts `sequence` beside `trigger`. Each step's `delay_days` is then 1 to 365 and counts from the day that person's previous email was sent.
+- Trigger start time: a trigger's `start` (`"immediate"`, the default, or `"next_day"`). `create_project` and `update_project` take `scheduled_timezone` and `sequence_send_time`; `create_email_campaign` takes `timezone` and `sequence_send_time`.
+- Tag triggers: `{"source": "tag", "tag": {"tag_ids": [...]}}`. `start_project(id, audience=)` and `schedule_email_campaign(id, audience=)` take `"current_and_new"` or `"new_only"`, required for a tag trigger's first start.
+- `fire_triggers` on `add_tag_contacts`, `tag_contacts`, and `import_contact_list`; results carry `triggers["entered"]` (or echo `fire_triggers` when queued). `list_tags` documents each tag's `live_triggers`.
+- Text follow-ups: `follow_ups` on `create_project` and `update_project` (`clear_follow_ups=True` sends `null` to remove them); `get_project` returns them with media by URL.
+- Email follow-ups: `sequence` takes `stop_on_click` beside `stop_on_reply`.
 - Contact tags: `list_tags(organization_id=)`, `create_tag(name)` or `create_tag(activity_event=, within_days=)`, `rename_tag(id, name)`, `delete_tag(id)`, `add_tag_contacts(id, identifiers)` or `add_tag_contacts(id, contact_list_id=)`, and `remove_tag_contacts` with the same arguments (`GET /tags`, `POST /tags`, `PATCH /tags/{id}`, `DELETE /tags/{id}`, `POST /tags/{id}/contacts`, `DELETE /tags/{id}/contacts`). `delete_tag` and `remove_tag_contacts` need an API key with the `public:delete` permission. A 409 `TAG_IN_USE` from `delete_tag` lists the live sends using the tag in `body["details"]`.
+- Tagging by name: `tag_contacts(name, identifiers)` or `tag_contacts(name, contact_list_id=)` (`POST /tags/contacts`) tags contacts with the manual tag of that name, creating it when the organization has none (matched ignoring case); the result carries the `tag` and `created`, true only when this call created it. `untag_contacts` takes the same arguments (`DELETE /tags/contacts`), never creates a tag (404 `NOT_FOUND` for an unknown name), and needs the `public:delete` permission. Both take an optional `organization_id`.
 - `tag_ids` (send to contacts carrying ANY of these tags, in union with the lists), `require_tag_ids` (keep only contacts carrying ALL of them), and `suppression_tag_ids` on `create_project`, `update_project`, and `create_email_campaign`. A tagged contact is only sent to through a list row the sender can use.
 - `tag_ids`, `tag_names`, and `tags_column` on `import_contact_list` tag every contact of an `audience` import.
+- `get_contact_list` documents `import.error` and `email.error` (`{"code", "message"}` or `None`): why a failed import side failed.
 
 ### Changed
+- Behavior change: Tagging or untagging by `contact_list_id` is queued, a change made the same day this release was prepared: the API answers 202 with `{"queued": True, "job_id": ...}` (by name, plus `tag` and `created`) and no counts; there is no job status endpoint, and the outcome shows as the tag's `member_count` once the job finishes. Applies to `add_tag_contacts`, `remove_tag_contacts`, `tag_contacts`, and `untag_contacts`.
+- Survey projects take the three tag fields like broadcast projects; the `create_project` docstring said they refused them.
+- The README states the key permission rule: GET needs `public:read`; POST, PATCH, and PUT need `public:write`; DELETE needs `public:write` and `public:delete`.
 - `update_project` sends an empty `contact_list_ids`, `suppression_list_ids`, or `media_ids` list instead of dropping it, so `[]` clears the field (`contact_list_ids=[]` is accepted while the project keeps a tag). `None` still leaves a field unchanged.
 - `create_email_campaign` no longer needs `list_ids` when `tag_ids` is set.
+
+### Fixed
+- `create_email_campaign` documented a sequence step's `send_hour`; the field is `send_time`.
 
 ## [0.21.2] - 2026-11-16
 

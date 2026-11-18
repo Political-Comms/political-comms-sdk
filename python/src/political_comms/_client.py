@@ -198,7 +198,10 @@ class PoliticalCommsClient:
         """GET /contact-lists/{id}
 
         The result includes ``available_merge_tags``: each merge tag the list
-        offers, the column it reads, and whether it is a standard field.
+        offers, the column it reads, and whether it is a standard field. When
+        ``import.status`` or ``email.status`` is ``failed``, that side's
+        ``error`` (``{"code", "message"}``, ``None`` otherwise) says why; the
+        message is safe to show an end user.
         """
         return self._request("GET", f"/contact-lists/{id}")
 
@@ -219,6 +222,7 @@ class PoliticalCommsClient:
         tag_ids: Optional[Sequence[str]] = None,
         tag_names: Optional[Sequence[str]] = None,
         tags_column: Optional[str] = None,
+        fire_triggers: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /contact-lists/import
@@ -255,7 +259,10 @@ class PoliticalCommsClient:
         tag every contact; ``tags_column`` names a header whose cells hold tag
         names separated by commas, semicolons, or pipes. A column that would
         create more than 100 new tags fails the import (``import.status``
-        ``failed``).
+        ``failed``). ``fire_triggers`` (default false) enters the contacts the
+        import newly tags into those tags' live triggers (a tag's
+        ``live_triggers`` on :meth:`list_tags`), which MESSAGES them; the 202
+        echoes it.
 
         Poll ``get_contact_list(list_id)``: ``import`` is the phone side and
         ``email.status`` is the email side.
@@ -276,6 +283,7 @@ class PoliticalCommsClient:
                 "tag_ids": _list(tag_ids),
                 "tag_names": _list(tag_names),
                 "tags_column": tags_column,
+                "fire_triggers": fire_triggers,
             }
         )
         return self._request("POST", "/contact-lists/import", body=body, idempotency_key=idempotency_key)
@@ -333,7 +341,11 @@ class PoliticalCommsClient:
         names another it reaches), sorted by name; not paginated. Each tag has
         ``kind`` ``"manual"`` or ``"activity"``; a manual tag's
         ``member_count`` is capped at 10000 (``member_count_capped``), and an
-        activity tag's is ``None``.
+        activity tag's is ``None``. ``live_triggers`` lists the started
+        triggered projects and campaigns listening for the tag (``[{"id",
+        "name", "channel": "text" | "email"}]``, empty when none): tagging
+        contacts into such a tag messages them unless ``fire_triggers`` is
+        false.
         """
         return self._request("GET", "/tags", query={"organization_id": organization_id})
 
@@ -388,21 +400,31 @@ class PoliticalCommsClient:
         identifiers: Optional[Sequence[str]] = None,
         *,
         contact_list_id: Optional[str] = None,
+        fire_triggers: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /tags/{id}/contacts
 
         Pass exactly one of ``identifiers`` (1-10000 US phone numbers in any
         common format, or email addresses) and ``contact_list_id`` (every
-        active phone and subscribed address on that list). Returns ``added``
-        and ``invalid`` counts. Manual tags only (400 ``TAG_NOT_MANUAL``); a
-        409 ``TAG_BUSY`` means an import is writing the same contacts, so
-        retry in about a minute.
+        active phone and subscribed address on that list). ``identifiers``
+        return ``added`` and ``invalid`` counts. A ``contact_list_id`` is tagged in the background: the
+        API answers 202 with ``{"queued": True, "job_id": ...}`` and no counts.
+        There is no job status endpoint; the outcome shows as the tag's
+        ``member_count`` on :meth:`list_tags` once the job finishes.
+        Manual tags only (400 ``TAG_NOT_MANUAL``); a 409 ``TAG_BUSY`` means
+        an import is writing the same contacts, so retry in about a minute.
+
+        ``fire_triggers`` says whether newly tagged contacts enter the tag's
+        live triggers, which MESSAGES them. The API defaults it to true for
+        ``identifiers`` and false for a ``contact_list_id``; ``None`` leaves
+        that default. A 200 then carries ``triggers: {"entered": n}`` when the
+        tag has live triggers, and a 202 echoes ``fire_triggers``.
         """
         return self._request(
             "POST",
             f"/tags/{id}/contacts",
-            body=_tag_contacts(identifiers, contact_list_id),
+            body=_compact({**_tag_contacts(identifiers, contact_list_id), "fire_triggers": fire_triggers}),
             idempotency_key=idempotency_key,
         )
 
@@ -417,13 +439,69 @@ class PoliticalCommsClient:
         """DELETE /tags/{id}/contacts
 
         Same body as :meth:`add_tag_contacts`. Needs an API key with the
-        `public:delete` permission (and `public:write`). Returns ``removed``,
-        ``not_tagged``, and ``invalid`` counts.
+        `public:delete` permission (and `public:write`). ``identifiers``
+        return ``removed``, ``not_tagged``, and ``invalid`` counts; a
+        ``contact_list_id`` is queued as for :meth:`add_tag_contacts`.
         """
         return self._request(
             "DELETE",
             f"/tags/{id}/contacts",
             body=_tag_contacts(identifiers, contact_list_id),
+            idempotency_key=idempotency_key,
+        )
+
+    def tag_contacts(
+        self,
+        name: str,
+        identifiers: Optional[Sequence[str]] = None,
+        *,
+        contact_list_id: Optional[str] = None,
+        organization_id: Optional[str] = None,
+        fire_triggers: Optional[bool] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> JsonDict:
+        """POST /tags/contacts
+
+        Tags contacts with the manual tag named ``name`` (1-64 characters,
+        matched ignoring case), creating it when the organization has none.
+        Same sources as :meth:`add_tag_contacts`. Returns the ``tag``,
+        ``created`` (true only when this call created it, which catches a
+        misspelled name), and ``added`` and ``invalid`` counts, or, for a
+        ``contact_list_id``, ``queued`` and ``job_id`` as for
+        :meth:`add_tag_contacts` (the tag is still created by this call). A
+        name matching an activity tag's generated name makes a manual tag
+        beside it. ``fire_triggers`` as for :meth:`add_tag_contacts`.
+        """
+        return self._request(
+            "POST",
+            "/tags/contacts",
+            body=_compact(
+                {**_tag_by_name(name, organization_id, identifiers, contact_list_id), "fire_triggers": fire_triggers}
+            ),
+            idempotency_key=idempotency_key,
+        )
+
+    def untag_contacts(
+        self,
+        name: str,
+        identifiers: Optional[Sequence[str]] = None,
+        *,
+        contact_list_id: Optional[str] = None,
+        organization_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> JsonDict:
+        """DELETE /tags/contacts
+
+        Same arguments as :meth:`tag_contacts`, but never creates a tag (404
+        ``NOT_FOUND`` when none has that name). Needs an API key with the
+        `public:delete` permission (and `public:write`). Returns the ``tag``
+        and ``removed``, ``not_tagged``, and ``invalid`` counts, or ``queued``
+        and ``job_id`` for a ``contact_list_id``.
+        """
+        return self._request(
+            "DELETE",
+            "/tags/contacts",
+            body=_tag_by_name(name, organization_id, identifiers, contact_list_id),
             idempotency_key=idempotency_key,
         )
 
@@ -536,6 +614,9 @@ class PoliticalCommsClient:
         opt_out_footer_enabled: Optional[bool] = None,
         type: Optional[str] = None,
         trigger: Optional[JsonDict] = None,
+        follow_ups: Optional[JsonDict] = None,
+        scheduled_timezone: Optional[str] = None,
+        sequence_send_time: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /projects
@@ -550,10 +631,28 @@ class PoliticalCommsClient:
 
         ``type`` is ``"broadcast"`` (default), ``"survey"``, or ``"triggered"``.
         A triggered project has no contact list: pass ``type="triggered"`` and a
-        ``trigger`` dict (``{"source": "api" | "donation" | "event", ...}``,
-        with optional ``delay_minutes`` and ``reentry``) and leave out
-        ``contact_list_ids`` and ``suppression_list_ids``. Test it with
-        :meth:`test_project`, then :meth:`start_project`.
+        ``trigger`` dict (``{"source": "api" | "donation" | "event" | "tag",
+        ...}``) and leave out ``contact_list_ids`` and
+        ``suppression_list_ids``. Test it with :meth:`test_project`, then
+        :meth:`start_project`. Each phone number is sent it at most once. The
+        trigger's ``start`` is ``"immediate"`` (default, after
+        ``delay_minutes``) or ``"next_day"`` (the day after it fired, at
+        ``sequence_send_time`` ``"HH:MM"`` in ``scheduled_timezone``, both then
+        required; ``delay_minutes`` 0). A tag trigger is ``{"source": "tag",
+        "tag": {"tag_ids": [...]}}`` (1-20 manual tags): a newly tagged phone
+        enters it, and re-tagging never fires.
+
+        ``follow_ups`` (broadcast and triggered projects; a survey refuses it)
+        is ``{"steps": [{"message_text": ..., "media_ids": [...], "wait":
+        {"unit": "days" | "hours", "amount": n}}], "stop_on_reply": bool,
+        "stop_on_click": bool}``: 1-9 texts after the first message, days 1-365
+        (sent at ``sequence_send_time`` in ``scheduled_timezone``, both then
+        required) or hours 1-72; media only on an MMS project. A person stops
+        getting them on a reply (``stop_on_reply``), a tracked-link click
+        (``stop_on_click``), or an opt-out; at least one flag must be true.
+        Each follow-up is charged when it sends; a person whose first message
+        failed gets none. A broadcast takes ``scheduled_timezone`` and
+        ``sequence_send_time`` at create only for follow-ups that wait days.
 
         ``contact_list_ids`` is optional: a project with neither a list nor a
         ``tag_ids`` entry is created in draft status, and it cannot be tested
@@ -567,7 +666,7 @@ class PoliticalCommsClient:
         required tag and a suppression tag (400). A tagged phone is only sent
         to when it is on a live list the project's sender can use (unscoped,
         or scoped to the project's own brand, toll-free number, or short code).
-        Triggered and survey projects refuse the tag fields.
+        Survey projects take the tag fields too; triggered projects refuse them.
 
         Raises a 409 ``LIST_ANALYSIS_IN_PROGRESS`` while a contact list on the
         project is being analyzed; wait for ``analysis.status`` ``complete``.
@@ -610,6 +709,9 @@ class PoliticalCommsClient:
                 "opt_out_footer_enabled": opt_out_footer_enabled,
                 "type": type,
                 "trigger": trigger,
+                "follow_ups": follow_ups,
+                "scheduled_timezone": scheduled_timezone,
+                "sequence_send_time": sequence_send_time,
             }
         )
         return self._request("POST", "/projects", body=body, idempotency_key=idempotency_key)
@@ -671,6 +773,10 @@ class PoliticalCommsClient:
         link_tracking_fallback_url: Optional[str] = None,
         opt_out_footer_enabled: Optional[bool] = None,
         trigger: Optional[JsonDict] = None,
+        follow_ups: Optional[JsonDict] = None,
+        clear_follow_ups: bool = False,
+        scheduled_timezone: Optional[str] = None,
+        sequence_send_time: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """PATCH /projects/{id}
@@ -698,7 +804,15 @@ class PoliticalCommsClient:
         ``link_tracking_fallback_url`` is required whenever
         ``link_tracking_destination_url`` is a whole-URL placeholder such as
         ``https://{custom_url}``; see ``create_project``. ``trigger`` replaces
-        the trigger of a triggered project (triggered projects only).
+        the trigger of a triggered project (triggered projects only; a tag
+        trigger's tags cannot change after it has started).
+
+        ``follow_ups`` replaces the follow-ups (see ``create_project``) and
+        ``clear_follow_ups=True`` removes them (sends ``null``). Once the
+        project has started a changed value is a 409 ``CONFLICT``.
+        ``scheduled_timezone`` and ``sequence_send_time`` can still change
+        after start: people already waiting get their next message at the new
+        time, and nothing already sent is re-sent.
 
         ``tag_ids``, ``require_tag_ids``, and ``suppression_tag_ids`` replace
         the project's tags; see ``create_project``. An empty list clears a
@@ -729,8 +843,16 @@ class PoliticalCommsClient:
                 "link_tracking_fallback_url": link_tracking_fallback_url,
                 "opt_out_footer_enabled": opt_out_footer_enabled,
                 "trigger": trigger,
+                "follow_ups": follow_ups,
+                "scheduled_timezone": scheduled_timezone,
+                "sequence_send_time": sequence_send_time,
             }
         )
+        if clear_follow_ups:
+            if follow_ups is not None:
+                raise ValueError("Pass follow_ups or clear_follow_ups, not both")
+            # _compact drops None, so the clearing null is added after it.
+            body["follow_ups"] = None
         return self._request("PATCH", f"/projects/{id}", body=body, idempotency_key=idempotency_key)
 
     def get_project_stats(self, id: str) -> JsonDict:
@@ -885,14 +1007,20 @@ class PoliticalCommsClient:
             "POST", f"/projects/{id}/pause", body=body, idempotency_key=idempotency_key
         )
 
-    def start_project(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
+    def start_project(
+        self, id: str, *, audience: Optional[str] = None, idempotency_key: Optional[str] = None
+    ) -> JsonDict:
         """POST /projects/{id}/start
 
         Starts or resumes a triggered project (test it first with
         :meth:`test_project`; stop it with :meth:`pause_project`). Raises a 409
-        ``CONFLICT`` for a project that is not triggered.
+        ``CONFLICT`` for a project that is not triggered. ``audience`` is
+        required for a tag trigger's first start and refused (400) otherwise:
+        ``"current_and_new"`` also texts everyone carrying the tag now,
+        ``"new_only"`` only contacts tagged from now on.
         """
-        return self._request("POST", f"/projects/{id}/start", idempotency_key=idempotency_key)
+        body: Optional[JsonDict] = {"audience": audience} if audience is not None else None
+        return self._request("POST", f"/projects/{id}/start", body=body, idempotency_key=idempotency_key)
 
     def end_project(self, id: str, *, idempotency_key: Optional[str] = None) -> JsonDict:
         """POST /projects/{id}/end
@@ -921,8 +1049,10 @@ class PoliticalCommsClient:
         is a no-op.
 
         ``data`` is ``{"status": "queued", "send_at": ...}`` (202) or
-        ``{"status": "already_entered", "reason": "duplicate" | "already_entered"
-        | "too_soon"}`` (200). Raises a 409 ``CONTACT_OPTED_OUT``, a 409
+        ``{"status": "already_entered", "reason": "duplicate" | "already_entered"}``
+        (200): ``duplicate`` for a repeated ``occurrence_id``,
+        ``already_entered`` for a person already sent this project (each gets
+        it at most once). Raises a 409 ``CONTACT_OPTED_OUT``, a 409
         ``CONFLICT`` (not triggered, or not active, which includes paused), a
         422 ``VALIDATION_ERROR`` (``body["details"]`` has ``field`` and
         ``reason``), or a 404 ``PROJECT_NOT_FOUND``.
@@ -1305,6 +1435,8 @@ class PoliticalCommsClient:
         require_approval: Optional[bool] = None,
         sequence: Optional[JsonDict] = None,
         trigger: Optional[JsonDict] = None,
+        timezone: Optional[str] = None,
+        sequence_send_time: Optional[str] = None,
         tag_ids: Optional[Sequence[str]] = None,
         require_tag_ids: Optional[Sequence[str]] = None,
         suppression_tag_ids: Optional[Sequence[str]] = None,
@@ -1313,21 +1445,31 @@ class PoliticalCommsClient:
         """POST /email/campaigns.
 
         ``trigger`` makes this a triggered campaign: no list, recipients arrive
-        when the trigger fires (``{"source": "api" | "donation" | "event", ...}``).
-        A campaign without ``trigger`` needs ``list_ids`` or a non-empty
-        ``tag_ids``; a trigger cannot be combined with ``list_ids``, tags, or
-        ``sequence`` (400). Start it with
+        when the trigger fires (``{"source": "api" | "donation" | "event" |
+        "tag", ...}``, the same shape as on :meth:`create_project`), and each
+        address is sent it at most once. A campaign without ``trigger`` needs
+        ``list_ids`` or a non-empty ``tag_ids``; a trigger cannot be combined
+        with ``list_ids`` or tags (400); a ``sequence`` is accepted. Start it with
         :meth:`schedule_email_campaign` and no ``scheduled_at``; stop it with
-        :meth:`end_email_campaign`.
+        :meth:`end_email_campaign`. ``timezone`` (one of the six schedule
+        zones, default America/New_York) and ``sequence_send_time``
+        (``"HH:MM"``, triggered campaigns only) set when a ``"next_day"``
+        trigger start sends.
 
-        ``sequence`` makes this campaign the first email of a sequence:
-        ``{"stop_on_reply": True, "thread_replies": False, "steps": [{"template_id": ...,
-        "delay_days": 3, "send_time": "08:30"}, ...]}``; ``thread_replies`` sends each
-        follow-up as a reply in the first email's thread. Each follow-up sends ``delay_days`` after the
-        previous email at ``send_hour`` in the campaign's time zone, to the
-        people the first email reached, skipping anyone who replied,
-        unsubscribed, bounced or complained. Scheduling the first email
-        schedules them all.
+        ``sequence`` gives this campaign follow-ups (it still reads
+        ``type`` ``"broadcast"``): ``{"stop_on_reply": True, "stop_on_click":
+        False, "thread_replies": False, "steps": [{"template_id": ...,
+        "delay_days": 3, "send_time": "08:30"}, ...]}``; ``thread_replies``
+        sends each follow-up as a reply in the first email's thread. Each
+        follow-up sends ``delay_days`` after the previous email at
+        ``send_time`` in the campaign's time zone, to the people the first
+        email reached, skipping anyone who left (a reply with
+        ``stop_on_reply``, a tracked-link click with ``stop_on_click``; at
+        least one must be true), unsubscribed, bounced or complained.
+        Scheduling the first email schedules them all. Beside ``trigger``
+        each person is on their own clock: ``delay_days`` must be 1 to 365
+        (0 is a 400) and counts from the calendar day that person's previous
+        email was sent; email follow-ups wait whole days only.
 
         Once GA, also returns ``403 ONBOARDING_INCOMPLETE`` if the
         organization's 14-day setup grace window has passed and the business
@@ -1367,6 +1509,8 @@ class PoliticalCommsClient:
                     "require_approval": require_approval,
                     "sequence": sequence,
                     "trigger": trigger,
+                    "timezone": timezone,
+                    "sequence_send_time": sequence_send_time,
                     "tag_ids": _list(tag_ids),
                     "require_tag_ids": _list(require_tag_ids),
                     "suppression_tag_ids": _list(suppression_tag_ids),
@@ -1380,12 +1524,15 @@ class PoliticalCommsClient:
         id: str,
         *,
         scheduled_at: Optional[str] = None,
+        audience: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /email/campaigns/{id}/schedule.
 
         Omit scheduled_at to send now. A past date returns 400 VALIDATION_ERROR. If this
         refuses, read "blocked" on the campaign to see which gate stopped it.
+        ``audience`` (``"current_and_new"`` or ``"new_only"``) is required for
+        a tag-triggered campaign's first start and refused otherwise.
 
         Once GA, also returns ``403 ENTITLEMENT_REQUIRED`` if the
         organization is not entitled to email (the error's
@@ -1397,7 +1544,7 @@ class PoliticalCommsClient:
         return self._request(
             "POST",
             f"/email/campaigns/{id}/schedule",
-            body=_compact({"scheduled_at": scheduled_at}),
+            body=_compact({"scheduled_at": scheduled_at, "audience": audience}),
             idempotency_key=idempotency_key,
         )
 
@@ -1689,3 +1836,12 @@ def _tag_contacts(identifiers: Optional[Sequence[str]], contact_list_id: Optiona
     if contact_list_id is not None:
         return {"contact_list_id": contact_list_id}
     return {"identifiers": list(identifiers or [])}
+
+
+def _tag_by_name(
+    name: str,
+    organization_id: Optional[str],
+    identifiers: Optional[Sequence[str]],
+    contact_list_id: Optional[str],
+) -> JsonDict:
+    return _compact({"name": name, "organization_id": organization_id, **_tag_contacts(identifiers, contact_list_id)})

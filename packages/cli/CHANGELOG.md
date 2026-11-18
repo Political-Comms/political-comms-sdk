@@ -4,13 +4,20 @@
 
 ### Added
 - `tags list`, `tags create` (`--name`, or `--activity donated|clicked|responded|sent` with optional `--within-days`), `tags rename <id> --name`, `tags delete <id>`, `tags add <id>`, and `tags remove <id>` (`--identifier`, repeatable, or one `--contact-list-id`). `tags delete` and `tags remove` need an API key with the `public:delete` permission.
+- `tags add --name <name>` and `tags remove --name <name>` address a tag by name instead of id, with optional `--organization-id`. `tags add --name` creates the tag when the organization has none by that name (ignoring case) and prints `Created tag` or `Used existing tag` with its id; `tags remove --name` never creates one.
+- `contact-lists get` prints `Import failed: <message> (<code>)` and `Email import failed: ...` when a side of the list's import failed.
 - `projects create` takes `--tag-id` (send to contacts carrying ANY of these tags, in union with the lists), `--require-tag-id` (keep only contacts carrying ALL of them), and `--suppression-tag-id`, each repeatable. `--contact-list-id` is no longer required when `--tag-id` is given.
+- `tags add` takes `--fire-triggers` or `--no-fire-triggers`: whether newly tagged contacts enter the tag's live triggers, which messages them (the API default is on for `--identifier`, off for `--contact-list-id`); the output says how many entered. `tags remove` refuses both flags. There is no import command, so no import path takes them.
+- `tags list` shows a LIVE TRIGGERS column: the started triggered projects and campaigns listening for each tag.
+- `projects start <id> --audience current_and_new|new_only`, required for a tag trigger's first start.
+- `projects create` takes follow-ups: `--follow-up <N>d=<text>` or `<N>h=<text>` (repeatable, in order), `--stop-on-reply` and/or `--stop-on-click` (at least one with `--follow-up`), and `--send-time HH:MM` with `--timezone` for day waits. Text only; follow-up media goes through the SDK.
 
 ### Fixed
 - `projects create` printed an empty id; it now prints the new project's `project_id`.
 
 ### Changed
 - Requires `@political-comms/sdk` ^0.24.0.
+- Behavior change: `tags add` and `tags remove` with `--contact-list-id` print `Tagging queued (job <id>)` or `Untagging queued (job <id>)` and that the tag's member count in `tags list` updates when it finishes, instead of counts. Tagging or untagging by `contact_list_id` is queued, a change made the same day this release was prepared: the API answers 202 with `{ queued: true, job_id }` (by name, plus `tag` and `created`) and no counts; there is no job status endpoint, and the outcome shows as the tag's `member_count` once the job finishes.
 - `contact-lists delete` and `media delete` need an API key with the `public:delete` permission (and `public:write`); other keys get a 403.
 
 ## [0.22.0] - 2026-11-13

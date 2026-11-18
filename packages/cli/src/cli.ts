@@ -1,11 +1,16 @@
 import { parseArgs } from 'node:util';
 import { PoliticalCommsClient, PoliticalCommsError } from '@political-comms/sdk';
 import type {
+  AddTagContactsResult,
+  ContactListImportError,
   CreateTagRequest,
+  ProjectFollowUps,
   ProjectSurveyResults,
   ScheduleTimezone,
   TagActivityEvent,
+  TagContactsQueuedResult,
   TagContactsRequest,
+  TriggerAudience,
 } from '@political-comms/sdk';
 
 /** The subset of the SDK the CLI uses. Injectable for tests. */
@@ -36,6 +41,8 @@ export type CliClient = Pick<
   | 'deleteTag'
   | 'addTagContacts'
   | 'removeTagContacts'
+  | 'tagContacts'
+  | 'untagContacts'
   | 'listConversations'
   | 'getConversation'
   | 'listConversationMessages'
@@ -91,6 +98,8 @@ Commands:
   projects unschedule <id>         Remove a schedule
   projects pause <id>              Pause a running or scheduled send ([--reason])
   projects start <id>              Start or resume a triggered project
+                                   (--audience current_and_new|new_only, required
+                                   for a tag trigger's first start)
   projects end <id>                End a triggered project (final)
   projects copy <id>               Copy a project (drops lists, schedule, stats)
   contact-lists list               List contact lists (--channel text|email|all;
@@ -98,15 +107,26 @@ Commands:
   contact-lists get <id>           Show one contact list
   contact-lists download <id>      Print a contact list CSV (--type original|analyzed)
   contact-lists delete <id>        Delete an unused contact list (phones and emails)
-  tags list                        List tags ([--organization-id])
+  tags list                        List tags and the live triggers listening
+                                   for each ([--organization-id])
   tags create                      Create a manual tag (--name) or an activity
                                    tag (--activity donated|clicked|responded|sent,
                                    [--within-days 1-365])
   tags rename <id>                 Rename a manual tag (--name)
   tags delete <id>                 Delete a tag (refused while a live send uses it)
-  tags add <id>                    Tag contacts: --identifier <phone|email>,
-                                   repeatable, or one --contact-list-id
-  tags remove <id>                 Untag contacts (same flags as tags add)
+  tags add <id> | --name <name>    Tag contacts: --identifier <phone|email>,
+                                   repeatable, or one --contact-list-id (runs
+                                   in the background: prints the job id, and
+                                   the tag's member count updates when it
+                                   finishes). --name creates the tag when none
+                                   has that name (ignoring case) and says so;
+                                   with [--organization-id]. Tagging into a tag
+                                   with live triggers MESSAGES the newly tagged
+                                   contacts: --fire-triggers or
+                                   --no-fire-triggers (default: on for
+                                   --identifier, off for --contact-list-id)
+  tags remove <id> | --name <name> Untag contacts (same source flags as tags
+                                   add; --name never creates a tag)
   conversations list               List conversations with an inbound message
                                    (--project, --since, --include-test,
                                    --limit, --cursor)
@@ -156,6 +176,21 @@ Create flags (projects create):
   --toll-free-verification-id <id> Toll-free verification (channel=toll-free)
   --suppression-list-id <id>       Suppression list, repeatable
   --media-id <id>                  Media file for MMS, repeatable (conversations reply: one)
+  --follow-up <wait>=<text>        A follow-up text after the first message,
+                                   repeatable, in order (up to 9). <wait> is
+                                   <N>d (1-365 days, sent at --send-time in
+                                   --timezone) or <N>h (1-72 hours), e.g.
+                                   --follow-up '2d=Polls open at 7'. Each is
+                                   charged when it sends. Text only: send
+                                   follow-up media through the API
+  --stop-on-reply                  A reply ends that person's follow-ups
+  --stop-on-click                  A tracked-link click ends them (at least one
+                                   of the two is required with --follow-up;
+                                   an opt-out always ends them)
+  --send-time <HH:MM>              Local time a day wait sends at (required with
+                                   a <N>d follow-up)
+  --timezone <iana tz>             Time zone of --send-time (required with a
+                                   <N>d follow-up)
 
 Test flags (projects test):
   --phone <e164>                   Test recipient, repeatable
@@ -202,6 +237,14 @@ const PARSE_OPTIONS = {
   'send-at': { type: 'string' },
   timezone: { type: 'string' },
   'daily-cap-bypass': { type: 'boolean', default: false },
+  'follow-up': { type: 'string', multiple: true },
+  'stop-on-reply': { type: 'boolean' },
+  'stop-on-click': { type: 'boolean' },
+  'send-time': { type: 'string' },
+  // Two flags, not parseArgs allowNegative, which Node 20 before 20.16 lacks.
+  'fire-triggers': { type: 'boolean' },
+  'no-fire-triggers': { type: 'boolean' },
+  audience: { type: 'string' },
   reason: { type: 'string' },
   from: { type: 'string' },
   to: { type: 'string' },
@@ -367,6 +410,13 @@ async function dispatch(client: CliClient, positionals: string[], flags: Flags, 
       const result = await client.getContactList(id);
       if (flags.json) return printJson(io, result);
       io.out(kv(result.data));
+      const failures: Array<[string, ContactListImportError | null | undefined]> = [
+        ['Import', result.data?.import?.error],
+        ['Email import', result.data?.email?.error],
+      ];
+      for (const [side, error] of failures) {
+        if (error) io.out(`${side} failed: ${error.message} (${error.code})`);
+      }
       return 0;
     }
 
@@ -784,6 +834,9 @@ async function projectsCommand(
         suppression_tag_ids: flags['suppression-tag-id'],
         media_ids: flags['media-id'],
         message_text: flags.body!,
+        follow_ups: followUpsRequest(flags),
+        scheduled_timezone: flags.timezone === undefined ? undefined : parseTimezone(flags.timezone),
+        sequence_send_time: flags['send-time'],
       });
       if (flags.json) return printJson(io, result);
       io.out(`Created project ${str(result.data?.project_id)} (status: ${str(result.data?.status)})`);
@@ -848,7 +901,8 @@ async function projectsCommand(
 
     case 'start': {
       const id = requireArg(arg, 'projects start <id>');
-      const result = await client.startProject(id);
+      const audience = flags.audience === undefined ? undefined : parseAudience(flags.audience);
+      const result = await client.startProject(id, audience ? { audience } : undefined);
       if (flags.json) return printJson(io, result);
       io.out(`Started project ${id} (status: ${str(result.data?.status)}).`);
       return 0;
@@ -909,6 +963,71 @@ function tagContactsRequest(flags: Flags, usage: string): TagContactsRequest {
   throw new UsageError(`${usage} takes --identifier (repeatable) or one --contact-list-id`);
 }
 
+/** A list source runs in the background (202) and has no counts yet; printing "0" would read as a result. */
+function queuedLine(action: 'Tagging' | 'Untagging', result: TagContactsQueuedResult): string {
+  return (
+    `${action} queued (job ${result.job_id}). The tag's member count in \`tags list\` ` +
+    'updates when it finishes.'
+  );
+}
+
+function addedLine(result: AddTagContactsResult): string {
+  if (result.queued) {
+    const firing = result.fire_triggers ? " Newly tagged contacts enter the tag's live triggers." : '';
+    return queuedLine('Tagging', result) + firing;
+  }
+  const entered = result.triggers ? ` Entered ${str(result.triggers.entered)} into live triggers.` : '';
+  return `Tagged ${str(result.added)} contact(s); ${str(result.invalid)} invalid.${entered}`;
+}
+
+/** Omitted unless a flag says so: the API's default depends on the source. */
+function fireTriggers(flags: Flags): { fire_triggers?: boolean } {
+  if (flags['fire-triggers'] && flags['no-fire-triggers']) {
+    throw new UsageError('Use --fire-triggers or --no-fire-triggers, not both');
+  }
+  if (flags['fire-triggers']) return { fire_triggers: true };
+  if (flags['no-fire-triggers']) return { fire_triggers: false };
+  return {};
+}
+
+const FOLLOW_UP_RE = /^(\d+)([dh])=([\s\S]+)$/;
+
+/** Repeated `--follow-up <N>d=<text>` or `<N>h=<text>`, in order. The API checks the bounds. */
+function followUpsRequest(flags: Flags): ProjectFollowUps | undefined {
+  const entries = flags['follow-up'] ?? [];
+  const stopOnReply = flags['stop-on-reply'] === true;
+  const stopOnClick = flags['stop-on-click'] === true;
+  if (entries.length === 0) {
+    if (stopOnReply || stopOnClick) throw new UsageError('--stop-on-reply and --stop-on-click need --follow-up');
+    return undefined;
+  }
+  if (!stopOnReply && !stopOnClick) {
+    throw new UsageError('--follow-up needs --stop-on-reply, --stop-on-click, or both');
+  }
+  const steps = entries.map((entry) => {
+    const match = FOLLOW_UP_RE.exec(entry);
+    if (!match) throw new UsageError(`--follow-up must be <N>d=<text> or <N>h=<text>, got: ${entry}`);
+    const unit: 'days' | 'hours' = match[2] === 'd' ? 'days' : 'hours';
+    return { message_text: match[3]!, wait: { unit, amount: Number(match[1]) } };
+  });
+  return { steps, stop_on_reply: stopOnReply, stop_on_click: stopOnClick };
+}
+
+const AUDIENCES: readonly TriggerAudience[] = ['current_and_new', 'new_only'];
+
+function parseAudience(value: string): TriggerAudience {
+  const match = AUDIENCES.find((audience) => audience === value);
+  if (!match) throw new UsageError(`--audience must be ${AUDIENCES.join(' or ')}`);
+  return match;
+}
+
+/** `tags add|remove` address a tag by its id argument or by --name, never both. */
+function tagTarget(arg: string | undefined, flags: Flags, usage: string): { id: string } | { name: string } {
+  if (arg !== undefined && flags.name !== undefined) throw new UsageError(`${usage} takes <id> or --name, not both`);
+  if (flags.name !== undefined) return { name: flags.name };
+  return { id: requireArg(arg, `${usage} <id> | --name <name>`) };
+}
+
 /** Tags label contacts. Every tag carries its organization; a parent key may name a sub-organization. */
 async function tagsCommand(
   client: CliClient,
@@ -931,6 +1050,7 @@ async function tagsCommand(
               ? `${tag.activity_event}${tag.within_days ? ` in ${tag.within_days} days` : ''}`
               : '',
             members: tag.member_count_capped ? `${str(tag.member_count)}+` : tag.member_count,
+            triggers: (tag.live_triggers ?? []).map((item) => `${item.name} (${item.channel})`).join(', '),
           })),
           [
             { key: 'id', header: 'ID' },
@@ -938,6 +1058,7 @@ async function tagsCommand(
             { key: 'kind', header: 'KIND' },
             { key: 'rule', header: 'RULE' },
             { key: 'members', header: 'MEMBERS' },
+            { key: 'triggers', header: 'LIVE TRIGGERS' },
           ],
         ),
       );
@@ -969,20 +1090,40 @@ async function tagsCommand(
     }
 
     case 'add': {
-      const id = requireArg(arg, 'tags add <id>');
-      const result = await client.addTagContacts(id, tagContactsRequest(flags, 'tags add'));
+      const target = tagTarget(arg, flags, 'tags add');
+      const source = { ...tagContactsRequest(flags, 'tags add'), ...fireTriggers(flags) };
+      if ('name' in target) {
+        const result = await client.tagContacts({ ...source, ...target, organization_id: flags['organization-id'] });
+        if (flags.json) return printJson(io, result);
+        const tag = result.data.tag;
+        io.out(
+          `${result.data.created ? 'Created' : 'Used existing'} tag ${str(tag?.name)} (${str(tag?.id)}). ` +
+            addedLine(result.data),
+        );
+        return 0;
+      }
+      const result = await client.addTagContacts(target.id, source);
       if (flags.json) return printJson(io, result);
-      io.out(`Tagged ${str(result.data?.added)} contact(s); ${str(result.data?.invalid)} invalid.`);
+      io.out(addedLine(result.data));
       return 0;
     }
 
     case 'remove': {
-      const id = requireArg(arg, 'tags remove <id>');
-      const result = await client.removeTagContacts(id, tagContactsRequest(flags, 'tags remove'));
+      const target = tagTarget(arg, flags, 'tags remove');
+      if (flags['fire-triggers'] || flags['no-fire-triggers']) {
+        throw new UsageError('tags remove takes no --fire-triggers: untagging never fires a trigger');
+      }
+      const source = tagContactsRequest(flags, 'tags remove');
+      const result =
+        'name' in target
+          ? await client.untagContacts({ ...source, ...target, organization_id: flags['organization-id'] })
+          : await client.removeTagContacts(target.id, source);
       if (flags.json) return printJson(io, result);
       io.out(
-        `Untagged ${str(result.data?.removed)} contact(s); ${str(result.data?.not_tagged)} were not tagged, ` +
-          `${str(result.data?.invalid)} invalid.`,
+        result.data.queued
+          ? queuedLine('Untagging', result.data)
+          : `Untagged ${str(result.data.removed)} contact(s); ${str(result.data.not_tagged)} were not tagged, ` +
+              `${str(result.data.invalid)} invalid.`,
       );
       return 0;
     }

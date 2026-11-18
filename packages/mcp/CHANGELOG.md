@@ -2,10 +2,17 @@
 
 ## [0.23.0] - 2026-11-17
 
+### Breaking
+- Breaking: the `trigger` parameter no longer takes `reentry`. A phone number or email address is sent a triggered project or campaign at most once; drop the field. `add_project_recipient` and `add_email_campaign_recipient` no longer describe a `too_soon` reason.
+
 ### Added
-- `list_tags`, `create_tag`, `rename_tag`, and `add_tag_contacts` (by `identifiers` or `contact_list_id`; requires `confirm: true` because it changes who a send reaches). Deleting a tag and untagging contacts are not tools: the server exposes no delete operations.
+- Trigger start time and tag triggers on `create_project`: `trigger.start` (`immediate` or `next_day`), `trigger.source` `tag` with `tag.tag_ids`, and `scheduled_timezone` and `sequence_send_time`. `start_project` and `schedule_email_campaign` take `audience` (`current_and_new` or `new_only`), required for a tag trigger's first start.
+- `create_project` takes `follow_ups` (up to 9 steps of `message_text`, `media_ids`, and `wait`, with `stop_on_reply` and `stop_on_click`). Its description states the stop rules, the once-per-person rule for triggered projects, and that each follow-up is charged when it sends.
+- `add_tag_contacts` and `import_contact_list` take `fire_triggers`. Their descriptions tell the agent plainly that tagging into a tag with live triggers messages people, to read `live_triggers` from `list_tags` first, and to get the user's explicit yes before sending `fire_triggers: true` for a list or an import. `list_tags` describes `live_triggers`.
+- `list_tags`, `create_tag`, `rename_tag`, and `add_tag_contacts` (by `identifiers` or `contact_list_id`; requires `confirm: true` because it changes who a send reaches). `add_tag_contacts` names the tag by `id` or by `name` (exactly one, with an optional `organization_id` for a name); a name creates the tag when the organization has none, and the result carries the `tag` and `created`. Its description tells the agent to pass a name as `list_tags` returned it so it does not create a near-duplicate. Deleting a tag and untagging contacts are not tools: the server exposes no delete operations.
 - `create_project` takes `tag_ids` (send to contacts carrying ANY of these tags, in union with the lists), `require_tag_ids` (keep only contacts carrying ALL of them), and `suppression_tag_ids`. Its description states the consent rule: a tagged contact is only sent to through a list row the sender can use.
 - `import_contact_list` takes `tag_ids`, `tag_names`, and `tags_column` for an audience import.
+- `get_contact_list` passes through `import.error` and `email.error` (`{ code, message }`, null unless that side failed), and its description tells the agent the message is safe to show the user.
 - `POLITICAL_COMMS_BASE_URL` points the server at another API host.
 
 ### Fixed
@@ -13,6 +20,8 @@
 
 ### Changed
 - Requires `@political-comms/sdk` ^0.24.0.
+- Behavior change: `add_tag_contacts` with `contact_list_id` returns `queued: true` and a `job_id` with no counts. Tagging or untagging by `contact_list_id` is queued, a change made the same day this release was prepared: the API answers 202 with `{ queued: true, job_id }` (by name, plus `tag` and `created`) and no counts; there is no job status endpoint, and the outcome shows as the tag's `member_count` once the job finishes. The tool description tells the agent the work continues in the background and to read the outcome from `list_tags` `member_count`.
+- `create_project` no longer describes `tag_ids` as refused by survey projects.
 
 ## [0.22.1] - 2026-11-16
 
