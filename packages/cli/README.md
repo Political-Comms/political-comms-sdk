@@ -32,7 +32,8 @@ projects create                  Create a project (--contact-list-id and/or
                                  --tag-id; --require-tag-id,
                                  --suppression-tag-id; follow-ups with
                                  --follow-up, --stop-on-reply, --stop-on-click,
-                                 --send-time, --timezone)
+                                 --send-time, --timezone; a survey with
+                                 --type survey --questions-file)
 projects test <id>               Send a test message (--phone, repeatable)
 projects schedule <id>           Schedule a send (--send-at, --timezone)
 projects unschedule <id>         Remove a schedule
@@ -161,6 +162,18 @@ npx @political-comms/cli projects create \
   --stop-on-reply --stop-on-click \
   --send-time 09:00 --timezone America/Chicago
 
+# Create a survey from a questions file (format below). A survey needs
+# --campaign-id and takes no --protocol, --body, --media-id, --brand-id, or
+# follow-up flags.
+npx @political-comms/cli projects create \
+  --type survey \
+  --name "Primary intent" \
+  --organization-id org_123 \
+  --campaign-id camp_123 \
+  --phone-number-id pn_123 \
+  --contact-list-id cl_123 \
+  --questions-file survey.json
+
 # Send a test to yourself
 npx @political-comms/cli projects test proj_123 --phone +15555550100
 
@@ -187,6 +200,36 @@ npx @political-comms/cli conversations list --since 2026-09-01T00:00:00Z
 # Reply to a conversation (sends a real SMS, or an MMS with --media-id)
 npx @political-comms/cli conversations reply conv_123 --text "Thanks for reaching out!"
 npx @political-comms/cli conversations reply conv_123 --media-id <media id> --text "Here is the flyer"
+```
+
+### Survey questions file
+
+`--questions-file` is a JSON array: the API's `questions` field as is, 2-32 questions.
+Each question has `sequence` (1..N with no gaps), `question_type` (`intro`, which must be
+sequence 1; `multiple_choice`, with 2-9 `response_options`; `open_ended`, with none; or
+`outro`, which expects no reply), and `question_text` (merge tags work; options are never
+appended, so write them into the text). Optional: `message_type` (`sms`, the default, or
+`mms` with `media_ids`), `no_match_sequence`, and `is_required`. An option is `value` (the
+digit 1-9 a recipient texts), `label`, and an optional `next_sequence`. Both branches must
+point to a later question. The CLI checks the file's shape and names the bad entry; the API
+checks the flow.
+
+```json
+[
+  { "sequence": 1, "question_type": "intro", "question_text": "Hi {first_name|there}, 2 quick questions? Reply STOP to opt out." },
+  {
+    "sequence": 2,
+    "question_type": "multiple_choice",
+    "question_text": "Will you vote in the primary? Reply 1 Yes, 2 No.",
+    "response_options": [
+      { "value": 1, "label": "Yes", "next_sequence": 4 },
+      { "value": 2, "label": "No" }
+    ],
+    "no_match_sequence": 3
+  },
+  { "sequence": 3, "question_type": "open_ended", "question_text": "What issue matters most to you?" },
+  { "sequence": 4, "question_type": "outro", "question_text": "Thanks for your time!" }
+]
 ```
 
 ## Global options

@@ -81,6 +81,43 @@ A test, or any send, can also target a test phone number such as `+12025550101` 
 
 One method exists per API operation, named after its `operationId`: `listOrganizations`, `getHierarchy`, `listBrands`, `listCampaigns`, `getCampaignThroughput`, `listTrackingDomains`, `listPhoneNumbers`, `listWebhookEndpoints`, `getWebhookEndpoint`, `listTollFreeVerifications`, `getTollFreeVerification`, `listContactLists`, `getContactList`, `importContactList`, `analyzeContactList`, `downloadContactList`, `deleteContactList`, `listTags`, `createTag`, `renameTag`, `deleteTag`, `addTagContacts`, `removeTagContacts`, `tagContacts`, `untagContacts`, `listMedia`, `importMedia`, `getMedia`, `deleteMedia`, `listProjects`, `createProject`, `getAllProjectStats`, `getProject`, `updateProject`, `getProjectStats`, `getProjectSurveyResults`, `getProjectThroughput`, `testProject`, `scheduleProject`, `unscheduleProject`, `pauseProject`, `startProject`, `endProject`, `addProjectRecipient`, `createProjectHook`, `copyProject`, `listConversations`, `getConversation`, `listConversationMessages`, `replyToConversation`, `getMessageStats`, `getLedgerUsage`, `getLedgerUsageByInitiator`.
 
+## Create a survey
+
+A survey sends `questions` instead of a message, so it takes no `protocol` or `message_text`
+(the types refuse them). Questions are numbered `sequence` 1..N, the first is the `intro`, and
+only recipients who reply move on. A `multiple_choice` question takes 2-9 `response_options`
+(the digit a recipient texts); `next_sequence` and `no_match_sequence` branch forward. A survey
+needs `campaign_id`, takes lists and tags like a broadcast, and never takes follow-ups.
+
+```ts
+const { data: survey } = await client.createProject({
+  type: 'survey',
+  organization_id: 'org_1',
+  campaign_id: 'camp_1',
+  name: 'Primary intent',
+  phone_number_ids: ['pn_1'],
+  contact_list_ids: ['cl_1'],
+  questions: [
+    { sequence: 1, question_type: 'intro', question_text: 'Hi {first_name|there}, 2 quick questions? Reply STOP to opt out.' },
+    {
+      sequence: 2,
+      question_type: 'multiple_choice',
+      question_text: 'Will you vote in the primary? Reply 1 Yes, 2 No.',
+      response_options: [
+        { value: 1, label: 'Yes', next_sequence: 4 },
+        { value: 2, label: 'No' },
+      ],
+      no_match_sequence: 3,
+    },
+    { sequence: 3, question_type: 'open_ended', question_text: 'What issue matters most to you?' },
+    { sequence: 4, question_type: 'outro', question_text: 'Thanks for your time!' },
+  ],
+});
+
+// updateProject(id, { questions }) replaces the whole set; getProject returns it as `questions`.
+const { data: results } = await client.getProjectSurveyResults(survey!.project_id!);
+```
+
 ## Triggered projects and campaigns
 
 A triggered text project or email campaign has no contact list. Recipients arrive one at a
@@ -185,11 +222,15 @@ await client.createProject({
 });
 ```
 
-Email campaigns take follow-ups as `sequence` (`steps` of `template_id`, `delay_days`,
-`send_time`, with `stop_on_reply` and `stop_on_click`); such a campaign reads
-`type: 'broadcast'`. A triggered email campaign can have follow-ups too: beside a `trigger`,
-each person's follow-up goes `delay_days` (1 to 365) after the calendar day their own previous
-email was sent, in the campaign's `timezone`; email follow-ups wait whole days.
+Email campaigns take follow-ups as `sequence` (`steps` of `template_id` with either `delay_days`
+and `send_time`, or `delay_hours` (1 to 72) alone, with `stop_on_reply` and `stop_on_click`); a
+step that gives both is a type error and a 400. Such a campaign reads `type: 'broadcast'`, and
+`getEmailCampaign` returns `sequence.steps[]` with `delay_days`, `delay_hours` and `send_time` (an
+hour step has `delay_days` and `send_time` null). On a broadcast an hour step still respects the
+campaign's send window. A triggered email campaign can have follow-ups too: beside a `trigger`,
+each person's day follow-up goes `delay_days` (1 to 365) after the calendar day their own previous
+email was sent, in the campaign's `timezone`, and an hour follow-up goes `delay_hours` after the
+moment it was.
 
 ## Tags
 

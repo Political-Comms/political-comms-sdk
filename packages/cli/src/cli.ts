@@ -1,12 +1,15 @@
 import { parseArgs } from 'node:util';
 import { PoliticalCommsClient, PoliticalCommsError } from '@political-comms/sdk';
+import { readQuestionsFile } from './surveyQuestions';
 import type {
   AddTagContactsResult,
   ContactListImportError,
+  CreateProjectRequest,
   CreateTagRequest,
   ProjectFollowUps,
   ProjectSurveyResults,
   ScheduleTimezone,
+  SurveyQuestionInput,
   TagActivityEvent,
   TagContactsQueuedResult,
   TagContactsRequest,
@@ -157,7 +160,7 @@ the terminal.
 Create flags (projects create):
   --name <name>                    Project name (required)
   --organization-id <id>           Owning organization (required)
-  --protocol <sms|mms>             Message protocol (required)
+  --protocol <sms|mms>             Message protocol (required unless survey)
   --phone-number-id <id>           Sending number, repeatable (required)
   --contact-list-id <id>           Contact list, repeatable (this or --tag-id
                                    required)
@@ -169,7 +172,7 @@ Create flags (projects create):
                                    tags, repeatable
   --suppression-tag-id <id>        Leave out contacts carrying this tag,
                                    repeatable
-  --body <text>                    Message text (required)
+  --body <text>                    Message text (required unless survey)
   --campaign-id <id>               10DLC campaign
   --brand-id <id>                  10DLC brand
   --channel <10dlc|toll-free>      Messaging channel (default 10dlc)
@@ -191,6 +194,12 @@ Create flags (projects create):
                                    a <N>d follow-up)
   --timezone <iana tz>             Time zone of --send-time (required with a
                                    <N>d follow-up)
+  --type <broadcast|survey>        Project type (default broadcast)
+  --questions-file <path>          Survey questions, a JSON array (required with
+                                   --type survey, which also requires
+                                   --campaign-id and takes no --protocol,
+                                   --body, --media-id, --brand-id, or follow-up
+                                   flags). Format: see the README
 
 Test flags (projects test):
   --phone <e164>                   Test recipient, repeatable
@@ -241,6 +250,7 @@ const PARSE_OPTIONS = {
   'stop-on-reply': { type: 'boolean' },
   'stop-on-click': { type: 'boolean' },
   'send-time': { type: 'string' },
+  'questions-file': { type: 'string' },
   // Two flags, not parseArgs allowNegative, which Node 20 before 20.16 lacks.
   'fire-triggers': { type: 'boolean' },
   'no-fire-triggers': { type: 'boolean' },
@@ -801,43 +811,7 @@ async function projectsCommand(
     }
 
     case 'create': {
-      const missing = [
-        ['--name', flags.name],
-        ['--organization-id', flags['organization-id']],
-        ['--protocol', flags.protocol],
-        ['--phone-number-id', flags['phone-number-id']?.[0]],
-        ['--contact-list-id or --tag-id', flags['contact-list-id']?.[0] ?? flags['tag-id']?.[0]],
-        ['--body', flags.body],
-      ]
-        .filter(([, value]) => value === undefined)
-        .map(([flag]) => flag);
-      if (missing.length > 0) throw new UsageError(`projects create is missing required flags: ${missing.join(', ')}`);
-      if (flags.protocol !== 'sms' && flags.protocol !== 'mms') {
-        throw new UsageError('--protocol must be sms or mms');
-      }
-      if (flags.channel !== undefined && flags.channel !== '10dlc' && flags.channel !== 'toll-free') {
-        throw new UsageError('--channel must be 10dlc or toll-free');
-      }
-      const result = await client.createProject({
-        organization_id: flags['organization-id']!,
-        channel: flags.channel,
-        brand_id: flags['brand-id'],
-        campaign_id: flags['campaign-id'],
-        toll_free_verification_id: flags['toll-free-verification-id'],
-        phone_number_ids: flags['phone-number-id']!,
-        name: flags.name!,
-        protocol: flags.protocol,
-        contact_list_ids: flags['contact-list-id'],
-        suppression_list_ids: flags['suppression-list-id'],
-        tag_ids: flags['tag-id'],
-        require_tag_ids: flags['require-tag-id'],
-        suppression_tag_ids: flags['suppression-tag-id'],
-        media_ids: flags['media-id'],
-        message_text: flags.body!,
-        follow_ups: followUpsRequest(flags),
-        scheduled_timezone: flags.timezone === undefined ? undefined : parseTimezone(flags.timezone),
-        sequence_send_time: flags['send-time'],
-      });
+      const result = await client.createProject(createProjectRequest(flags));
       if (flags.json) return printJson(io, result);
       io.out(`Created project ${str(result.data?.project_id)} (status: ${str(result.data?.status)})`);
       return 0;
@@ -933,6 +907,92 @@ async function projectsCommand(
 }
 
 const ACTIVITY_EVENTS: readonly TagActivityEvent[] = ['donated', 'clicked', 'responded', 'sent'];
+
+function missingFlags(command: string, required: Array<[string, unknown]>): void {
+  const missing = required.filter(([, value]) => value === undefined).map(([flag]) => flag);
+  if (missing.length > 0) throw new UsageError(`${command} is missing required flags: ${missing.join(', ')}`);
+}
+
+function refuseFlags(flags: Flags, names: Array<keyof Flags>, why: string): void {
+  const sent = names.filter((name) => flags[name] !== undefined).map((name) => `--${name}`);
+  if (sent.length > 0) throw new UsageError(`${why}: remove ${sent.join(', ')}`);
+}
+
+const SURVEY_FLAGS: Array<keyof Flags> = ['questions-file'];
+const MESSAGE_FLAGS: Array<keyof Flags> = [
+  'protocol', 'body', 'media-id', 'brand-id', 'toll-free-verification-id', 'follow-up', 'stop-on-reply',
+  'stop-on-click', 'send-time', 'timezone',
+];
+
+function createProjectRequest(flags: Flags): CreateProjectRequest {
+  if (flags.type !== undefined && flags.type !== 'broadcast' && flags.type !== 'survey') {
+    throw new UsageError('--type must be broadcast or survey');
+  }
+  if (flags.channel !== undefined && flags.channel !== '10dlc' && flags.channel !== 'toll-free') {
+    throw new UsageError('--channel must be 10dlc or toll-free');
+  }
+  const audience = {
+    contact_list_ids: flags['contact-list-id'],
+    suppression_list_ids: flags['suppression-list-id'],
+    tag_ids: flags['tag-id'],
+    require_tag_ids: flags['require-tag-id'],
+    suppression_tag_ids: flags['suppression-tag-id'],
+  };
+  const common: Array<[string, unknown]> = [
+    ['--name', flags.name],
+    ['--organization-id', flags['organization-id']],
+    ['--phone-number-id', flags['phone-number-id']?.[0]],
+    ['--contact-list-id or --tag-id', flags['contact-list-id']?.[0] ?? flags['tag-id']?.[0]],
+  ];
+  if (flags.type === 'survey') {
+    refuseFlags(flags, MESSAGE_FLAGS, 'A survey sends --questions-file, not a message');
+    missingFlags('projects create --type survey', [
+      ...common,
+      ['--campaign-id', flags['campaign-id']],
+      ['--questions-file', flags['questions-file']],
+    ]);
+    return {
+      type: 'survey',
+      organization_id: flags['organization-id']!,
+      campaign_id: flags['campaign-id']!,
+      channel: flags.channel,
+      phone_number_ids: flags['phone-number-id']!,
+      name: flags.name!,
+      ...audience,
+      questions: questionsFromFile(flags['questions-file']!),
+    };
+  }
+  refuseFlags(flags, SURVEY_FLAGS, 'Only a survey takes questions; add --type survey');
+  missingFlags('projects create', [...common, ['--protocol', flags.protocol], ['--body', flags.body]]);
+  if (flags.protocol !== 'sms' && flags.protocol !== 'mms') {
+    throw new UsageError('--protocol must be sms or mms');
+  }
+  return {
+    organization_id: flags['organization-id']!,
+    channel: flags.channel,
+    brand_id: flags['brand-id'],
+    campaign_id: flags['campaign-id'],
+    toll_free_verification_id: flags['toll-free-verification-id'],
+    phone_number_ids: flags['phone-number-id']!,
+    name: flags.name!,
+    protocol: flags.protocol,
+    ...audience,
+    media_ids: flags['media-id'],
+    message_text: flags.body!,
+    follow_ups: followUpsRequest(flags),
+    scheduled_timezone: flags.timezone === undefined ? undefined : parseTimezone(flags.timezone),
+    sequence_send_time: flags['send-time'],
+  };
+}
+
+/** A bad file is a usage error: nothing was sent. */
+function questionsFromFile(path: string): SurveyQuestionInput[] {
+  try {
+    return readQuestionsFile(path);
+  } catch (cause) {
+    throw new UsageError(cause instanceof Error ? cause.message : String(cause));
+  }
+}
 
 function createTagRequest(flags: Flags): CreateTagRequest {
   const organization_id = flags['organization-id'];

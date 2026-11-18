@@ -79,6 +79,44 @@ One method exists per API operation, in snake_case: `list_organizations`, `get_h
 
 Every method returns the parsed JSON response, a dict of the form `{"success": True, "data": ...}`.
 
+## Create a survey
+
+A survey sends `questions` instead of a message, so `create_project` takes no `protocol` or
+`message_text` for it (mixing them raises `ValueError` before any request). Questions are
+numbered `sequence` 1..N, the first is the `intro`, and only recipients who reply move on. A
+`multiple_choice` question takes 2-9 `response_options` (the digit a recipient texts);
+`next_sequence` and `no_match_sequence` branch forward. A survey needs `campaign_id`, takes
+lists and tags like a broadcast, and never takes follow-ups.
+
+```python
+survey = client.create_project(
+    "org_1",
+    "Primary intent",
+    type="survey",
+    campaign_id="camp_1",
+    phone_number_ids=["pn_1"],
+    contact_list_ids=["cl_1"],
+    questions=[
+        {"sequence": 1, "question_type": "intro", "question_text": "Hi {first_name|there}, 2 quick questions? Reply STOP to opt out."},
+        {
+            "sequence": 2,
+            "question_type": "multiple_choice",
+            "question_text": "Will you vote in the primary? Reply 1 Yes, 2 No.",
+            "response_options": [
+                {"value": 1, "label": "Yes", "next_sequence": 4},
+                {"value": 2, "label": "No"},
+            ],
+            "no_match_sequence": 3,
+        },
+        {"sequence": 3, "question_type": "open_ended", "question_text": "What issue matters most to you?"},
+        {"sequence": 4, "question_type": "outro", "question_text": "Thanks for your time!"},
+    ],
+)["data"]
+
+# update_project(id, questions=[...]) replaces the whole set; get_project returns it as "questions".
+results = client.get_project_survey_results(survey["project_id"])["data"]
+```
+
 ## Triggered projects and campaigns
 
 A triggered text project or email campaign has no contact list. Recipients arrive one at a
@@ -173,11 +211,15 @@ client.create_project(
 )
 ```
 
-Email campaigns take follow-ups as `sequence` (`steps` of `template_id`, `delay_days`,
-`send_time`, with `stop_on_reply` and `stop_on_click`); such a campaign reads
-`type` `"broadcast"`. A triggered email campaign can have follow-ups too: beside a `trigger`,
-each person's follow-up goes `delay_days` (1 to 365) after the calendar day their own previous
-email was sent, in the campaign's `timezone`; email follow-ups wait whole days.
+Email campaigns take follow-ups as `sequence` (`steps` of `template_id` with either `delay_days`
+and `send_time`, or `delay_hours` (1 to 72) alone, with `stop_on_reply` and `stop_on_click`); a
+step that gives both is a 400. Such a campaign reads `type` `"broadcast"`, and
+`get_email_campaign` returns `sequence["steps"]` with `delay_days`, `delay_hours` and `send_time`
+(an hour step has `delay_days` and `send_time` null). On a broadcast an hour step still respects
+the campaign's send window. A triggered email campaign can have follow-ups too: beside a
+`trigger`, each person's day follow-up goes `delay_days` (1 to 365) after the calendar day their
+own previous email was sent, in the campaign's `timezone`, and an hour follow-up goes
+`delay_hours` after the moment it was.
 
 ## Conversations
 

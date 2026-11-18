@@ -592,9 +592,9 @@ class PoliticalCommsClient:
         self,
         organization_id: str,
         name: str,
-        protocol: str,
-        message_text: str,
-        phone_number_ids: Sequence[str],
+        protocol: Optional[str] = None,
+        message_text: Optional[str] = None,
+        phone_number_ids: Optional[Sequence[str]] = None,
         contact_list_ids: Optional[Sequence[str]] = None,
         *,
         channel: Optional[str] = None,
@@ -617,6 +617,8 @@ class PoliticalCommsClient:
         follow_ups: Optional[JsonDict] = None,
         scheduled_timezone: Optional[str] = None,
         sequence_send_time: Optional[str] = None,
+        questions: Optional[Sequence[JsonDict]] = None,
+        ai_survey_analysis_enabled: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """POST /projects
@@ -630,6 +632,25 @@ class PoliticalCommsClient:
         ``body["details"]["scope"]`` is ``"organization"`` or ``"platform"``.
 
         ``type`` is ``"broadcast"`` (default), ``"survey"``, or ``"triggered"``.
+        ``phone_number_ids`` is required for every type, and ``protocol`` and
+        ``message_text`` for a broadcast or triggered project.
+
+        A survey (``type="survey"``) sends ``questions`` instead of a message,
+        so it takes no ``protocol``, ``message_text``, ``media_ids``,
+        ``follow_ups``, ``opt_out_footer_enabled``, or ``brand_id``; it needs
+        ``campaign_id`` on every channel. ``questions`` is the full flow, 2-32
+        dicts: ``{"sequence": n, "question_type": "intro" |
+        "multiple_choice" | "open_ended" | "outro", "question_text": ...}``,
+        numbered 1..N with the ``intro`` first. A ``multiple_choice`` question
+        takes 2-9 ``response_options`` (``{"value": 1-9, "label": ...,
+        "next_sequence": n}``); ``no_match_sequence`` branches on a reply that
+        matches none; branches point to a later question. Optional per
+        question: ``message_type`` (``"sms"`` or ``"mms"`` with ``media_ids``)
+        and ``is_required``. Only recipients who reply move on.
+        ``ai_survey_analysis_enabled`` classifies unmatched replies with AI,
+        billed per analyzed reply. A mixed body raises ``ValueError`` before
+        any request.
+
         A triggered project has no contact list: pass ``type="triggered"`` and a
         ``trigger`` dict (``{"source": "api" | "donation" | "event" | "tag",
         ...}``) and leave out ``contact_list_ids`` and
@@ -684,6 +705,31 @@ class PoliticalCommsClient:
         value is empty or not a valid URL. ``{phone}`` is not allowed as a whole
         URL.
         """
+        message_args = {
+            "protocol": protocol,
+            "message_text": message_text,
+            "media_ids": media_ids,
+            "opt_out_footer_enabled": opt_out_footer_enabled,
+            "follow_ups": follow_ups,
+            "trigger": trigger,
+            "brand_id": brand_id,
+            "toll_free_verification_id": toll_free_verification_id,
+            "scheduled_timezone": scheduled_timezone,
+            "sequence_send_time": sequence_send_time,
+        }
+        if type == "survey":
+            _refuse(message_args, "A survey sends questions, not a message")
+            if questions is None or campaign_id is None:
+                raise ValueError("A survey needs questions and campaign_id")
+        else:
+            _refuse(
+                {"questions": questions, "ai_survey_analysis_enabled": ai_survey_analysis_enabled},
+                'Only a survey (type="survey") takes questions',
+            )
+            if protocol is None or message_text is None:
+                raise ValueError("A broadcast or triggered project needs protocol and message_text")
+        if phone_number_ids is None:
+            raise ValueError("create_project needs phone_number_ids")
         body = _compact(
             {
                 "organization_id": organization_id,
@@ -712,6 +758,8 @@ class PoliticalCommsClient:
                 "follow_ups": follow_ups,
                 "scheduled_timezone": scheduled_timezone,
                 "sequence_send_time": sequence_send_time,
+                "questions": list(questions) if questions is not None else None,
+                "ai_survey_analysis_enabled": ai_survey_analysis_enabled,
             }
         )
         return self._request("POST", "/projects", body=body, idempotency_key=idempotency_key)
@@ -777,6 +825,8 @@ class PoliticalCommsClient:
         clear_follow_ups: bool = False,
         scheduled_timezone: Optional[str] = None,
         sequence_send_time: Optional[str] = None,
+        questions: Optional[Sequence[JsonDict]] = None,
+        ai_survey_analysis_enabled: Optional[bool] = None,
         idempotency_key: Optional[str] = None,
     ) -> JsonDict:
         """PATCH /projects/{id}
@@ -819,7 +869,33 @@ class PoliticalCommsClient:
         field: ``contact_list_ids=[]`` is accepted while the project keeps a
         ``tag_ids`` entry (or is a draft), and ``suppression_list_ids=[]`` or
         ``media_ids=[]`` removes them all. ``None`` leaves a field unchanged.
+
+        Survey projects take ``name``, the phone number, list, tag, and link
+        tracking fields, ``ai_survey_analysis_enabled``, and ``questions``,
+        which replaces the whole set (see ``create_project``); the channel and
+        campaign are fixed. Passing ``questions`` or
+        ``ai_survey_analysis_enabled`` with a message's fields raises
+        ``ValueError`` before any request.
         """
+        if questions is not None or ai_survey_analysis_enabled is not None:
+            _refuse(
+                {
+                    "channel": channel,
+                    "brand_id": brand_id,
+                    "campaign_id": campaign_id,
+                    "toll_free_verification_id": toll_free_verification_id,
+                    "message_text": message_text,
+                    "protocol": protocol,
+                    "media_ids": media_ids,
+                    "opt_out_footer_enabled": opt_out_footer_enabled,
+                    "trigger": trigger,
+                    "follow_ups": follow_ups,
+                    "clear_follow_ups": clear_follow_ups or None,
+                    "scheduled_timezone": scheduled_timezone,
+                    "sequence_send_time": sequence_send_time,
+                },
+                "A survey update cannot carry a message's fields",
+            )
         body = _compact(
             {
                 "channel": channel,
@@ -846,6 +922,8 @@ class PoliticalCommsClient:
                 "follow_ups": follow_ups,
                 "scheduled_timezone": scheduled_timezone,
                 "sequence_send_time": sequence_send_time,
+                "questions": list(questions) if questions is not None else None,
+                "ai_survey_analysis_enabled": ai_survey_analysis_enabled,
             }
         )
         if clear_follow_ups:
@@ -1459,17 +1537,26 @@ class PoliticalCommsClient:
         ``sequence`` gives this campaign follow-ups (it still reads
         ``type`` ``"broadcast"``): ``{"stop_on_reply": True, "stop_on_click":
         False, "thread_replies": False, "steps": [{"template_id": ...,
-        "delay_days": 3, "send_time": "08:30"}, ...]}``; ``thread_replies``
+        "delay_days": 3, "send_time": "08:30"}, {"template_id": ...,
+        "delay_hours": 48}, ...]}``; ``thread_replies``
         sends each follow-up as a reply in the first email's thread. Each
-        follow-up sends ``delay_days`` after the previous email at
-        ``send_time`` in the campaign's time zone, to the people the first
+        follow-up waits either ``delay_days`` (0 to 365, with ``send_time``
+        ``"HH:MM"``) after the previous email at that time in the campaign's
+        time zone, or ``delay_hours`` (1 to 72) real hours after it, never
+        both (a 400 at ``sequence.steps[i].delay_days`` or ``.send_time``).
+        On a broadcast an hour step still respects the campaign's send window:
+        if it would land outside, it goes when the window next opens. The
+        follow-ups go to the people the first
         email reached, skipping anyone who left (a reply with
         ``stop_on_reply``, a tracked-link click with ``stop_on_click``; at
         least one must be true), unsubscribed, bounced or complained.
         Scheduling the first email schedules them all. Beside ``trigger``
         each person is on their own clock: ``delay_days`` must be 1 to 365
         (0 is a 400) and counts from the calendar day that person's previous
-        email was sent; email follow-ups wait whole days only.
+        email was sent, and ``delay_hours`` counts from the moment it was.
+        ``get_email_campaign`` returns ``sequence["steps"]`` with each step's
+        ``delay_days``, ``delay_hours`` and ``send_time``; an hour step has
+        ``delay_days`` and ``send_time`` null.
 
         Once GA, also returns ``403 ONBOARDING_INCOMPLETE`` if the
         organization's 14-day setup grace window has passed and the business
@@ -1819,6 +1906,13 @@ class PoliticalCommsClient:
             except ValueError:
                 pass
         return _backoff_delay(attempt)
+
+def _refuse(args: JsonDict, why: str) -> None:
+    """The API refuses each of these with a 400 (strict body); naming them here says which to drop."""
+    sent = [key for key, value in args.items() if value is not None]
+    if sent:
+        raise ValueError(f"{why}: remove {', '.join(sent)}")
+
 
 def _compact(mapping: JsonDict) -> JsonDict:
     return {k: v for k, v in mapping.items() if v is not None}

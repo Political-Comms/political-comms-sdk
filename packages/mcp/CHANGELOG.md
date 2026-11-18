@@ -16,6 +16,7 @@
 - `POLITICAL_COMMS_BASE_URL` points the server at another API host.
 
 ### Fixed
+- `create_project` could not create a survey: it required `protocol` and `message_text`, which the API refuses on a survey, and had no `questions`. It now takes `questions` (2-32, each with `sequence`, `question_type`, `question_text`, and for multiple choice 2-9 `response_options`, with the API's limits in the JSON schema) and `ai_survey_analysis_enabled`; `protocol` and `message_text` are required only for broadcast and triggered projects. A body that mixes a survey's fields with a message's is refused before the API is called, naming the fields to remove. The description tells an agent how a survey differs. `confirm: true` is still required.
 - `create_project` without `contact_list_ids` sent an empty array, which the API refuses; it now leaves the field out, so a draft or a tags-only project can be created.
 
 ### Changed

@@ -212,6 +212,24 @@ describe('political-comms MCP server (stdio)', () => {
     expect(schema.required).not.toContain('contact_list_ids');
   });
 
+  it('offers survey questions on create_project with the API limits, still behind confirm', async () => {
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'create_project')!;
+    const schema = tool.inputSchema as unknown as {
+      properties: Record<string, { minItems?: number; maxItems?: number; items?: { required: string[]; properties: Record<string, { enum?: string[]; maxItems?: number }> } }>;
+      required: string[];
+    };
+    const questions = schema.properties.questions!;
+    expect([questions.minItems, questions.maxItems]).toEqual([2, 32]);
+    expect(questions.items!.required).toEqual(['sequence', 'question_type', 'question_text']);
+    expect(questions.items!.properties.question_type!.enum).toEqual(['intro', 'multiple_choice', 'open_ended', 'outro']);
+    expect(questions.items!.properties.response_options!.maxItems).toBe(9);
+    expect(schema.required).toContain('confirm');
+    expect(schema.required).not.toContain('message_text');
+    expect(schema.required).not.toContain('protocol');
+    expect(tool.description).toContain('type "survey"');
+    expect(tool.description).toContain('never follow_ups');
+  });
+
   it('offers tag triggers and start times, and no reentry, on the trigger', async () => {
     const result = await client.listTools();
     const trigger = (result.tools.find((t) => t.name === 'create_project')!.inputSchema.properties as unknown as {
@@ -503,6 +521,67 @@ describe('political-comms MCP server tag requests', () => {
       scheduled_timezone: 'America/Chicago',
       sequence_send_time: '09:00',
     });
+  });
+
+  const surveyQuestions = [
+    { sequence: 1, question_type: 'intro', question_text: 'Hi, 1 quick question?' },
+    {
+      sequence: 2,
+      question_type: 'multiple_choice',
+      question_text: 'Will you vote? Reply 1 Yes, 2 No.',
+      response_options: [
+        { value: 1, label: 'Yes' },
+        { value: 2, label: 'No' },
+      ],
+    },
+  ];
+
+  it('create_project sends a survey with questions and no message fields', async () => {
+    reply.data = { project_id: 'proj_3', type: 'survey', question_count: 2 };
+    const { request } = await call('create_project', {
+      confirm: true,
+      type: 'survey',
+      organization_id: 'org_1',
+      campaign_id: 'camp_1',
+      name: 'Intent',
+      phone_number_ids: ['pn_1'],
+      contact_list_ids: ['cl_1'],
+      tag_ids: ['tag_1'],
+      questions: surveyQuestions,
+      ai_survey_analysis_enabled: true,
+    });
+    expect(request).toEqual({
+      method: 'POST',
+      path: '/v1/projects',
+      body: {
+        type: 'survey',
+        organization_id: 'org_1',
+        campaign_id: 'camp_1',
+        name: 'Intent',
+        phone_number_ids: ['pn_1'],
+        contact_list_ids: ['cl_1'],
+        tag_ids: ['tag_1'],
+        questions: surveyQuestions,
+        ai_survey_analysis_enabled: true,
+      },
+    });
+  });
+
+  it('create_project refuses a mixed survey or message body without calling the API', async () => {
+    const survey = { confirm: true, type: 'survey', organization_id: 'org_1', campaign_id: 'camp_1', name: 'S', phone_number_ids: ['pn_1'] };
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ ...survey, questions: surveyQuestions, message_text: 'Hi', protocol: 'sms' }, 'remove protocol, message_text'],
+      [survey, 'needs questions and campaign_id'],
+      [{ confirm: true, organization_id: 'org_1', name: 'B', phone_number_ids: ['pn_1'], protocol: 'sms', message_text: 'Hi', questions: surveyQuestions }, 'Only a survey takes questions'],
+      [{ confirm: true, organization_id: 'org_1', name: 'B', phone_number_ids: ['pn_1'] }, 'needs protocol and message_text'],
+    ];
+    for (const [args, message] of cases) {
+      requests.length = 0;
+      const result = await client.callTool({ name: 'create_project', arguments: args });
+      expect(result.isError).toBe(true);
+      expect((result.content as Array<{ text: string }>)[0]?.text).toContain(message);
+      expect(requests).toHaveLength(0);
+    }
   });
 
   it('import_contact_list sends fire_triggers only when given', async () => {

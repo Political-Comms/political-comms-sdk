@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PoliticalCommsClient, PoliticalCommsError } from '../src/index';
-import type { ProjectFollowUps } from '../src/index';
+import type { CreateProjectRequest, ProjectFollowUps, SurveyQuestion, SurveyQuestionInput, UpdateProjectRequest } from '../src/index';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -1283,6 +1283,39 @@ describe('triggered projects and campaigns', () => {
     expect(res.data.type).toBe('broadcast');
   });
 
+  it('createEmailCampaign sends an hour step and rejects a mixed one at compile time', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ id: 'camp_4', type: 'broadcast' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.createEmailCampaign({
+      name: 'Drip',
+      sender_identity_id: 'sid_1',
+      list_ids: ['l_1'],
+      template_id: 'tpl_1',
+      sequence: {
+        steps: [
+          { template_id: 'tpl_2', delay_days: 3, send_time: '09:00' },
+          { template_id: 'tpl_3', delay_hours: 48 },
+          // @ts-expect-error a step gives days with a time, or hours, never both
+          { template_id: 'tpl_4', delay_hours: 6, delay_days: 1, send_time: '09:00' },
+        ],
+      },
+    });
+    const steps = JSON.parse(call(fetchMock).init.body as string).sequence.steps;
+    expect(steps[1]).toEqual({ template_id: 'tpl_3', delay_hours: 48 });
+  });
+
+  it('getEmailCampaign types an hour step with null day and time', async () => {
+    const step = { id: 's2', position: 2, delay_days: null, delay_hours: 24, send_time: null };
+    const fetchMock = vi.fn(async () =>
+      okResponse({ id: 'camp_4', type: 'broadcast', sequence: { steps: [step] } }),
+    );
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const res = await client.getEmailCampaign('camp_4');
+    const read = res.data.sequence?.steps[0];
+    expect(read?.delay_hours).toBe(24);
+    expect(read?.delay_days).toBeNull();
+  });
+
   it('scheduleEmailCampaign sends the audience of a tag trigger', async () => {
     const fetchMock = vi.fn(async () => okResponse({ id: 'camp_2', status: 'sending' }));
     const client = makeClient(fetchMock as unknown as typeof fetch);
@@ -1664,5 +1697,121 @@ describe('tags', () => {
       tags_column: 'Tags',
       fire_triggers: true,
     });
+  });
+});
+
+describe('survey projects', () => {
+  const questions: SurveyQuestionInput[] = [
+    { sequence: 1, question_type: 'intro', question_text: 'Hi {first_name|there}, 2 quick questions?' },
+    {
+      sequence: 2,
+      question_type: 'multiple_choice',
+      question_text: 'Will you vote? Reply 1 Yes, 2 No.',
+      response_options: [
+        { value: 1, label: 'Yes', next_sequence: 3 },
+        { value: 2, label: 'No' },
+      ],
+      no_match_sequence: 3,
+    },
+    { sequence: 3, question_type: 'outro', question_text: 'Thanks!' },
+  ];
+
+  function sentBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> {
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    return JSON.parse(init.body as string);
+  }
+
+  it('POSTs exactly the survey body: questions, no message_text or protocol', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ project_id: 'proj_1', type: 'survey', question_count: 3 }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const { data } = await client.createProject({
+      type: 'survey',
+      organization_id: 'org_1',
+      campaign_id: 'camp_1',
+      name: 'Primary intent',
+      phone_number_ids: ['pn_1'],
+      contact_list_ids: ['cl_1'],
+      tag_ids: ['tag_1'],
+      questions,
+      ai_survey_analysis_enabled: true,
+    });
+    expect(sentBody(fetchMock)).toEqual({
+      type: 'survey',
+      organization_id: 'org_1',
+      campaign_id: 'camp_1',
+      name: 'Primary intent',
+      phone_number_ids: ['pn_1'],
+      contact_list_ids: ['cl_1'],
+      tag_ids: ['tag_1'],
+      questions,
+      ai_survey_analysis_enabled: true,
+    });
+    expect(data?.question_count).toBe(3);
+  });
+
+  it('PATCHes a survey with a full question set', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ project_id: 'proj_1', type: 'survey' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    await client.updateProject('proj_1', { questions, name: 'Renamed' });
+    expect(sentBody(fetchMock)).toEqual({ questions, name: 'Renamed' });
+  });
+
+  it('refuses a mixed survey and message body at compile time', () => {
+    // @ts-expect-error a survey sends questions, never a message
+    const survey: CreateProjectRequest = {
+      type: 'survey',
+      organization_id: 'org_1',
+      campaign_id: 'camp_1',
+      name: 'S',
+      questions,
+      message_text: 'Hi',
+    };
+    const surveyWithProtocol: CreateProjectRequest = {
+      type: 'survey',
+      organization_id: 'org_1',
+      campaign_id: 'camp_1',
+      name: 'S',
+      questions,
+      // @ts-expect-error a survey has no protocol; each question has its own message_type
+      protocol: 'sms',
+    };
+    // @ts-expect-error a survey without questions
+    const noQuestions: CreateProjectRequest = { type: 'survey', organization_id: 'org_1', campaign_id: 'camp_1', name: 'S' };
+    // @ts-expect-error a broadcast takes no questions
+    const broadcast: CreateProjectRequest = {
+      organization_id: 'org_1',
+      name: 'B',
+      protocol: 'sms',
+      message_text: 'Hi',
+      questions,
+    };
+    // @ts-expect-error one PATCH cannot carry both a survey's and a message's fields
+    const mixedUpdate: UpdateProjectRequest = { questions, message_text: 'Hi' };
+    expect([survey, surveyWithProtocol, noQuestions, broadcast, mixedUpdate]).toHaveLength(5);
+  });
+
+  it('parses the questions on a survey read', async () => {
+    const read = [
+      {
+        id: 'q_2',
+        sequence: 2,
+        question_type: 'multiple_choice',
+        question_text: 'Will you vote?',
+        message_type: 'sms',
+        media_urls: [],
+        response_options: [
+          { value: 1, label: 'Yes', next_sequence: 3 },
+          { value: 2, label: 'No', next_sequence: null },
+        ],
+        no_match_sequence: null,
+        is_required: true,
+      },
+    ];
+    const fetchMock = vi.fn(async () => okResponse({ project_id: 'proj_1', type: 'survey', message_text: null, questions: read }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const { data } = await client.getProject('proj_1');
+    const question: SurveyQuestion | undefined = data?.questions?.[0];
+    expect(question?.response_options?.[1]?.next_sequence).toBeNull();
+    expect(data?.questions).toEqual(read);
   });
 });

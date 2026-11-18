@@ -18,6 +18,8 @@ import {
   type TagActivityEvent,
   type AddTagContactsRequest,
   type ProjectFollowUps,
+  type CreateSurveyProjectRequest,
+  type SurveyQuestionInput,
   type TagContactsRequest,
   type Trigger,
   type TriggerAudience,
@@ -191,6 +193,51 @@ const followUpsParam = {
   },
   required: ['steps', 'stop_on_reply', 'stop_on_click'],
   additionalProperties: false,
+} as const;
+
+const sequenceNumber = { type: 'integer', minimum: 1, maximum: 32 } as const;
+
+const questionsParam = {
+  type: 'array',
+  minItems: 2,
+  maxItems: 32,
+  description:
+    'Survey projects only, and required for them: the full question flow, sequence 1..N with no gaps, ' +
+    'sequence 1 the intro. intro opens the survey; multiple_choice takes 2-9 response_options (the digit ' +
+    'a recipient texts, 1-9, and a label); open_ended takes none; outro closes and expects no reply. Only ' +
+    'recipients who reply move on. next_sequence (per option) and no_match_sequence (a reply matching no ' +
+    'option) branch to a LATER question; omit them to go to sequence + 1. question_text is at most 10 SMS ' +
+    'parts (1,500 characters on mms) and takes merge tags; options are never appended to it, so write ' +
+    'them into the text ("Reply 1 for Yes, 2 for No").',
+  items: {
+    type: 'object',
+    properties: {
+      sequence: sequenceNumber,
+      question_type: { type: 'string', enum: ['intro', 'multiple_choice', 'open_ended', 'outro'] },
+      question_text: { type: 'string', minLength: 1, maxLength: 1600 },
+      message_type: { type: 'string', enum: ['sms', 'mms'], description: 'Defaults to sms; mms needs media_ids' },
+      media_ids: { type: 'array', items: { type: 'string' }, maxItems: 10, description: 'mms questions only' },
+      response_options: {
+        type: 'array',
+        minItems: 2,
+        maxItems: 9,
+        items: {
+          type: 'object',
+          properties: {
+            value: { type: 'integer', minimum: 1, maximum: 9 },
+            label: { type: 'string', minLength: 1, maxLength: 200 },
+            next_sequence: sequenceNumber,
+          },
+          required: ['value', 'label'],
+          additionalProperties: false,
+        },
+      },
+      no_match_sequence: sequenceNumber,
+      is_required: { type: 'boolean', description: 'Defaults to true' },
+    },
+    required: ['sequence', 'question_type', 'question_text'],
+    additionalProperties: false,
+  },
 } as const;
 
 const TAG_TRIGGER_WARNING =
@@ -448,6 +495,10 @@ const TOOLS: Tool[] = [
     description:
       'Create a new messaging project (a draft send). Requires the owning organization, a name, ' +
       'protocol (sms or mms), sending phone number IDs, contact list IDs or tag IDs, and the message text. ' +
+      'For a survey pass type "survey", campaign_id, and questions (an intro, then questions with ' +
+      'numbered response options or open answers, then usually an outro) INSTEAD of protocol, ' +
+      'message_text, and media_ids; a survey takes contact lists and tags like a broadcast, never ' +
+      'follow_ups, brand_id, or opt_out_footer_enabled, and needs campaign_id on every channel. ' +
       'For a triggered project (no contact list; each phone number gets it at most once, when the trigger ' +
       'fires) pass type "triggered" and a trigger instead of contact_list_ids; start it with ' +
       'start_project after test_project. A tag trigger texts a tagged phone on a list the project can use ' +
@@ -472,9 +523,16 @@ const TOOLS: Tool[] = [
         type: {
           type: 'string',
           enum: ['broadcast', 'survey', 'triggered'],
-          description: 'Project type. Defaults to broadcast. Triggered requires trigger and takes no list IDs.',
+          description:
+            'Project type. Defaults to broadcast. Triggered requires trigger and takes no list IDs. Survey ' +
+            'requires questions and campaign_id and takes no protocol or message_text.',
         },
         trigger: triggerParam,
+        questions: questionsParam,
+        ai_survey_analysis_enabled: {
+          type: 'boolean',
+          description: 'Survey projects only: AI classifies replies no option matches, billed per analyzed reply. Default false.',
+        },
         follow_ups: followUpsParam,
         scheduled_timezone: {
           ...scheduleTimezoneParam,
@@ -487,8 +545,8 @@ const TOOLS: Tool[] = [
           description: 'Local time of day, HH:MM, that day follow-ups and a next_day trigger start send at.',
         },
         name: { type: 'string', description: 'Project name' },
-        protocol: { type: 'string', enum: ['sms', 'mms'], description: 'Message protocol' },
-        message_text: { type: 'string', description: 'The message body to send' },
+        protocol: { type: 'string', enum: ['sms', 'mms'], description: 'Message protocol. Required unless type is survey.' },
+        message_text: { type: 'string', description: 'The message body to send. Required unless type is survey.' },
         phone_number_ids: {
           type: 'array',
           items: { type: 'string' },
@@ -515,8 +573,8 @@ const TOOLS: Tool[] = [
           enum: ['10dlc', 'toll-free'],
           description: 'Messaging channel. Defaults to 10dlc.',
         },
-        brand_id: { type: 'string', description: 'Required when channel=10dlc' },
-        campaign_id: { type: 'string', description: 'Required when channel=10dlc' },
+        brand_id: { type: 'string', description: 'Required when channel=10dlc; never on a survey' },
+        campaign_id: { type: 'string', description: 'Required when channel=10dlc, and always for a survey' },
         toll_free_verification_id: { type: 'string', description: 'Required when channel=toll-free' },
         suppression_list_ids: {
           type: 'array',
@@ -555,8 +613,6 @@ const TOOLS: Tool[] = [
         'confirm',
         'organization_id',
         'name',
-        'protocol',
-        'message_text',
         'phone_number_ids',
       ],
       additionalProperties: false,
@@ -1518,7 +1574,51 @@ function optNum(args: Args, key: string): number | undefined {
   return args[key] === undefined ? undefined : Number(args[key]);
 }
 
+/** A survey's body and a message's are each strict in the API; naming the field here beats its 400. */
+const MESSAGE_ONLY_ARGS = [
+  'protocol', 'message_text', 'media_ids', 'opt_out_footer_enabled', 'follow_ups', 'trigger', 'brand_id',
+  'toll_free_verification_id', 'scheduled_timezone', 'sequence_send_time',
+];
+const SURVEY_ONLY_ARGS = ['questions', 'ai_survey_analysis_enabled'];
+
+function refuseArgs(args: Args, keys: string[], why: string): void {
+  const sent = keys.filter((key) => args[key] !== undefined);
+  if (sent.length > 0) throw new Error(`${why}: remove ${sent.join(', ')}.`);
+}
+
+function createSurveyRequest(args: Args): CreateSurveyProjectRequest {
+  refuseArgs(args, MESSAGE_ONLY_ARGS, 'A survey sends questions, not a message');
+  if (!Array.isArray(args.questions) || args.campaign_id === undefined) {
+    throw new Error('A survey needs questions and campaign_id.');
+  }
+  return {
+    type: 'survey',
+    organization_id: s(args, 'organization_id'),
+    campaign_id: s(args, 'campaign_id'),
+    name: s(args, 'name'),
+    channel: opt(args, 'channel') as '10dlc' | 'toll-free' | undefined,
+    phone_number_ids: (args.phone_number_ids as string[]) ?? [],
+    contact_list_ids: args.contact_list_ids as string[] | undefined,
+    suppression_list_ids: args.suppression_list_ids as string[] | undefined,
+    tag_ids: args.tag_ids as string[] | undefined,
+    require_tag_ids: args.require_tag_ids as string[] | undefined,
+    suppression_tag_ids: args.suppression_tag_ids as string[] | undefined,
+    questions: args.questions as SurveyQuestionInput[],
+    link_tracking_enabled: args.link_tracking_enabled as boolean | undefined,
+    link_tracking_destination_url: opt(args, 'link_tracking_destination_url'),
+    link_tracking_domain_id: opt(args, 'link_tracking_domain_id'),
+    link_tracking_param_field: opt(args, 'link_tracking_param_field'),
+    link_tracking_fallback_url: opt(args, 'link_tracking_fallback_url'),
+    ai_survey_analysis_enabled: args.ai_survey_analysis_enabled as boolean | undefined,
+  };
+}
+
 function createProjectRequest(args: Args): CreateProjectRequest {
+  if (args.type === 'survey') return createSurveyRequest(args);
+  refuseArgs(args, SURVEY_ONLY_ARGS, 'Only a survey takes questions; pass type "survey"');
+  if (args.protocol === undefined || args.message_text === undefined) {
+    throw new Error('A broadcast or triggered project needs protocol and message_text.');
+  }
   const base = {
     organization_id: s(args, 'organization_id'),
     channel: opt(args, 'channel') as '10dlc' | 'toll-free' | undefined,
@@ -1547,7 +1647,7 @@ function createProjectRequest(args: Args): CreateProjectRequest {
   // project may name only tags.
   return {
     ...base,
-    type: opt(args, 'type') as 'broadcast' | 'survey' | undefined,
+    type: opt(args, 'type') as 'broadcast' | undefined,
     contact_list_ids: args.contact_list_ids as string[] | undefined,
     suppression_list_ids: args.suppression_list_ids as string[] | undefined,
     tag_ids: args.tag_ids as string[] | undefined,

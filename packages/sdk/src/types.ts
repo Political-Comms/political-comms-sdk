@@ -1100,6 +1100,7 @@ export interface SurveyQuestionOption {
   [key: string]: unknown;
 }
 
+/** A survey question as `getProject` returns it: media by URL, unset branches null. */
 export interface SurveyQuestion {
   id?: string;
   sequence?: number;
@@ -1249,34 +1250,46 @@ export interface ProjectFollowUpsDetail {
   stop_on_click: boolean;
 }
 
-interface CreateProjectBase {
-  organization_id: string;
-  /** Messaging channel. Defaults to 10dlc. */
-  channel?: ProjectChannel;
-  /** Required when channel=10dlc; omit when channel=toll-free. */
-  brand_id?: string;
-  /** Required when channel=10dlc; omit when channel=toll-free. */
-  campaign_id?: string;
+/** One numbered answer option of a survey question, as sent on create and update. */
+export interface SurveyQuestionOptionInput {
+  /** The digit, 1-9, a recipient texts to pick this option. */
+  value: number;
+  /** 1-200 characters, used to match replies and in results. */
+  label: string;
+  /** A later question (1-32) to go to when this option is picked; omit to go to the next sequence. */
+  next_sequence?: number;
+}
+
+/**
+ * One survey question as sent on create and update. The questions of a survey
+ * are numbered `sequence` 1..N with no gaps (2-32 of them), and sequence 1 is
+ * the `intro`. A `multiple_choice` question takes 2-9 `response_options`; an
+ * `open_ended` one takes none; an `outro` expects no reply. Every branch
+ * (`next_sequence`, `no_match_sequence`) points to a later question. Unknown
+ * keys are refused (400).
+ */
+export interface SurveyQuestionInput {
+  sequence: number;
+  question_type: SurveyQuestionType;
   /**
-   * Required when channel=toll-free; omit when channel=10dlc. Must match the
-   * verification behind the chosen phone_number_ids.
+   * 1-1600 characters, at most 10 SMS parts (1,500 characters on an MMS
+   * question). Merge tags and `{tracking_url}` work as in a message. Response
+   * options are matched against replies, never appended to the text.
    */
-  toll_free_verification_id?: string;
-  /**
-   * Sending phone number IDs (1-49). At least one of phone_number_ids or
-   * phone_number_id is required. New conversations are spread randomly
-   * across the numbers; each recipient is then pinned to one number.
-   */
-  phone_number_ids?: string[];
-  /**
-   * @deprecated Use phone_number_ids. A single id is accepted and treated as
-   * a one-element phone_number_ids.
-   */
-  phone_number_id?: string;
-  name: string;
-  protocol: ProjectProtocol;
-  message_text: string;
+  question_text: string;
+  /** Defaults to sms. An mms question needs `media_ids`; an sms one refuses them. */
+  message_type?: ProjectProtocol;
+  /** Up to 10 uploaded media ids, mms questions only. */
   media_ids?: string[];
+  response_options?: SurveyQuestionOptionInput[] | null;
+  /** A later question to go to when a reply matches no option; questions with options only. */
+  no_match_sequence?: number | null;
+  /** Defaults to true. */
+  is_required?: boolean;
+}
+
+/** Link tracking as a create body takes it; an update takes the same fields and null clears. */
+interface CreateLinkTrackingFields {
   link_tracking_enabled?: boolean;
   /**
    * Where tracking links redirect. May embed the selected link parameter
@@ -1310,12 +1323,78 @@ interface CreateProjectBase {
    * otherwise.
    */
   link_tracking_fallback_url?: string;
+}
+
+interface UpdateLinkTrackingFields {
+  link_tracking_enabled?: boolean;
+  /** Supports the {field} placeholder; see CreateProjectRequest. */
+  link_tracking_destination_url?: string | null;
+  link_tracking_domain_id?: string | null;
+  /** "phone", a custom-field name, or null for none. */
+  link_tracking_param_field?: string | null;
+  /**
+   * Required when link_tracking_destination_url is a whole-URL placeholder
+   * ("https://{custom_url}"); see CreateProjectRequest.
+   */
+  link_tracking_fallback_url?: string | null;
+}
+
+/**
+ * The API validates each project type's body strictly (400 on an unknown
+ * field), so a survey body cannot carry a message's fields and a message
+ * body cannot carry a survey's. `never` turns that 400 into a compile error.
+ */
+interface NoSurveyFields {
+  questions?: never;
+  ai_survey_analysis_enabled?: never;
+}
+
+interface NoMessageFields {
+  protocol?: never;
+  message_text?: never;
+  media_ids?: never;
+  opt_out_footer_enabled?: never;
+  follow_ups?: never;
+  trigger?: never;
+  brand_id?: never;
+  toll_free_verification_id?: never;
+  scheduled_timezone?: never;
+  sequence_send_time?: never;
+}
+
+interface CreateProjectBase extends CreateLinkTrackingFields, NoSurveyFields {
+  organization_id: string;
+  /** Messaging channel. Defaults to 10dlc. */
+  channel?: ProjectChannel;
+  /** Required when channel=10dlc; omit when channel=toll-free or short-code. */
+  brand_id?: string;
+  /** Required when channel=10dlc; omit when channel=toll-free or short-code. */
+  campaign_id?: string;
+  /**
+   * Required when channel=toll-free; omit when channel=10dlc. Must match the
+   * verification behind the chosen phone_number_ids.
+   */
+  toll_free_verification_id?: string;
+  /**
+   * Sending phone number IDs (1-49). At least one of phone_number_ids or
+   * phone_number_id is required. New conversations are spread randomly
+   * across the numbers; each recipient is then pinned to one number.
+   */
+  phone_number_ids?: string[];
+  /**
+   * @deprecated Use phone_number_ids. A single id is accepted and treated as
+   * a one-element phone_number_ids.
+   */
+  phone_number_id?: string;
+  name: string;
+  protocol: ProjectProtocol;
+  message_text: string;
+  media_ids?: string[];
   /**
    * Whether the "STOP=END" opt-out footer is appended to every outbound
    * message. Defaults to true.
    */
   opt_out_footer_enabled?: boolean;
-  /** Broadcast and triggered projects only; a survey refuses them (400). */
   follow_ups?: ProjectFollowUps;
   /**
    * The project's time zone. Required when a follow-up waits days or a
@@ -1328,12 +1407,9 @@ interface CreateProjectBase {
   sequence_send_time?: string;
 }
 
-/**
- * A broadcast (the default type) or survey project that sends to contact
- * lists, tags, or both. Both types take the same tag fields.
- */
+/** A broadcast (the default type) that sends one message to contact lists, tags, or both. */
 export interface CreateListProjectRequest extends CreateProjectBase, SendTagFields {
-  type?: "broadcast" | "survey";
+  type?: "broadcast";
   /**
    * Contact list IDs to send to. Optional: a project with neither a list nor
    * a `tag_ids` entry is created in draft status, and it cannot be tested or
@@ -1355,8 +1431,39 @@ export interface CreateTriggeredProjectRequest extends CreateProjectBase {
   trigger: Trigger;
 }
 
+/**
+ * A survey sends `questions` in place of a message: only recipients who reply
+ * move on to later questions. It takes lists and tags like a broadcast, never
+ * follow-ups, and never carries the opt-out footer. `campaign_id` is required
+ * on every channel (a survey has no toll-free registration path), and there is
+ * no `brand_id`: the campaign names the brand. With neither a list nor a
+ * `tag_ids` entry it is created as a draft.
+ */
+export interface CreateSurveyProjectRequest
+  extends CreateLinkTrackingFields, SendTagFields, NoMessageFields {
+  type: "survey";
+  organization_id: string;
+  campaign_id: string;
+  name: string;
+  /** Defaults to 10dlc. */
+  channel?: ProjectChannel;
+  /** 1-49 sending numbers; at least one of phone_number_ids or phone_number_id is required. */
+  phone_number_ids?: string[];
+  /** @deprecated Use phone_number_ids. */
+  phone_number_id?: string;
+  /** Omit rather than send an empty array. */
+  contact_list_ids?: string[];
+  suppression_list_ids?: string[];
+  /** 2-32 questions, the first an `intro`. */
+  questions: SurveyQuestionInput[];
+  /** Replies no option matches are classified by AI, billed per analyzed reply. Defaults to false. */
+  ai_survey_analysis_enabled?: boolean;
+}
+
 export type CreateProjectRequest =
-  CreateListProjectRequest | CreateTriggeredProjectRequest;
+  | CreateListProjectRequest
+  | CreateSurveyProjectRequest
+  | CreateTriggeredProjectRequest;
 
 /** 201 Created. */
 export interface CreateProjectResult {
@@ -1382,7 +1489,9 @@ export interface CreateProjectResult {
   [key: string]: unknown;
 }
 
-export interface UpdateProjectRequest extends SendTagFields {
+/** PATCH body for a broadcast or triggered project. */
+export interface UpdateMessageProjectRequest
+  extends SendTagFields, UpdateLinkTrackingFields, NoSurveyFields {
   /**
    * Editable while the project is draft, awaiting_test, ready, or paused.
    * Only organization_id and type are immutable.
@@ -1419,17 +1528,6 @@ export interface UpdateProjectRequest extends SendTagFields {
   contact_list_ids?: string[];
   suppression_list_ids?: string[];
   media_ids?: string[];
-  link_tracking_enabled?: boolean;
-  /** Supports the {field} placeholder; see CreateProjectRequest. */
-  link_tracking_destination_url?: string | null;
-  link_tracking_domain_id?: string | null;
-  /** "phone", a custom-field name, or null for none. */
-  link_tracking_param_field?: string | null;
-  /**
-   * Required when link_tracking_destination_url is a whole-URL placeholder
-   * ("https://{custom_url}"); see CreateProjectRequest.
-   */
-  link_tracking_fallback_url?: string | null;
   /** Whether the "STOP=END" opt-out footer is appended to outbound messages. */
   opt_out_footer_enabled?: boolean;
   /**
@@ -1451,6 +1549,32 @@ export interface UpdateProjectRequest extends SendTagFields {
   /** "HH:MM"; the same rules as `scheduled_timezone`. */
   sequence_send_time?: string;
 }
+
+/**
+ * PATCH body for a survey. The channel and campaign are fixed once created.
+ * Any edit returns the survey to `awaiting_test`.
+ */
+export interface UpdateSurveyProjectRequest
+  extends SendTagFields, UpdateLinkTrackingFields, NoMessageFields {
+  channel?: never;
+  campaign_id?: never;
+  name?: string;
+  phone_number_ids?: string[];
+  /** @deprecated Use phone_number_ids. */
+  phone_number_id?: string;
+  /** `[]` is accepted only while the survey keeps a `tag_ids` entry. */
+  contact_list_ids?: string[];
+  suppression_list_ids?: string[];
+  /** Replaces every question: send the whole set (2-32, the first an `intro`). */
+  questions?: SurveyQuestionInput[];
+  ai_survey_analysis_enabled?: boolean;
+}
+
+/**
+ * A PATCH body carries no `type`, so the API picks the schema from the stored
+ * project: a survey body to a broadcast is a 400 like any unknown field.
+ */
+export type UpdateProjectRequest = UpdateMessageProjectRequest | UpdateSurveyProjectRequest;
 
 /** PATCH returns the full project object, same shape as GET /projects/{id}. */
 export type UpdateProjectResult = ProjectDetail;
@@ -2299,6 +2423,8 @@ export interface EmailCampaign {
   stop_on_click?: boolean;
   /** Triggered campaigns: the local time, "HH:MM", a `next_day` trigger start sends at in `timezone`. */
   sequence_send_time?: string | null;
+  /** Every email of the sequence, with each step's wait; returned by `getEmailCampaign` only. */
+  sequence?: EmailCampaignSequence | null;
   audience_count?: number | null;
   counts?: EmailCampaignCounts;
   /**
@@ -2335,15 +2461,60 @@ export interface ListEmailCampaignsQuery extends EmailPageQuery {
   search?: string;
 }
 
-export interface CreateEmailSequenceStepRequest {
+interface CreateEmailSequenceStepBase {
   template_id: string;
   /** Defaults to the template's subject. */
   subject?: string;
   preheader?: string | null;
+}
+
+/** A follow-up that waits calendar days and sends at a local time of day. */
+export interface CreateEmailSequenceDaysStep extends CreateEmailSequenceStepBase {
   /** Days after the previous email; 0 is later the same day. 0-365; on a triggered campaign 1-365 (0 is a 400), counted from the day that person's previous email was sent. */
   delay_days: number;
   /** Local time of day in the campaign's time zone, "HH:MM" (for example "08:30"). */
   send_time: string;
+  delay_hours?: never;
+}
+
+/**
+ * A follow-up that waits real hours after the previous email, with no
+ * `send_time`. On a broadcast it still respects the campaign's send window: if
+ * it would land outside, it goes when the window next opens. On a triggered
+ * campaign it is that person's own previous send plus `delay_hours`.
+ */
+export interface CreateEmailSequenceHoursStep extends CreateEmailSequenceStepBase {
+  /** Real hours after the previous email, 1-72. */
+  delay_hours: number;
+  delay_days?: never;
+  send_time?: never;
+}
+
+/** Days with a time of day, or hours; a step that gives both is a 400 (and does not compile). */
+export type CreateEmailSequenceStepRequest =
+  | CreateEmailSequenceDaysStep
+  | CreateEmailSequenceHoursStep;
+
+/** One email of a sequence as `getEmailCampaign` returns it, the first email included. */
+export interface EmailSequenceStep {
+  id: string;
+  position: number;
+  /** Days after the previous email; `null` for an hour step. */
+  delay_days: number | null;
+  /** Real hours after the previous email, 1-72; `null` for a day step. */
+  delay_hours: number | null;
+  /** Local "HH:MM" of a day step; `null` for an hour step. */
+  send_time: string | null;
+  template_id?: string | null;
+  subject?: string | null;
+  preheader?: string | null;
+  [key: string]: unknown;
+}
+
+/** The sequence a campaign belongs to; returned by `getEmailCampaign` only, `null` for a broadcast with no follow-ups. */
+export interface EmailCampaignSequence {
+  steps: EmailSequenceStep[];
+  [key: string]: unknown;
 }
 
 /** At least one of `stop_on_reply` and `stop_on_click` must be true when there are steps (400 at `sequence.stop_on_reply`); an opt-out always ends them. */
@@ -2389,14 +2560,15 @@ export interface CreateEmailCampaignRequest extends SendTagFields {
   tracking_domain_id?: string | null;
   require_approval?: boolean;
   /**
-   * Give this campaign follow-ups: `steps` are sent in order, each
+   * Give this campaign follow-ups: `steps` are sent in order, each either
    * `delay_days` after the previous email at `send_time` in the campaign's
-   * time zone, to the people the first email reached, skipping anyone who
+   * time zone, or `delay_hours` real hours after it, to the people the first email reached, skipping anyone who
    * left (a reply with `stop_on_reply`, a click with `stop_on_click`),
    * unsubscribed, bounced or complained. Schedule the first email to schedule
    * them all; one test send tests every email. Beside `trigger` each person is
    * on their own clock: `delay_days` must be 1 to 365 (0 is a 400) and counts
-   * from the calendar day that person's previous email was sent.
+   * from the calendar day that person's previous email was sent, and
+   * `delay_hours` counts from the moment it was.
    */
   sequence?: CreateEmailSequenceRequest;
   /**

@@ -78,7 +78,7 @@ Write (each is annotated as non read-only; `create_project`, `test_project`, `sc
 | `create_tag` | Create a manual tag by `name`, or an activity tag by `activity_event` and optional `within_days`. |
 | `rename_tag` | Rename a manual tag. |
 | `add_tag_contacts` | Put a manual tag, named by `name` or by `id`, on phone numbers or email addresses (`identifiers`) or on everyone on a list (`contact_list_id`). A `name` creates the tag when none has it (ignoring case); the result's `created` says so. `identifiers` return counts; a `contact_list_id` is tagged in the background and returns `queued: true` and a `job_id` with no counts, and the outcome shows as the tag's `member_count` in `list_tags` once it finishes. `fire_triggers` (default true for `identifiers`, false for a list) says whether newly tagged contacts enter the tag's live triggers, which messages them; the result carries `triggers.entered`. Requires `confirm: true`. |
-| `create_project` | Create a draft messaging project, or a triggered project (`type: triggered` with a `trigger`, no contact list). Recipients are `contact_list_ids` plus contacts carrying ANY `tag_ids` tag; `require_tag_ids` keeps only contacts carrying ALL of its tags; `suppression_tag_ids` leaves tagged contacts out. A tagged contact is only sent to when it is on a live list the sender can use. Takes `follow_ups`, a tag trigger (`source: tag`), and `trigger.start` (`immediate` or `next_day`) with `scheduled_timezone` and `sequence_send_time`. |
+| `create_project` | Create a draft messaging project, a survey (`type: survey` with `campaign_id` and `questions` instead of `protocol` and `message_text`), or a triggered project (`type: triggered` with a `trigger`, no contact list). Recipients are `contact_list_ids` plus contacts carrying ANY `tag_ids` tag; `require_tag_ids` keeps only contacts carrying ALL of its tags; `suppression_tag_ids` leaves tagged contacts out. A tagged contact is only sent to when it is on a live list the sender can use. Takes `follow_ups`, a tag trigger (`source: tag`), and `trigger.start` (`immediate` or `next_day`) with `scheduled_timezone` and `sequence_send_time`. |
 | `test_project` | Send real test messages to explicit phone numbers. Numbers ending 555-0100 to 555-0199 are [test phone numbers](https://docs.politicalcomms.com/api-reference/testing) that never reach a phone and return a fixed outcome. |
 | `schedule_project` | Commit a bulk send at a specific date and time. |
 | `unschedule_project` | Remove a project's schedule. |
@@ -124,6 +124,39 @@ From then on, tagging a contact into that tag MESSAGES them. The `add_tag_contac
 `import_contact_list` descriptions tell an agent to read `live_triggers` from `list_tags`
 first, and to get the user's explicit yes before sending `fire_triggers: true` for a list
 or an import; that yes is the `confirm: true`.
+
+### Surveys
+
+A survey sends `questions` in place of a message: sequence 1 is the `intro`, a
+`multiple_choice` question takes 2-9 numbered `response_options`, an `open_ended` one takes
+none, and an `outro` closes it. Only recipients who reply move on. A survey needs
+`campaign_id`, takes lists and tags like a broadcast, and never takes `follow_ups`; the tool
+refuses a body that mixes a survey's fields with a message's before calling the API.
+
+```json
+{
+  "name": "create_project",
+  "arguments": {
+    "confirm": true,
+    "type": "survey",
+    "organization_id": "org_123",
+    "campaign_id": "camp_123",
+    "name": "Primary intent",
+    "phone_number_ids": ["pn_123"],
+    "contact_list_ids": ["cl_123"],
+    "questions": [
+      { "sequence": 1, "question_type": "intro", "question_text": "Hi {first_name|there}, one quick question?" },
+      {
+        "sequence": 2,
+        "question_type": "multiple_choice",
+        "question_text": "Will you vote in the primary? Reply 1 Yes, 2 No.",
+        "response_options": [{ "value": 1, "label": "Yes" }, { "value": 2, "label": "No" }]
+      },
+      { "sequence": 3, "question_type": "outro", "question_text": "Thanks!" }
+    ]
+  }
+}
+```
 
 ### Follow-ups
 

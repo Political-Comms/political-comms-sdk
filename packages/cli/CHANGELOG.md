@@ -13,6 +13,7 @@
 - `projects create` takes follow-ups: `--follow-up <N>d=<text>` or `<N>h=<text>` (repeatable, in order), `--stop-on-reply` and/or `--stop-on-click` (at least one with `--follow-up`), and `--send-time HH:MM` with `--timezone` for day waits. Text only; follow-up media goes through the SDK.
 
 ### Fixed
+- Survey projects could not be created from the CLI. `projects create --type survey --questions-file <path>` creates one: the file is a JSON array of questions (format in the README), checked for shape before anything is sent, with the failing entry named. A survey requires `--campaign-id` and refuses `--protocol`, `--body`, `--media-id`, `--brand-id`, `--toll-free-verification-id`, and the follow-up flags; a broadcast refuses `--questions-file`. `--type` takes `broadcast` (the default) or `survey`.
 - `projects create` printed an empty id; it now prints the new project's `project_id`.
 
 ### Changed

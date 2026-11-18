@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { PoliticalCommsError } from '@political-comms/sdk';
 import { main, table, kv, type CliClient, type CliIO } from '../src/cli';
@@ -1084,6 +1087,98 @@ describe('projects create with tags', () => {
     expect(code).toBe(2);
     expect(err.join('\n')).toContain('--contact-list-id or --tag-id');
     expect(client.createProject).not.toHaveBeenCalled();
+  });
+});
+
+describe('projects create --type survey', () => {
+  const questions = [
+    { sequence: 1, question_type: 'intro', question_text: 'Hi, 1 quick question?' },
+    {
+      sequence: 2,
+      question_type: 'multiple_choice',
+      question_text: 'Will you vote? Reply 1 Yes, 2 No.',
+      response_options: [
+        { value: 1, label: 'Yes', next_sequence: 3 },
+        { value: 2, label: 'No' },
+      ],
+    },
+    { sequence: 3, question_type: 'outro', question_text: 'Thanks!' },
+  ];
+  const dir = mkdtempSync(join(tmpdir(), 'pc-cli-survey-'));
+
+  function file(name: string, content: unknown): string {
+    const path = join(dir, name);
+    writeFileSync(path, typeof content === 'string' ? content : JSON.stringify(content));
+    return path;
+  }
+
+  const survey = (path: string) => [
+    'projects', 'create', '--type', 'survey',
+    '--name', 'Intent',
+    '--organization-id', 'org_1',
+    '--campaign-id', 'camp_1',
+    '--phone-number-id', 'pn_1',
+    '--contact-list-id', 'cl_1',
+    '--questions-file', path,
+  ];
+
+  it('sends exactly the survey body: questions from the file, no message_text or protocol', async () => {
+    const client = makeClient();
+    const { io, out } = makeIO();
+    const code = await main([...survey(file('ok.json', questions)), '--tag-id', 't1'], deps(client, io));
+
+    expect(code).toBe(0);
+    const body = JSON.parse(JSON.stringify((client.createProject as ReturnType<typeof vi.fn>).mock.calls[0]![0]));
+    expect(body).toEqual({
+      type: 'survey',
+      organization_id: 'org_1',
+      campaign_id: 'camp_1',
+      phone_number_ids: ['pn_1'],
+      name: 'Intent',
+      contact_list_ids: ['cl_1'],
+      tag_ids: ['t1'],
+      questions,
+    });
+    expect(out.join('\n')).toContain('Created project proj_9');
+  });
+
+  it('exits 2 on a message flag, a missing campaign, or questions without --type survey', async () => {
+    const path = file('ok2.json', questions);
+    const cases: Array<[string[], string]> = [
+      [[...survey(path), '--body', 'Hi', '--protocol', 'sms'], 'remove --protocol, --body'],
+      [survey(path).filter((arg) => arg !== '--campaign-id' && arg !== 'camp_1'), '--campaign-id'],
+      [
+        ['projects', 'create', '--name', 'B', '--organization-id', 'org_1', '--protocol', 'sms', '--body', 'Hi',
+          '--phone-number-id', 'pn_1', '--contact-list-id', 'cl_1', '--questions-file', path],
+        'add --type survey',
+      ],
+      [[...survey(path).slice(0, 3), 'triggered'], '--type must be broadcast or survey'],
+    ];
+    for (const [argv, message] of cases) {
+      const client = makeClient();
+      const { io, err } = makeIO();
+      expect(await main(argv, deps(client, io))).toBe(2);
+      expect(err.join('\n')).toContain(message);
+      expect(client.createProject).not.toHaveBeenCalled();
+    }
+  });
+
+  it('exits 2 naming the bad place in the questions file', async () => {
+    const cases: Array<[unknown, string]> = [
+      ['{not json', 'JSON'],
+      [{ questions }, 'must hold a JSON array of 2-32 questions'],
+      [[questions[0], { ...questions[1], text: 'typo' }], 'question [1] has unknown keys: text'],
+      [[questions[0], { ...questions[1], question_type: 'choice' }], 'question [1] question_type must be one of'],
+      [[questions[0], { ...questions[1], response_options: [{ value: 1, label: 'Yes' }] }], 'response_options must be an array of 2-9'],
+      [[questions[0], { ...questions[1], response_options: [{ value: 10, label: 'A' }, { value: 2, label: 'B' }] }], 'response_options[0] value must be an integer 1-9'],
+    ];
+    for (const [index, [content, message]] of cases.entries()) {
+      const client = makeClient();
+      const { io, err } = makeIO();
+      expect(await main(survey(file(`bad${index}.json`, content)), deps(client, io))).toBe(2);
+      expect(err.join('\n')).toContain(message);
+      expect(client.createProject).not.toHaveBeenCalled();
+    }
   });
 });
 

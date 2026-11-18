@@ -1100,6 +1100,17 @@ class TestTriggered:
         assert body["trigger"] == {"source": "api"}
         assert body["sequence"] == sequence
 
+    def test_create_email_campaign_sends_an_hour_step(self):
+        seen, handler = self._capture({"id": "camp_1", "type": "broadcast"})
+        sequence = {"steps": [
+            {"template_id": "tpl_2", "delay_days": 3, "send_time": "09:00"},
+            {"template_id": "tpl_3", "delay_hours": 48},
+        ]}
+        with make_client(handler) as client:
+            client.create_email_campaign("Drip", "sid_1", ["l_1"], template_id="tpl_1", sequence=sequence)
+        body = json.loads(seen["content"])
+        assert body["sequence"]["steps"][1] == {"template_id": "tpl_3", "delay_hours": 48}
+
     @pytest.mark.parametrize(
         ("method", "path"),
         [
@@ -1442,3 +1453,101 @@ class TestTags:
             "tags_column": "Tags",
             "fire_triggers": True,
         }
+
+
+SURVEY_QUESTIONS = [
+    {"sequence": 1, "question_type": "intro", "question_text": "Hi, 1 quick question?"},
+    {
+        "sequence": 2,
+        "question_type": "multiple_choice",
+        "question_text": "Will you vote? Reply 1 Yes, 2 No.",
+        "response_options": [{"value": 1, "label": "Yes"}, {"value": 2, "label": "No"}],
+        "no_match_sequence": None,
+    },
+]
+
+
+class TestSurveyProjects:
+    def capture(self, data):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["body"] = json.loads(request.content) if request.content else None
+            return ok_response(data)
+
+        return make_client(handler), seen
+
+    def test_create_survey_sends_exactly_the_survey_body(self):
+        client, seen = self.capture({"project_id": "proj_1", "type": "survey", "question_count": 2})
+        result = client.create_project(
+            "org_1",
+            "Intent",
+            type="survey",
+            campaign_id="camp_1",
+            phone_number_ids=["pn_1"],
+            contact_list_ids=["cl_1"],
+            tag_ids=["tag_1"],
+            questions=SURVEY_QUESTIONS,
+            ai_survey_analysis_enabled=True,
+        )
+        assert seen["body"] == {
+            "organization_id": "org_1",
+            "campaign_id": "camp_1",
+            "phone_number_ids": ["pn_1"],
+            "name": "Intent",
+            "contact_list_ids": ["cl_1"],
+            "tag_ids": ["tag_1"],
+            "type": "survey",
+            "questions": SURVEY_QUESTIONS,
+            "ai_survey_analysis_enabled": True,
+        }
+        assert result["data"]["question_count"] == 2
+
+    @pytest.mark.parametrize(
+        "kwargs, message",
+        [
+            (
+                {"type": "survey", "campaign_id": "c", "questions": SURVEY_QUESTIONS, "protocol": "sms", "message_text": "Hi"},
+                "remove protocol, message_text",
+            ),
+            ({"type": "survey", "questions": SURVEY_QUESTIONS}, "needs questions and campaign_id"),
+            ({"protocol": "sms", "message_text": "Hi", "questions": SURVEY_QUESTIONS}, "Only a survey"),
+            ({}, "needs protocol and message_text"),
+        ],
+    )
+    def test_create_refuses_a_mixed_body_before_any_request(self, kwargs, message):
+        client, seen = self.capture({})
+        with pytest.raises(ValueError, match=message):
+            client.create_project("org_1", "S", phone_number_ids=["pn_1"], **kwargs)
+        assert seen == {}
+
+    def test_positional_broadcast_create_still_works(self):
+        client, seen = self.capture({"project_id": "proj_2"})
+        client.create_project("org_1", "B", "sms", "Hi", ["pn_1"], ["cl_1"])
+        assert seen["body"]["protocol"] == "sms"
+        assert "questions" not in seen["body"]
+
+    def test_update_survey_replaces_questions_and_refuses_message_fields(self):
+        client, seen = self.capture({"project_id": "proj_1", "type": "survey"})
+        client.update_project("proj_1", questions=SURVEY_QUESTIONS, name="Renamed")
+        assert seen["body"] == {"name": "Renamed", "questions": SURVEY_QUESTIONS}
+        with pytest.raises(ValueError, match="remove message_text"):
+            client.update_project("proj_1", questions=SURVEY_QUESTIONS, message_text="Hi")
+
+    def test_get_project_returns_survey_questions(self):
+        questions = [
+            {
+                "id": "q_1",
+                "sequence": 1,
+                "question_type": "intro",
+                "question_text": "Hi",
+                "message_type": "sms",
+                "media_urls": [],
+                "response_options": [],
+                "no_match_sequence": None,
+                "is_required": True,
+            }
+        ]
+        client, _ = self.capture({"project_id": "proj_1", "type": "survey", "message_text": None, "questions": questions})
+        assert client.get_project("proj_1")["data"]["questions"] == questions
