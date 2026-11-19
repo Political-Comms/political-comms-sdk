@@ -762,6 +762,31 @@ describe('projects list and create options', () => {
     expect(body.link_tracking_destination_url).toBe('https://{custom_url}');
     expect(body.link_tracking_fallback_url).toBe('https://example.com/fallback');
   });
+
+  it('sends link_tracking_links on create and update', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ project_id: 'proj_10', status: 'awaiting_test' }));
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const links = [
+      { destination_url: 'https://example.org/vote?v={voter_id}', param_fields: ['voter_id', 'phone'] },
+      { destination_url: 'https://example.org/volunteer', param_fields: [], fallback_url: null },
+    ];
+    await client.createProject({
+      organization_id: 'org_1',
+      phone_number_ids: ['pn_1'],
+      name: 'Two links',
+      protocol: 'sms',
+      contact_list_ids: ['cl_1'],
+      message_text: 'Vote {tracking_url} or volunteer {tracking_url_2}',
+      link_tracking_enabled: true,
+      link_tracking_domain_id: 'td_1',
+      link_tracking_links: links,
+    });
+    await client.updateProject('proj_10', { link_tracking_links: links });
+    for (const call of fetchMock.mock.calls) {
+      const [, init] = call as unknown as [string, RequestInit];
+      expect(JSON.parse(init.body as string).link_tracking_links).toEqual(links);
+    }
+  });
 });
 
 describe('email templates', () => {

@@ -21,6 +21,7 @@ import {
   type CreateSurveyProjectRequest,
   type SurveyQuestionInput,
   type TagContactsRequest,
+  type TrackedLink,
   type Trigger,
   type TriggerAudience,
   type ScheduleTimezone,
@@ -382,7 +383,8 @@ const TOOLS: Tool[] = [
       'opt outs, clicks, and the derived rates. The response also carries a `test` object with ' +
       'test-send activity tracked separately from the production metrics, and `cost_breakdown`: ' +
       'messages, segments, and cost per product (outbound and inbound SMS and MMS), summing to ' +
-      'the project total.',
+      'the project total, with `replies` on an outbound entry for the part that is the automatic ' +
+      'STOP, START, and HELP replies (included in the entry, or null).',
     inputSchema: {
       type: 'object',
       properties: { id: idParam },
@@ -583,10 +585,43 @@ const TOOLS: Tool[] = [
         },
         media_ids: { type: 'array', items: { type: 'string' }, description: 'Media file IDs for MMS' },
         link_tracking_enabled: { type: 'boolean', description: 'Enable link tracking' },
+        link_tracking_links: {
+          type: 'array',
+          maxItems: 3,
+          description:
+            'Up to 3 tracked links per message, in tag order: the first answers {tracking_url}, the ' +
+            'second {tracking_url_2}, the third {tracking_url_3} (use the tags in the message text, a ' +
+            'follow-up, or a survey question; a tag with no link is rejected). Each tag becomes that ' +
+            "recipient's own short link. Do not send together with the single-link fields below",
+          items: {
+            type: 'object',
+            properties: {
+              destination_url: {
+                type: 'string',
+                description:
+                  'Redirect URL (max 2048). A {field} placeholder must be one of param_fields and is ' +
+                  'replaced by the recipient value; may be exactly https://{<field>} (then fallback_url is required)',
+              },
+              param_fields: {
+                type: 'array',
+                maxItems: 10,
+                items: { type: 'string' },
+                description:
+                  'Up to 10 unique per-recipient parameters (phone or a contact field name), appended as ' +
+                  '&field=value after short_id unless a placeholder embeds them',
+              },
+              fallback_url: {
+                type: 'string',
+                description: 'Redirect for a whole-URL destination whose contact field is empty or invalid',
+              },
+            },
+            required: ['destination_url'],
+          },
+        },
         link_tracking_destination_url: {
           type: 'string',
           description:
-            'Destination URL for tracked links. May embed the selected link parameter via a ' +
+            'Alias for the first entry of link_tracking_links: its destination URL. May embed the selected link parameter via a ' +
             'placeholder named after it (e.g. ?utm_content=xyzd_{linkid}); without a placeholder ' +
             'the parameter is appended as its own query pair. May also be exactly ' +
             'https://{<link_tracking_param_field>} (e.g. https://{custom_url}) to send each ' +
@@ -1605,6 +1640,7 @@ function createSurveyRequest(args: Args): CreateSurveyProjectRequest {
     suppression_tag_ids: args.suppression_tag_ids as string[] | undefined,
     questions: args.questions as SurveyQuestionInput[],
     link_tracking_enabled: args.link_tracking_enabled as boolean | undefined,
+    link_tracking_links: args.link_tracking_links as TrackedLink[] | undefined,
     link_tracking_destination_url: opt(args, 'link_tracking_destination_url'),
     link_tracking_domain_id: opt(args, 'link_tracking_domain_id'),
     link_tracking_param_field: opt(args, 'link_tracking_param_field'),
@@ -1631,6 +1667,7 @@ function createProjectRequest(args: Args): CreateProjectRequest {
     media_ids: args.media_ids as string[] | undefined,
     message_text: s(args, 'message_text'),
     link_tracking_enabled: args.link_tracking_enabled as boolean | undefined,
+    link_tracking_links: args.link_tracking_links as TrackedLink[] | undefined,
     link_tracking_destination_url: opt(args, 'link_tracking_destination_url'),
     link_tracking_domain_id: opt(args, 'link_tracking_domain_id'),
     link_tracking_param_field: opt(args, 'link_tracking_param_field'),
@@ -1944,7 +1981,7 @@ async function callTool(client: PoliticalCommsClient, name: string, args: Args):
 
 async function start(): Promise<void> {
   const server = new Server(
-    { name: 'political-comms', version: '0.23.0' },
+    { name: 'political-comms', version: '0.24.0' },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 

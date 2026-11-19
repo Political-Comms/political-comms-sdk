@@ -607,6 +607,7 @@ class PoliticalCommsClient:
         suppression_tag_ids: Optional[Sequence[str]] = None,
         media_ids: Optional[Sequence[str]] = None,
         link_tracking_enabled: Optional[bool] = None,
+        link_tracking_links: Optional[Sequence[JsonDict]] = None,
         link_tracking_destination_url: Optional[str] = None,
         link_tracking_domain_id: Optional[str] = None,
         link_tracking_param_field: Optional[str] = None,
@@ -695,15 +696,25 @@ class PoliticalCommsClient:
         months after upload; choose another list or upload the file again.
 
         ``opt_out_footer_enabled`` controls the automatic "STOP=END" footer
-        (default ``True``). ``link_tracking_destination_url`` may embed the
-        selected ``link_tracking_param_field`` anywhere via a placeholder named
-        after it (e.g. ``?utm_content=xyzd_{linkid}``); without a placeholder
-        the parameter is appended as its own query pair. It may also be exactly
-        ``https://{<link_tracking_param_field>}`` (e.g. ``https://{custom_url}``)
-        to send each recipient to the URL in their own contact field; then
-        ``link_tracking_fallback_url`` is required and catches recipients whose
-        value is empty or not a valid URL. ``{phone}`` is not allowed as a whole
-        URL.
+        (default ``True``).
+
+        ``link_tracking_links`` is a list of up to 3 tracked links per message
+        (1 to 3 on create), each ``{"destination_url": ..., "param_fields":
+        [...], "fallback_url": ...}`` with up to 10 unique ``param_fields``
+        (``"phone"`` or a contact field name). Entry order is tag order:
+        ``{tracking_url}``, ``{tracking_url_2}``, ``{tracking_url_3}``; each tag
+        becomes that recipient's own short link, and a tag with no link behind
+        it is rejected when link tracking is enabled. A ``{field}`` placeholder
+        in a ``destination_url`` (e.g. ``?utm_content=xyzd_{linkid}``) must be
+        one of that link's ``param_fields``; fields without a placeholder are
+        appended as ``&field=value`` after ``short_id``. A destination may also
+        be exactly ``https://{<field>}`` (e.g. ``https://{custom_url}``) to send
+        each recipient to the URL in their own contact field; then that link's
+        ``fallback_url`` is required and catches recipients whose value is empty
+        or not a valid URL. ``{phone}`` is not allowed as a whole URL.
+        ``link_tracking_destination_url``, ``link_tracking_param_field`` and
+        ``link_tracking_fallback_url`` are aliases for the first link; sending
+        them together with ``link_tracking_links`` is a 400.
         """
         message_args = {
             "protocol": protocol,
@@ -748,6 +759,7 @@ class PoliticalCommsClient:
                 "message_text": message_text,
                 "media_ids": list(media_ids) if media_ids else None,
                 "link_tracking_enabled": link_tracking_enabled,
+                "link_tracking_links": list(link_tracking_links) if link_tracking_links is not None else None,
                 "link_tracking_destination_url": link_tracking_destination_url,
                 "link_tracking_domain_id": link_tracking_domain_id,
                 "link_tracking_param_field": link_tracking_param_field,
@@ -815,6 +827,7 @@ class PoliticalCommsClient:
         suppression_tag_ids: Optional[Sequence[str]] = None,
         media_ids: Optional[Sequence[str]] = None,
         link_tracking_enabled: Optional[bool] = None,
+        link_tracking_links: Optional[Sequence[JsonDict]] = None,
         link_tracking_destination_url: Optional[str] = None,
         link_tracking_domain_id: Optional[str] = None,
         link_tracking_param_field: Optional[str] = None,
@@ -851,9 +864,10 @@ class PoliticalCommsClient:
         ``CAMPAIGN_SUSPENDED`` and an expired one 409 ``CAMPAIGN_EXPIRED``.
 
         ``opt_out_footer_enabled`` toggles the automatic "STOP=END" footer.
-        ``link_tracking_fallback_url`` is required whenever
+        ``link_tracking_links`` replaces the project's tracked links (see
+        ``create_project``); ``link_tracking_fallback_url`` is required whenever
         ``link_tracking_destination_url`` is a whole-URL placeholder such as
-        ``https://{custom_url}``; see ``create_project``. ``trigger`` replaces
+        ``https://{custom_url}``. ``trigger`` replaces
         the trigger of a triggered project (triggered projects only; a tag
         trigger's tags cannot change after it has started).
 
@@ -913,6 +927,7 @@ class PoliticalCommsClient:
                 "suppression_tag_ids": _list(suppression_tag_ids),
                 "media_ids": _list(media_ids),
                 "link_tracking_enabled": link_tracking_enabled,
+                "link_tracking_links": list(link_tracking_links) if link_tracking_links is not None else None,
                 "link_tracking_destination_url": link_tracking_destination_url,
                 "link_tracking_domain_id": link_tracking_domain_id,
                 "link_tracking_param_field": link_tracking_param_field,
@@ -944,7 +959,12 @@ class PoliticalCommsClient:
         ``cost_breakdown`` lists the project's cost per product (``code`` such as
         ``sms_outbound`` or ``mms_inbound``, with ``messages``, ``segments`` and
         ``cost``), net of refunds and summing to the project total; ``messages``
-        is ``None`` when the billing record cannot state a count.
+        is ``None`` when the billing record cannot state a count. Each entry also
+        has ``replies``: ``{"messages", "segments", "cost"}`` for the part of an
+        outbound product that is the automatic replies sent to STOP, START and
+        HELP (included in the entry's own figures, not added on top), or ``None``
+        for inbound products, when there are none, or when an older billing
+        record cannot split them.
         """
         return self._request("GET", f"/projects/{id}/stats")
 

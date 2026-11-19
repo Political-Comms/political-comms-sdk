@@ -648,6 +648,33 @@ class TestProjectListAndCreateOptions:
         assert seen["body"]["link_tracking_destination_url"] == "https://{custom_url}"
         assert seen["body"]["link_tracking_fallback_url"] == "https://example.com/fallback"
 
+    def test_create_and_update_project_send_link_tracking_links(self):
+        seen = []
+
+        def handler(request):
+            seen.append(json.loads(request.content))
+            return ok_response({"project_id": "proj_10", "status": "awaiting_test"})
+
+        links = [
+            {"destination_url": "https://example.org/vote?v={voter_id}", "param_fields": ["voter_id", "phone"]},
+            {"destination_url": "https://example.org/volunteer", "param_fields": []},
+        ]
+        with make_client(handler) as client:
+            client.create_project(
+                "org_1",
+                "Two links",
+                "sms",
+                "Vote {tracking_url} or volunteer {tracking_url_2}",
+                phone_number_ids=["pn_1"],
+                contact_list_ids=["cl_1"],
+                link_tracking_enabled=True,
+                link_tracking_domain_id="td_1",
+                link_tracking_links=links,
+            )
+            client.update_project("proj_10", link_tracking_links=links)
+        assert [body["link_tracking_links"] for body in seen] == [links, links]
+        assert "link_tracking_destination_url" not in seen[0]
+
     def test_update_project_omits_link_tracking_fallback_url_unless_given(self):
         seen = {}
 

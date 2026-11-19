@@ -182,6 +182,28 @@ each tag's `live_triggers`; `add_tag_contacts`, `tag_contacts`, and `import_cont
 take `fire_triggers` (default true for `identifiers`, false for a `contact_list_id` or an
 import), and a 200 reports `triggers["entered"]`.
 
+## Tracked links
+
+A text project can carry up to three tracked links per message. `link_tracking_links` is
+ordered: the first entry answers `{tracking_url}`, the second `{tracking_url_2}`, the third
+`{tracking_url_3}`. Each link has its own destination and up to ten per-recipient
+`param_fields` (`phone` or a contact field name). `link_tracking_destination_url`,
+`link_tracking_param_field` and `link_tracking_fallback_url` remain as aliases for the first
+link; do not send them together with `link_tracking_links`.
+
+```python
+client.create_project(
+    # ...
+    message_text="Vote: {tracking_url} Volunteer: {tracking_url_2}",
+    link_tracking_enabled=True,
+    link_tracking_domain_id="td_...",
+    link_tracking_links=[
+        {"destination_url": "https://example.org/vote?v={voter_id}", "param_fields": ["voter_id"]},
+        {"destination_url": "https://example.org/volunteer", "param_fields": ["phone"]},
+    ],
+)
+```
+
 ## Follow-ups
 
 Any broadcast or triggered text project can send up to 9 follow-up texts after its first

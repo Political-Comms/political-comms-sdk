@@ -38,6 +38,6 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@political-comms/sdk": "^0.24.0"
+    "@political-comms/sdk": "^0.25.0"
   }
 }

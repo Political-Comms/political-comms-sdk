@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.23.0] - 2026-11-18
+
+### Added
+- `create_project` and `update_project` take `link_tracking_links`: a list of up to 3 tracked links per message, in tag order (`{tracking_url}`, `{tracking_url_2}`, `{tracking_url_3}`), each `{"destination_url", "param_fields", "fallback_url"}` with up to 10 `param_fields`. `link_tracking_destination_url`, `link_tracking_param_field`, and `link_tracking_fallback_url` stay as aliases for the first link; sending them with `link_tracking_links` is a 400.
+
 ## [0.22.0] - 2026-11-17
 
 ### Breaking
@@ -8,6 +13,7 @@
 - Breaking: an email campaign's `type` is only `"broadcast"` or `"triggered"`; a campaign with follow-ups reads `"broadcast"`, not `"sequence"`.
 
 ### Added
+- `get_project_stats(id)` documents `replies` on each `cost_breakdown` entry: `{"messages", "segments", "cost"}` for the part of an outbound product that is the automatic STOP, START, and HELP replies (included in the entry, not added on top), or `None`. Documentation only: the client returns the response as-is.
 - `create_email_campaign` accepts `sequence` beside `trigger`. Each step's `delay_days` is then 1 to 365 and counts from the day that person's previous email was sent.
 - Trigger start time: a trigger's `start` (`"immediate"`, the default, or `"next_day"`). `create_project` and `update_project` take `scheduled_timezone` and `sequence_send_time`; `create_email_campaign` takes `timezone` and `sequence_send_time`.
 - Tag triggers: `{"source": "tag", "tag": {"tag_ids": [...]}}`. `start_project(id, audience=)` and `schedule_email_campaign(id, audience=)` take `"current_and_new"` or `"new_only"`, required for a tag trigger's first start.

@@ -158,6 +158,28 @@ refuses a body that mixes a survey's fields with a message's before calling the 
 }
 ```
 
+### Tracked links
+
+`create_project` takes up to three tracked links per message as `link_tracking_links`; entry
+order is tag order (`{tracking_url}`, `{tracking_url_2}`, `{tracking_url_3}`), and each link has its
+own destination and up to ten `param_fields`.
+
+```json
+{
+  "name": "create_project",
+  "arguments": {
+    "confirm": true, "organization_id": "org_1", "name": "Early vote", "protocol": "sms",
+    "phone_number_ids": ["pn_1"], "brand_id": "brand_1", "campaign_id": "camp_1",
+    "contact_list_ids": ["cl_1"], "message_text": "Vote: {tracking_url} Volunteer: {tracking_url_2}",
+    "link_tracking_enabled": true, "link_tracking_domain_id": "td_1",
+    "link_tracking_links": [
+      { "destination_url": "https://example.org/vote", "param_fields": ["phone"] },
+      { "destination_url": "https://example.org/volunteer" }
+    ]
+  }
+}
+```
+
 ### Follow-ups
 
 `create_project` takes up to 9 follow-up texts after the first message. A person stops

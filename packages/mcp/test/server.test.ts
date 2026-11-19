@@ -458,6 +458,29 @@ describe('political-comms MCP server tag requests', () => {
     expect(request.body).not.toHaveProperty('contact_list_ids');
   });
 
+  it('create_project passes link_tracking_links through and offers it in the schema', async () => {
+    reply.data = { project_id: 'proj_1', status: 'draft' };
+    const links = [
+      { destination_url: 'https://example.org/vote', param_fields: ['phone'] },
+      { destination_url: 'https://example.org/volunteer' },
+    ];
+    const { request } = await call('create_project', {
+      confirm: true,
+      organization_id: 'org_1',
+      name: 'Two links',
+      protocol: 'sms',
+      message_text: 'Vote {tracking_url} or volunteer {tracking_url_2}',
+      phone_number_ids: ['pn_1'],
+      link_tracking_enabled: true,
+      link_tracking_domain_id: 'td_1',
+      link_tracking_links: links,
+    });
+    expect(request.body).toMatchObject({ link_tracking_links: links });
+    expect(request.body).not.toHaveProperty('link_tracking_destination_url');
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'create_project')!;
+    expect(Object.keys(tool.inputSchema.properties as object)).toContain('link_tracking_links');
+  });
+
   it('add_tag_contacts passes fire_triggers and returns triggers.entered', async () => {
     reply.data = { added: 1, invalid: 0, triggers: { entered: 1 } };
     const { request, text } = await call('add_tag_contacts', {

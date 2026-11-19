@@ -1144,13 +1144,17 @@ export interface ProjectDetail {
   media_ids?: string[];
   media_urls?: string[];
   link_tracking_enabled?: boolean;
+  /** The project's tracked links in tag order (empty when none); the first repeats in the three single-link fields below. */
+  link_tracking_links?: TrackedLink[];
+  /** Alias for the first entry of `link_tracking_links`. */
   link_tracking_destination_url?: string | null;
   link_tracking_domain_id?: string | null;
+  /** Alias for the first entry of `link_tracking_links` (its first `param_fields` entry). */
   link_tracking_param_field?: string | null;
   /**
-   * Set only when link_tracking_destination_url is a whole-URL placeholder
-   * ("https://{custom_url}"): where recipients whose field was empty or not
-   * a valid URL were sent.
+   * Alias for the first entry of `link_tracking_links`. Set only when its
+   * destination is a whole-URL placeholder ("https://{custom_url}"): where
+   * recipients whose field was empty or not a valid URL were sent.
    */
   link_tracking_fallback_url?: string | null;
   /**
@@ -1288,20 +1292,58 @@ export interface SurveyQuestionInput {
   is_required?: boolean;
 }
 
+/**
+ * One tracked link of a text project. Its position in `link_tracking_links`
+ * decides its tag: first `{tracking_url}`, second `{tracking_url_2}`, third
+ * `{tracking_url_3}`.
+ */
+export interface TrackedLink {
+  /**
+   * Where this link redirects (max 2048 characters). Every `{field}`
+   * placeholder in it must be one of `param_fields` and is replaced by the
+   * recipient's URL-encoded value. May be exactly "https://{<field>}" to send
+   * each recipient to the URL in that contact field; then `fallback_url` is
+   * required and "phone" cannot be used that way.
+   */
+  destination_url: string;
+  /**
+   * Up to 10 unique per-recipient parameters: "phone" or a contact field name
+   * (letters, digits, "_" and "-", up to 64 characters). A field with a
+   * placeholder in `destination_url` is substituted there; the others are
+   * appended as `&field=value` in list order after `short_id`. A recipient
+   * with no value for a field gets it omitted. "phone" is sent without the
+   * leading +.
+   */
+  param_fields?: string[];
+  /** Redirect for a whole-URL destination whose contact field is empty or not a valid URL. Required then, rejected otherwise. */
+  fallback_url?: string | null;
+}
+
 /** Link tracking as a create body takes it; an update takes the same fields and null clears. */
 interface CreateLinkTrackingFields {
   link_tracking_enabled?: boolean;
   /**
-   * Where tracking links redirect. May embed the selected link parameter
+   * Up to 3 tracked links per message (1 to 3 on create), in tag order: the
+   * first answers `{tracking_url}`, the second `{tracking_url_2}`, the third
+   * `{tracking_url_3}`. Each tag becomes that recipient's own short link to
+   * that link's destination; repeating a tag repeats the same short link. A
+   * tag with no link behind it is rejected when link tracking is enabled.
+   * `link_tracking_domain_id` applies to every link. Cannot be sent together
+   * with the three single-link fields below, which stay as aliases for the
+   * first link.
+   */
+  link_tracking_links?: TrackedLink[];
+  /**
+   * Alias for the first entry of `link_tracking_links`. Where tracking links redirect. May embed the selected link parameter
    * anywhere via a placeholder named after it, e.g.
    * "https://test.com?utm_content=xyzd_{linkid}" redirects as
    * "...utm_content=xyzd_ABC123" (URL-encoded value; the parameter is then
-   * not appended separately). A placeholder that does not match
-   * link_tracking_param_field is rejected with a 400
+   * not appended separately). A placeholder that is not one of the link's
+   * parameters is rejected with a 400
    * (INVALID_LINK_PLACEHOLDER). Without a placeholder the parameter is
    * appended as its own query pair.
    *
-   * May also be exactly "https://{<link_tracking_param_field>}", e.g.
+   * May also be exactly "https://{<field>}", e.g.
    * "https://{custom_url}": each recipient's tracking link then redirects to
    * the URL stored in that contact field. In that mode
    * link_tracking_fallback_url is required, and "{phone}" is not allowed as
@@ -1310,15 +1352,16 @@ interface CreateLinkTrackingFields {
   link_tracking_destination_url?: string;
   link_tracking_domain_id?: string;
   /**
-   * Contact field carried on tracking-link redirects. Use "phone", a contact
+   * Alias for the first entry of `link_tracking_links`. Contact field carried
+   * on tracking-link redirects. Use "phone", a contact
    * custom-field name, or omit for no param (default). Appended as a query
    * pair, or embedded in place of a matching {field} placeholder in the
    * destination URL.
    */
   link_tracking_param_field?: string;
   /**
-   * Redirect used when a recipient's link_tracking_param_field value is empty
-   * or not a valid URL. Required when link_tracking_destination_url is a
+   * Alias for the first entry of `link_tracking_links`. Redirect used when a
+   * recipient's field value is empty or not a valid URL. Required when the destination is a
    * whole-URL placeholder; rejected with a 400 (INVALID_LINK_PLACEHOLDER)
    * otherwise.
    */
@@ -1327,7 +1370,9 @@ interface CreateLinkTrackingFields {
 
 interface UpdateLinkTrackingFields {
   link_tracking_enabled?: boolean;
-  /** Supports the {field} placeholder; see CreateProjectRequest. */
+  /** The list you send replaces the project's tracked links; see CreateProjectRequest. */
+  link_tracking_links?: TrackedLink[];
+  /** Alias for the first entry of `link_tracking_links`. Supports the {field} placeholder; see CreateProjectRequest. */
   link_tracking_destination_url?: string | null;
   link_tracking_domain_id?: string | null;
   /** "phone", a custom-field name, or null for none. */
@@ -1633,6 +1678,14 @@ export interface ProjectCostBreakdownEntry {
   segments: number;
   /** Cost in USD. */
   cost: number;
+  /**
+   * The part of an outbound product's `messages`, `segments`, and `cost` that
+   * is the automatic replies sent to STOP, START, and HELP. Included in the
+   * entry's own figures, not added on top. `null` for inbound products, when
+   * the product has no such replies, or when the billing record for an older
+   * period cannot split them.
+   */
+  replies: { messages: number; segments: number; cost: number } | null;
 }
 
 /** One answer option of a survey question. */
@@ -2417,7 +2470,7 @@ export interface EmailCampaign {
   sequence_id?: string | null;
   /** 1 for the first email of a sequence, 2 and up for its follow-ups. `null` for a broadcast. */
   sequence_position?: number | null;
-  /** Sequence emails only: replies are forwarded to the sender's reply address and end that person's follow-ups. */
+  /** Sequence emails only: a reply reaches the sender's reply address directly from that person, is also recorded by the platform, and ends that person's follow-ups. */
   stop_on_reply?: boolean;
   /** Sequence emails only: a click on a tracked link in any of its emails ends that person's follow-ups. */
   stop_on_click?: boolean;
@@ -2519,7 +2572,7 @@ export interface EmailCampaignSequence {
 
 /** At least one of `stop_on_reply` and `stop_on_click` must be true when there are steps (400 at `sequence.stop_on_reply`); an opt-out always ends them. */
 export interface CreateEmailSequenceRequest {
-  /** Default true: a reply ends that person's follow-ups and is forwarded to the sender's reply address. */
+  /** Default true: a reply ends that person's follow-ups; it reaches the sender's reply address directly from that person and is also recorded by the platform. */
   stop_on_reply?: boolean;
   /** Default false: a click on a tracked link in any of the sequence's emails ends that person's follow-ups. */
   stop_on_click?: boolean;

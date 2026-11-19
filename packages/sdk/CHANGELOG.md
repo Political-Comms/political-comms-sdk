@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.25.0] - 2026-11-18
+
+### Added
+- `TrackedLink` and `link_tracking_links` (up to 3 per message, in tag order: `{tracking_url}`, `{tracking_url_2}`, `{tracking_url_3}`) on `CreateProjectRequest`, `CreateSurveyProjectRequest`, `UpdateProjectRequest`, and `ProjectDetail`. Each link has its own `destination_url`, up to 10 `param_fields`, and `fallback_url`. `link_tracking_destination_url`, `link_tracking_param_field`, and `link_tracking_fallback_url` stay as aliases for the first link; sending them with `link_tracking_links` is a 400.
+
 ## [0.24.0] - 2026-11-17
 
 ### Breaking
@@ -9,6 +14,7 @@
 - Breaking: `startProject(id, body?, options?)` takes a `StartProjectRequest` body second, as `pauseProject` does; move request options to the third argument.
 
 ### Added
+- `ProjectCostBreakdownEntry.replies` (`{ messages, segments, cost } | null`): the part of an outbound product that is the automatic STOP, START, and HELP replies, included in the entry's own figures. `null` for inbound products, when there are none, or when an older billing record cannot split them.
 - A triggered email campaign accepts `sequence` (follow-ups). Beside `trigger` each `delay_days` is 1 to 365 and counts from the day that person's previous email was sent.
 - Trigger start time: `Trigger.start` (`TriggerStart`: `immediate`, the default, or `next_day`, the day after the trigger fired with `delay_minutes` 0). A text project names when with `scheduled_timezone` and `sequence_send_time` ("HH:MM") on `CreateProjectRequest`, `UpdateProjectRequest`, and `ProjectDetail`; an email campaign with `timezone` and `sequence_send_time` on `CreateEmailCampaignRequest` and `EmailCampaign`.
 - Tag triggers: `Trigger` gains `{ source: "tag", tag: TriggerTag }` (`tag_ids`, 1-20 manual tags). The first start takes `audience` (`TriggerAudience`: `current_and_new` or `new_only`) on `StartProjectRequest` and `ScheduleEmailCampaignRequest`.

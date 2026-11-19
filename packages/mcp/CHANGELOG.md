@@ -1,11 +1,18 @@
 # Changelog
 
+## [0.24.0] - 2026-11-18
+
+### Added
+- `create_project` takes `link_tracking_links` (up to 3 tracked links per message, in tag order: `{tracking_url}`, `{tracking_url_2}`, `{tracking_url_3}`, each with `destination_url`, up to 10 `param_fields`, and `fallback_url`). The single-link fields stay as aliases for the first link.
+- Requires `@political-comms/sdk` ^0.25.0.
+
 ## [0.23.0] - 2026-11-17
 
 ### Breaking
 - Breaking: the `trigger` parameter no longer takes `reentry`. A phone number or email address is sent a triggered project or campaign at most once; drop the field. `add_project_recipient` and `add_email_campaign_recipient` no longer describe a `too_soon` reason.
 
 ### Added
+- The `get_project_stats` description mentions `replies` on each outbound `cost_breakdown` entry: the part that is the automatic STOP, START, and HELP replies, included in the entry (null otherwise).
 - Trigger start time and tag triggers on `create_project`: `trigger.start` (`immediate` or `next_day`), `trigger.source` `tag` with `tag.tag_ids`, and `scheduled_timezone` and `sequence_send_time`. `start_project` and `schedule_email_campaign` take `audience` (`current_and_new` or `new_only`), required for a tag trigger's first start.
 - `create_project` takes `follow_ups` (up to 9 steps of `message_text`, `media_ids`, and `wait`, with `stop_on_reply` and `stop_on_click`). Its description states the stop rules, the once-per-person rule for triggered projects, and that each follow-up is charged when it sends.
 - `add_tag_contacts` and `import_contact_list` take `fire_triggers`. Their descriptions tell the agent plainly that tagging into a tag with live triggers messages people, to read `live_triggers` from `list_tags` first, and to get the user's explicit yes before sending `fire_triggers: true` for a list or an import. `list_tags` describes `live_triggers`.
